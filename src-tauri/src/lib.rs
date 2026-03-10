@@ -346,19 +346,44 @@ struct RemoteFile {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_shell::init())
         .setup(|app| {
+            eprintln!("Starting Ter application setup...");
             let app_handle = app.handle().clone();
-            let app_dir = app.path().app_data_dir().expect("Failed to get app data dir");
-            std::fs::create_dir_all(&app_dir).expect("Failed to create app data dir");
+            let app_dir = match app.path().app_data_dir() {
+                Ok(dir) => dir,
+                Err(e) => {
+                    eprintln!("CRITICAL ERROR: Failed to get app data dir: {}", e);
+                    return Err(Box::new(e));
+                }
+            };
+            
+            eprintln!("App data directory: {:?}", app_dir);
+            if !app_dir.exists() {
+                if let Err(e) = std::fs::create_dir_all(&app_dir) {
+                    eprintln!("CRITICAL ERROR: Failed to create app data dir: {}", e);
+                    return Err(Box::new(e));
+                }
+            }
+            
             let db_path = app_dir.join("ter.db");
-            let db_url = format!("sqlite://{}", db_path.to_str().unwrap());
+            let db_url = format!("sqlite://{}?mode=rwc", db_path.to_str().ok_or("Invalid path encoding")?);
+            eprintln!("Database URL: {}", db_url);
 
             let state = app_handle.state::<AppState>();
             let db_state = state.db.clone();
             
             tauri::async_runtime::block_on(async move {
-                let db = Db::new(&db_url).await.expect("Failed to initialize database");
-                let _ = db_state.set(db);
+                eprintln!("Initializing database...");
+                match Db::new(&db_url).await {
+                    Ok(db) => {
+                        eprintln!("Database initialized successfully.");
+                        let _ = db_state.set(db);
+                    }
+                    Err(e) => {
+                        eprintln!("ERROR: Failed to initialize database: {}", e);
+                    }
+                }
             });
 
             if cfg!(debug_assertions) {
@@ -368,6 +393,7 @@ pub fn run() {
                         .build(),
                 )?;
             }
+            eprintln!("Setup completed.");
             Ok(())
         })
         .manage(AppState {

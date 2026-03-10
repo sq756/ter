@@ -30,7 +30,9 @@ ssh-key = "0.6.7"
 tokio = { version = "1.50.0", features = ["full"] }
 uuid = { version = "1.11.0", features = ["v4"] }
 tauri-plugin-dialog = "2.6.0"
+tauri-plugin-shell = "2.3.5"
 sqlx = { version = "0.8.3", features = ["runtime-tokio-rustls", "sqlite", "macros"] }
+sqlx-sqlite = { version = "0.8.3", features = ["bundled"] }
 aes-gcm = "0.10"
 argon2 = "0.5"
 rand = "0.8"
