@@ -354,7 +354,10 @@ const toggleDashboard = () => {
         </div>
         <div v-if="showDashboard" class="sidebar-scroll">
           <div v-if="stats" class="widget">
-            <div class="widget-header"><label>Resource Usage</label></div>
+            <div class="widget-header">
+              <label>Resource Usage</label>
+              <small>{{ formatBytes(stats.mem_used) }}</small>
+            </div>
             <div class="chart-box" ref="cpuChartRef"></div>
             <div class="chart-box" ref="memChartRef"></div>
           </div>
