@@ -14,6 +14,32 @@ use tauri::Emitter;
 use tokio::net::TcpListener;
 use tokio::io::AsyncReadExt;
 use uuid::Uuid;
+use std::sync::OnceLock;
+
+static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
+
+struct BackendLogger;
+
+impl log::Log for BackendLogger {
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        metadata.level() <= log::Level::Info
+    }
+
+    fn log(&self, record: &log::Record) {
+        if self.enabled(record.metadata()) {
+            let log_msg = format!("[{}] {}: {}", record.level(), record.target(), record.args());
+            if let Some(app) = APP_HANDLE.get() {
+                let _ = app.emit("backend-log", log_msg);
+            }
+            // Also print to stderr for local debugging
+            eprintln!("[{}] {}: {}", record.level(), record.target(), record.args());
+        }
+    }
+
+    fn flush(&self) {}
+}
+
+static LOGGER: BackendLogger = BackendLogger;
 
 #[derive(Clone)]
 struct Client {}
@@ -41,18 +67,33 @@ struct AppState {
     db: tokio::sync::OnceCell<Db>,
     db_error: tokio::sync::Mutex<Option<String>>,
     crypto: tokio::sync::Mutex<Option<Crypto>>,
+    model_path: tokio::sync::Mutex<Option<std::path::PathBuf>>,
+}
+
+#[tauri::command]
+async fn set_model_path(path: String, state: State<'_, AppState>) -> Result<(), String> {
+    let mut path_guard = state.model_path.lock().await;
+    *path_guard = Some(std::path::PathBuf::from(path));
+    log::info!("Model path updated to: {:?}", *path_guard);
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_model_path(state: State<'_, AppState>) -> Result<Option<String>, String> {
+    let path_guard = state.model_path.lock().await;
+    Ok(path_guard.as_ref().map(|p| p.to_string_lossy().into_owned()))
 }
 
 #[tauri::command]
 async fn set_master_password(password: String, state: State<'_, AppState>) -> Result<(), String> {
-    eprintln!("DEBUG: Received set_master_password command");
+    log::info!("Received set_master_password command");
     let crypto = tokio::task::spawn_blocking(move || {
         Crypto::new(&password)
     }).await.map_err(|e| e.to_string())?;
 
     let mut crypto_guard = state.crypto.lock().await;
     *crypto_guard = Some(crypto);
-    eprintln!("DEBUG: Master password set successfully.");
+    log::info!("Master password set successfully.");
     Ok(())
 }
 
@@ -60,16 +101,16 @@ async fn get_db(state: &State<'_, AppState>) -> Result<Db, String> {
     if let Some(db) = state.db.get() {
         Ok(db.clone())
     } else {
-        eprintln!("DEBUG: Database not found in state, checking for error...");
+        log::debug!("Database not found in state, checking for error...");
         let err_guard = state.db_error.lock().await;
         match &*err_guard {
             Some(e) => {
                 let err_msg = format!("Database initialization failed: {}", e);
-                eprintln!("DEBUG: {}", err_msg);
+                log::error!("{}", err_msg);
                 Err(err_msg)
             },
             None => {
-                eprintln!("DEBUG: Database not initialized yet.");
+                log::warn!("Database not initialized yet.");
                 Err("Database not initialized".to_string())
             },
         }
@@ -195,23 +236,39 @@ async fn connect_to_ssh(host: String, user: String, pass: String, app_handle: Ap
     let config = client::Config::default();
     let config = Arc::new(config);
     let sh = Client {};
-    let mut session = client::connect(config, (host.as_str(), 22), sh).await.map_err(|e| e.to_string())?;
+    log::info!("Connecting to {}:22 as user {}", host, user);
+    let mut session = client::connect(config, (host.as_str(), 22), sh).await.map_err(|e| {
+        log::error!("Connection failed: {}", e);
+        e.to_string()
+    })?;
 
-    let auth_res = session.authenticate_password(user, pass).await.map_err(|e| e.to_string())?;
+    log::info!("Authenticating...");
+    let auth_res = session.authenticate_password(user, pass).await.map_err(|e| {
+        log::error!("Authentication error: {}", e);
+        e.to_string()
+    })?;
     if !matches!(auth_res, russh::client::AuthResult::Success) {
+        log::error!("Authentication failed: Invalid credentials");
         return Err("Authentication failed".to_string());
     }
+    log::info!("Authentication successful.");
 
     // Generate random token for agent
     let token = Uuid::new_v4().to_string();
     *state.agent_token.lock().await = token.clone();
 
     // Deploy Agent
+    log::info!("Deploying agent to remote host...");
     deploy_agent(&session, &token, &app_handle).await?;
+    log::info!("Agent deployed and started.");
 
-    let mut channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
+    let mut channel = session.channel_open_session().await.map_err(|e| {
+        log::error!("Failed to open channel: {}", e);
+        e.to_string()
+    })?;
     channel.request_pty(true, "xterm-256color", 80, 24, 0, 0, &[]).await.map_err(|e| e.to_string())?;
     channel.request_shell(true).await.map_err(|e| e.to_string())?;
+    log::info!("Shell session requested.");
 
     let (tx, mut rx) = mpsc::channel::<String>(100);
     let (ctrl_tx, mut ctrl_rx) = mpsc::channel::<PtyControl>(10);
@@ -258,7 +315,7 @@ async fn connect_to_ssh(host: String, user: String, pass: String, app_handle: Ap
         tauri::async_runtime::spawn(async move {
             match TcpListener::bind("127.0.0.1:54321").await {
                 Ok(listener) => {
-                    println!("Tunnel listening on 127.0.0.1:54321 -> remote 127.0.0.1:34567");
+                    log::info!("Tunnel listening on 127.0.0.1:54321 -> remote 127.0.0.1:34567");
                     while let Ok((mut stream, _)) = listener.accept().await {
                         let session_inner = session_clone.clone();
                         tokio::spawn(async move {
@@ -272,13 +329,13 @@ async fn connect_to_ssh(host: String, user: String, pass: String, app_handle: Ap
                                     );
                                 }
                                 Err(e) => {
-                                    eprintln!("Failed to open direct tcpip channel: {}", e);
+                                    log::error!("Failed to open direct tcpip channel: {}", e);
                                 }
                             }
                         });
                     }
                 }
-                Err(e) => eprintln!("ERROR: Failed to bind to tunnel port 54321: {}", e),
+                Err(e) => log::error!("Failed to bind to tunnel port 54321: {}", e),
             }
         });
 
@@ -287,7 +344,7 @@ async fn connect_to_ssh(host: String, user: String, pass: String, app_handle: Ap
         tauri::async_runtime::spawn(async move {
             match TcpListener::bind("127.0.0.1:55901").await {
                 Ok(listener) => {
-                    println!("VNC Tunnel listening on 127.0.0.1:55901 -> remote 127.0.0.1:5901");
+                    log::info!("VNC Tunnel listening on 127.0.0.1:55901 -> remote 127.0.0.1:5901");
                     while let Ok((mut stream, _)) = listener.accept().await {
                         let session_inner = session_clone_vnc.clone();
                         tokio::spawn(async move {
@@ -300,12 +357,12 @@ async fn connect_to_ssh(host: String, user: String, pass: String, app_handle: Ap
                                         tokio::io::copy(&mut chan_reader, &mut writer)
                                     );
                                 }
-                                Err(e) => eprintln!("VNC tunnel error: {}", e),
+                                Err(e) => log::error!("VNC tunnel error: {}", e),
                             }
                         });
                     }
                 }
-                Err(e) => eprintln!("ERROR: Failed to bind to VNC tunnel port 55901: {}", e),
+                Err(e) => log::error!("Failed to bind to VNC tunnel port 55901: {}", e),
             }
         });
     }
@@ -396,6 +453,13 @@ struct RemoteFile {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Initialize our custom logger
+    if let Err(e) = log::set_logger(&LOGGER) {
+        eprintln!("Failed to set logger: {}", e);
+    } else {
+        log::set_max_level(log::LevelFilter::Info);
+    }
+
     tauri::Builder::default()
         .manage(AppState {
             pty_tx: tokio::sync::Mutex::new(None),
@@ -405,24 +469,74 @@ pub fn run() {
             db: tokio::sync::OnceCell::new(),
             db_error: tokio::sync::Mutex::new(None),
             crypto: tokio::sync::Mutex::new(None),
+            model_path: tokio::sync::Mutex::new(None),
+        })
+        .register_uri_scheme_protocol("ter-model", |app, request| {
+            let state = app.state::<AppState>();
+            // Use block_on for simple sync protocol handler
+            let model_path_guard = tauri::async_runtime::block_on(async { state.model_path.lock().await });
+            
+            let base_path = match &*model_path_guard {
+                Some(p) => p.clone(),
+                None => return tauri::http::Response::builder().status(404).body(Vec::new()).unwrap(),
+            };
+
+            let uri = request.uri().to_string();
+            // Remove protocol and host parts
+            let path_str = uri
+                .strip_prefix("ter-model://localhost/")
+                .or_else(|| uri.strip_prefix("ter-model://"))
+                .unwrap_or(&uri);
+            
+            // Basic path traversal protection
+            if path_str.contains("..") {
+                return tauri::http::Response::builder().status(403).body(Vec::new()).unwrap();
+            }
+
+            let file_path = base_path.join(path_str);
+            log::debug!("AI Protocol serving: {:?}", file_path);
+
+            match std::fs::read(&file_path) {
+                Ok(content) => {
+                    let mime = match file_path.extension().and_then(|s| s.to_str()) {
+                        Some("json") => "application/json",
+                        Some("bin") => "application/octet-stream",
+                        Some("wasm") => "application/wasm",
+                        Some("js") => "application/javascript",
+                        _ => "application/octet-stream",
+                    };
+                    tauri::http::Response::builder()
+                        .header("Content-Type", mime)
+                        .header("Access-Control-Allow-Origin", "*")
+                        .body(content)
+                        .unwrap()
+                }
+                Err(e) => {
+                    log::error!("AI Protocol error reading {:?}: {}", file_path, e);
+                    tauri::http::Response::builder().status(404).body(Vec::new()).unwrap()
+                }
+            }
         })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
-            eprintln!("Starting Ter application setup...");
+            // Store AppHandle for logger
+            let _ = APP_HANDLE.set(app.handle().clone());
+
+            log::info!("Starting Ter application setup...");
             let app_handle = app.handle().clone();
             let app_dir = match app.path().app_data_dir() {
                 Ok(dir) => dir,
                 Err(e) => {
-                    eprintln!("CRITICAL ERROR: Failed to get app data dir: {}", e);
+                    log::error!("CRITICAL ERROR: Failed to get app data dir: {}", e);
                     return Err(Box::new(e));
                 }
             };
             
-            eprintln!("App data directory: {:?}", app_dir);
+            log::info!("App data directory: {:?}", app_dir);
             if !app_dir.exists() {
                 if let Err(e) = std::fs::create_dir_all(&app_dir) {
-                    eprintln!("CRITICAL ERROR: Failed to create app data dir: {}", e);
+                    log::error!("CRITICAL ERROR: Failed to create app data dir: {}", e);
                     return Err(Box::new(e));
                 }
             }
@@ -430,34 +544,27 @@ pub fn run() {
             let db_path = app_dir.join("ter.db");
             // Use 3 slashes for absolute path in sqlite:// URL
             let db_url = format!("sqlite:///{}?mode=rwc", db_path.to_string_lossy());
-            eprintln!("Database URL: {}", db_url);
+            log::info!("Database URL: {}", db_url);
 
             let state = app_handle.state::<AppState>();
             
             tauri::async_runtime::block_on(async move {
-                eprintln!("Initializing database...");
+                log::info!("Initializing database...");
                 match Db::new(&db_url).await {
                     Ok(db) => {
-                        eprintln!("Database initialized successfully.");
+                        log::info!("Database initialized successfully.");
                         if let Err(_) = state.db.set(db) {
-                            eprintln!("ERROR: Failed to set database in state (already set?)");
+                            log::warn!("Failed to set database in state (already set?)");
                         }
                     }
                     Err(e) => {
-                        eprintln!("ERROR: Failed to initialize database: {}", e);
+                        log::error!("Failed to initialize database: {}", e);
                         *state.db_error.lock().await = Some(e.to_string());
                     }
                 }
             });
 
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
-            eprintln!("Setup completed.");
+            log::info!("Setup completed.");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -472,7 +579,9 @@ pub fn run() {
             save_server_config,
             list_server_configs,
             delete_server_config,
-            connect_with_id
+            connect_with_id,
+            get_model_path,
+            set_model_path
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

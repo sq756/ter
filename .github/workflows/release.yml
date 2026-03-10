@@ -69,7 +69,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: "Ter v__VERSION__"
-          releaseBody: "Release of Ter SSH Visual Manager"
+          releaseName: "Ter v__VERSION__ - Cyber Edition"
+          releaseBody: "Release of Ter SSH Visual Manager with God's View & Cyber-Transparency Mode."
           releaseDraft: false
           prerelease: false

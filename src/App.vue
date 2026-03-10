@@ -31,7 +31,11 @@ const isMasterPasswordSet = ref(false);
 const isConnected = ref(false);
 const isProcessing = ref(false); // New: Tracking connection/save state
 const showDashboard = ref(true);
+const cyberMode = ref(false);
+const backendLogs = ref<string[]>([]);
 const errorMsg = ref('');
+
+const MAX_LOGS = 100;
 
 const savedServers = ref<any[]>([]);
 const showAddServer = ref(false);
@@ -57,7 +61,18 @@ const aiChatHistory = ref<{ role: string, content: string }[]>([]);
 const userMessage = ref('');
 const isAiInitialized = ref(false);
 const showAiPanel = ref(false);
+const localModelPath = ref('');
 const chatRef = ref<HTMLElement | null>(null);
+
+const selectModelFolder = async () => {
+  try {
+    const selected = await open({ directory: true, multiple: false });
+    if (selected && typeof selected === 'string') {
+      await invoke('set_model_path', { path: selected });
+      localModelPath.value = selected;
+    }
+  } catch (e) { alert(e); }
+};
 
 const scrollToBottom = () => {
   setTimeout(() => {
@@ -73,6 +88,9 @@ let term: Terminal;
 let fitAddon: FitAddon;
 let unlistenPty: (() => void) | null = null;
 let statsInterval: number | null = null;
+let onDataListener: { dispose: () => void } | null = null;
+let onResizeListener: { dispose: () => void } | null = null;
+let unlistenLog: (() => void) | null = null;
 
 const initCharts = () => {
   if (cpuChartRef.value) {
@@ -111,6 +129,14 @@ const updateCharts = (stats: any) => {
   memChart?.setOption({ xAxis: { data: timeLabels.value }, series: [{ data: memHistory.value }] });
 };
 
+const onResize = () => { 
+  if (isConnected.value) {
+    fitAddon?.fit(); 
+    cpuChart?.resize(); 
+    memChart?.resize(); 
+  }
+};
+
 onMounted(async () => {
   term = new Terminal({
     cursorBlink: true,
@@ -121,20 +147,28 @@ onMounted(async () => {
   fitAddon = new FitAddon();
   term.loadAddon(fitAddon);
   
-  term.onData(async (data) => { if (isConnected.value) await invoke('write_pty', { data }); });
-  term.onResize(async (size) => { if (isConnected.value) await invoke('resize_pty', { cols: size.cols, rows: size.rows }); });
-  window.addEventListener('resize', () => { 
-    if (isConnected.value) {
-      fitAddon?.fit(); 
-      cpuChart?.resize(); 
-      memChart?.resize(); 
+  onDataListener = term.onData(async (data) => { if (isConnected.value) await invoke('write_pty', { data }); });
+  onResizeListener = term.onResize(async (size) => { if (isConnected.value) await invoke('resize_pty', { cols: size.cols, rows: size.rows }); });
+  window.addEventListener('resize', onResize);
+
+  unlistenLog = await listen<string>('backend-log', (event) => {
+    backendLogs.value.push(event.payload);
+    if (backendLogs.value.length > MAX_LOGS) {
+      backendLogs.value.shift();
     }
   });
+
+  const savedPath = await invoke('get_model_path');
+  if (savedPath) localModelPath.value = savedPath as string;
 });
 
 onUnmounted(() => {
   if (unlistenPty) unlistenPty();
+  if (unlistenLog) unlistenLog();
   if (statsInterval) clearInterval(statsInterval);
+  if (onDataListener) onDataListener.dispose();
+  if (onResizeListener) onResizeListener.dispose();
+  window.removeEventListener('resize', onResize);
   term?.dispose();
   cpuChart?.dispose();
   memChart?.dispose();
@@ -212,7 +246,19 @@ const initAi = async () => {
   if (isAiInitialized.value) return;
   aiLoading.value = true;
   try {
-    const engine = await webllm.CreateMLCEngine(MODEL_ID, { initProgressCallback: (p) => { aiProgress.value = `Loading: ${Math.round(p.progress * 100)}%`; } });
+    const appConfig = {
+      model_list: [{
+        model_id: MODEL_ID,
+        model_url: `ter-model://localhost/`,
+        model_lib_url: webllm.modelLibURLPrefix + webllm.ModelSpec.model_lib_map[MODEL_ID],
+        low_resource_required: true,
+      }],
+    };
+    
+    const engine = await webllm.CreateMLCEngine(MODEL_ID, { 
+      appConfig,
+      initProgressCallback: (p) => { aiProgress.value = `Loading: ${Math.round(p.progress * 100)}%`; } 
+    });
     aiEngine.value = engine;
     isAiInitialized.value = true;
     aiProgress.value = 'AI Online';
@@ -372,7 +418,27 @@ const toggleDashboard = () => {
 </script>
 
 <template>
-  <div class="app-container">
+  <div :class="['app-container', { 'cyber-mode': cyberMode }]">
+    <!-- Cyber Transparency Layer -->
+    <div v-if="cyberMode" class="cyber-logs-layer">
+      <div v-for="(log, i) in backendLogs" :key="i" :class="['cyber-log-line', { 'neural': log.startsWith('[NEURAL]') }]">
+        {{ log }}
+      </div>
+      
+      <!-- Performance HUD -->
+      <div class="stats-hud">
+        <div class="hud-item"><span class="label">MODEL:</span> {{ MODEL_ID.split('-')[0] }}</div>
+        <div class="hud-item">
+          <span class="label">LINK:</span> 
+          <span :class="['status-dot', localModelPath ? 'online' : 'offline']"></span>
+          {{ localModelPath ? 'READY' : 'OFFLINE' }}
+        </div>
+        <div class="hud-item"><span class="label">SPEED:</span> {{ aiStats?.decodeTokensPerSec.toFixed(1) || '0.0' }} t/s</div>
+        <div class="hud-item"><span class="label">STATUS:</span> {{ isAiInitialized ? 'NEURAL_ACTIVE' : 'IDLE' }}</div>
+        <div class="hud-wire"></div>
+      </div>
+    </div>
+
     <!-- Master Password Setup -->
     <div v-if="!isMasterPasswordSet" class="unlock-overlay">
       <div class="unlock-card">
@@ -513,6 +579,9 @@ const toggleDashboard = () => {
         <header class="top-bar">
           <div class="status"><span class="led"></span> {{ user }}@{{ host }}</div>
           <div class="ops">
+            <button @click="cyberMode = !cyberMode" :class="['cyber-toggle', { active: cyberMode }]">
+              {{ cyberMode ? '📡 Cyber: ON' : '📡 Cyber' }}
+            </button>
             <button @click="explainTerminalError" class="ai-btn">✨ Explain Error</button>
             <button @click="showGui = !showGui" class="gui-btn">🖥️ GUI</button>
           </div>
@@ -524,10 +593,18 @@ const toggleDashboard = () => {
 
       <Transition name="slide">
         <div v-if="showAiPanel" class="ai-panel">
-          <div class="panel-header"><h3>AI Sidekick</h3><button @click="showAiPanel = false">✕</button></div>
+          <div class="panel-header">
+            <h3>AI Sidekick</h3>
+            <div class="header-ops">
+              <button @click="selectModelFolder" class="mini-btn" title="Set Model Folder">📂</button>
+              <button @click="showAiPanel = false">✕</button>
+            </div>
+          </div>
           <div v-if="!isAiInitialized" class="ai-init">
+            <p v-if="localModelPath" class="path-info">📁 {{ localModelPath }}</p>
+            <p v-else class="path-warn">⚠️ No model folder selected</p>
             <p>{{ aiProgress }}</p>
-            <button v-if="!aiLoading" @click="initAi">Start Engine</button>
+            <button v-if="!aiLoading" @click="initAi" :disabled="!localModelPath">Start Engine</button>
           </div>
           <div v-else class="chat">
             <div class="messages" ref="chatRef">
@@ -565,7 +642,105 @@ const toggleDashboard = () => {
 </template>
 
 <style scoped>
-.app-container { height: 100vh; background: #09090b; color: #fafafa; font-family: 'Inter', system-ui, sans-serif; overflow: hidden; }
+.app-container { height: 100vh; background: #09090b; color: #fafafa; font-family: 'Inter', system-ui, sans-serif; overflow: hidden; position: relative; transition: background 0.5s ease; }
+.app-container.cyber-mode { background: transparent !important; }
+
+/* Cyber Transparency Layer */
+.cyber-logs-layer {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  padding: 20px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  pointer-events: none;
+  background: #050505; /* Deep black base for contrast */
+}
+
+.cyber-log-line {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 11px;
+  color: rgba(34, 197, 94, 0.3); /* Dim green */
+  white-space: pre-wrap;
+  line-height: 1.4;
+  animation: fadeUp 0.3s ease-out;
+}
+
+.cyber-log-line.neural {
+  color: #00f2fe; /* Electric Blue */
+  text-shadow: 0 0 8px rgba(0, 242, 254, 0.4);
+  font-weight: 600;
+}
+
+/* Performance HUD */
+.stats-hud {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.8);
+  border-left: 1px solid #00f2fe;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  pointer-events: none;
+  z-index: 1000;
+}
+
+.hud-item { color: #fafafa; display: flex; gap: 8px; align-items: center; }
+.hud-item .label { color: rgba(250, 250, 250, 0.4); }
+
+.status-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+.status-dot.online { background: #22c55e; box-shadow: 0 0 5px #22c55e; }
+.status-dot.offline { background: #ef4444; box-shadow: 0 0 5px #ef4444; }
+
+.hud-wire {
+  position: absolute;
+  inset: -2px;
+  border: 1px solid rgba(0, 242, 254, 0.1);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 80%, 20% 80%, 20% 20%, 0 20%);
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Glass Effect for Cyber Mode */
+.cyber-mode .sidebar,
+.cyber-mode .top-bar,
+.cyber-mode .widget,
+.cyber-mode .term-wrapper,
+.cyber-mode .ai-panel {
+  backdrop-filter: blur(12px) saturate(180%);
+  background: rgba(18, 18, 21, 0.7) !important;
+  border-color: rgba(63, 63, 70, 0.4) !important;
+}
+
+.cyber-mode .terminal-container-main {
+  background: transparent;
+}
+
+.cyber-toggle {
+  background: #1e1e2e;
+  color: #a1a1aa;
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  margin-right: 10px;
+  border: 1px solid #313244;
+}
+
+.cyber-toggle.active {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+  border-color: #22c55e;
+  box-shadow: 0 0 10px rgba(34, 197, 94, 0.2);
+}
 
 /* Shared UI Components */
 label { display: block; font-size: 11px; font-weight: 600; color: #71717a; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.02em; }
@@ -650,7 +825,11 @@ button:disabled { opacity: 0.6; cursor: not-allowed; transform: none !important;
 .terminal-container-main { flex: 1; padding: 20px; background: #09090b; }
 .term-wrapper { height: 100%; background: black; border-radius: 8px; border: 1px solid #27272a; padding: 10px; }
 .ai-panel { position: absolute; right: 0; top: 0; bottom: 0; width: 350px; background: #121215; border-left: 1px solid #27272a; z-index: 100; display: flex; flex-direction: column; }
-.panel-header { padding: 15px; border-bottom: 1px solid #27272a; display: flex; justify-content: space-between; }
+.panel-header { padding: 15px; border-bottom: 1px solid #27272a; display: flex; justify-content: space-between; align-items: center; }
+.header-ops { display: flex; gap: 10px; align-items: center; }
+.ai-init { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 15px; padding: 20px; text-align: center; }
+.path-info { font-size: 11px; color: #6366f1; background: rgba(99, 102, 241, 0.1); padding: 8px; border-radius: 6px; width: 100%; word-break: break-all; }
+.path-warn { font-size: 11px; color: #f59e0b; background: rgba(245, 158, 11, 0.1); padding: 8px; border-radius: 6px; width: 100%; }
 .chat { flex: 1; display: flex; flex-direction: column; padding: 15px; gap: 10px; }
 .messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
 .bubble { padding: 8px; border-radius: 6px; font-size: 13px; max-width: 90%; }
