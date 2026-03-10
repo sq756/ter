@@ -111,13 +111,16 @@ async fn deploy_agent(session: &client::Handle<Client>, token: &str, app_handle:
 
     let mut local_file = tokio::fs::File::open(&local_path).await.map_err(|e| format!("Local agent not found at {:?}: {}", local_path, e))?;
     let remote_path = ".ter/agent_linux_amd64";
-    let mut remote_file: russh_sftp::client::File = sftp.create(remote_path).await.map_err(|e| format!("Failed to create remote file: {}", e))?;
+    let mut remote_file = sftp.create(remote_path).await.map_err(|e| format!("Failed to create remote file: {}", e))?;
     
     let mut buf = vec![0; 16384];
     while let Ok(n) = local_file.read(&mut buf).await {
         if n == 0 { break; }
-        remote_file.write_all(&buf[..n]).await.map_err(|e| format!("Write error: {}", e))?;
+        // Use explicit trait method call to resolve type inference issues on Windows/Linux
+        tokio::io::AsyncWriteExt::write_all(&mut remote_file, &buf[..n]).await.map_err(|e| format!("Write error: {}", e))?;
     }
+    // Ensure data is flushed
+    tokio::io::AsyncWriteExt::flush(&mut remote_file).await.map_err(|e| e.to_string())?;
     drop(remote_file);
 
     // 3. Set executable permission and start agent
