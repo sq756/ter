@@ -29,6 +29,7 @@ const label = ref('Home Server');
 const masterPassword = ref('');
 const isMasterPasswordSet = ref(false);
 const isConnected = ref(false);
+const isProcessing = ref(false); // New: Tracking connection/save state
 const showDashboard = ref(true);
 const errorMsg = ref('');
 
@@ -137,11 +138,13 @@ onUnmounted(() => {
 
 const setMasterPass = async () => {
   if (!masterPassword.value) return;
+  isProcessing.value = true;
   try {
     await invoke('set_master_password', { password: masterPassword.value });
     isMasterPasswordSet.value = true;
     loadServers();
   } catch (e) { errorMsg.value = 'Security Error: ' + e; }
+  finally { isProcessing.value = false; }
 };
 
 const loadServers = async () => {
@@ -149,12 +152,15 @@ const loadServers = async () => {
 };
 
 const saveServer = async () => {
+  isProcessing.value = true;
+  errorMsg.value = '';
   try {
     const config = { id: window.crypto.randomUUID(), label: label.value, host: host.value, user: user.value, port: 22, password_enc: password.value, key_path: null };
     await invoke('save_server_config', { config });
     showAddServer.value = false;
     loadServers();
   } catch (e) { errorMsg.value = String(e); }
+  finally { isProcessing.value = false; }
 };
 
 const deleteServer = async (id: string) => {
@@ -163,11 +169,17 @@ const deleteServer = async (id: string) => {
 };
 
 const connectWithId = async (id: string) => {
+  isProcessing.value = true;
+  errorMsg.value = '';
   try { await invoke('connect_with_id', { id }); onConnected(); } catch (e) { errorMsg.value = String(e); }
+  finally { isProcessing.value = false; }
 };
 
 const connect = async () => {
+  isProcessing.value = true;
+  errorMsg.value = '';
   try { await invoke('connect_to_ssh', { host: host.value, user: user.value, pass: password.value }); onConnected(); } catch (e) { errorMsg.value = String(e); }
+  finally { isProcessing.value = false; }
 };
 
 const onConnected = async () => {
@@ -313,39 +325,79 @@ const toggleDashboard = () => {
 
 <template>
   <div class="app-container">
+    <!-- Master Password Setup -->
     <div v-if="!isMasterPasswordSet" class="unlock-overlay">
       <div class="unlock-card">
+        <div class="icon-header">🔒</div>
         <h2>Unlock Ter</h2>
-        <input v-model="masterPassword" type="password" placeholder="Master Password" @keyup.enter="setMasterPass" />
-        <button class="primary-btn" @click="setMasterPass">Unlock Vault</button>
+        <p>Access your secure server vault</p>
+        <div class="form-item">
+          <label>Master Password</label>
+          <input v-model="masterPassword" type="password" placeholder="••••••••" @keyup.enter="setMasterPass" :disabled="isProcessing" />
+        </div>
+        <button class="primary-btn" @click="setMasterPass" :disabled="isProcessing">
+          <span v-if="!isProcessing">Unlock Vault</span>
+          <span v-else class="loader"></span>
+        </button>
+        <p v-if="errorMsg" class="error-text">{{ errorMsg }}</p>
       </div>
     </div>
 
+    <!-- Login/Server List Panel -->
     <div v-else-if="!isConnected" class="login-panel">
       <div class="server-mgmt" v-if="!showAddServer">
-        <h2>Servers</h2>
-        <div class="server-list">
-          <div v-for="s in savedServers" :key="s.id" class="server-card" @click="connectWithId(s.id)">
-            <span>{{ s.label }}</span>
-            <small>{{ s.user }}@{{ s.host }}</small>
-            <button @click.stop="deleteServer(s.id)">✕</button>
+        <div class="mgmt-header">
+          <h2>Server Vault</h2>
+          <button class="add-btn" @click="showAddServer = true">+ Add</button>
+        </div>
+        <div class="server-grid">
+          <div v-for="s in savedServers" :key="s.id" class="server-card" @click="connectWithId(s.id)" :class="{ disabled: isProcessing }">
+            <div class="s-info">
+              <span class="s-label">{{ s.label }}</span>
+              <span class="s-host">{{ s.user }}@{{ s.host }}</span>
+            </div>
+            <button class="del-btn" @click.stop="deleteServer(s.id)">✕</button>
           </div>
         </div>
-        <button class="add-btn" @click="showAddServer = true">+ Add New</button>
+        <div v-if="errorMsg" class="error-toast">{{ errorMsg }}</div>
       </div>
+
       <div v-else class="add-form">
-        <input v-model="label" placeholder="Label" />
-        <input v-model="host" placeholder="Host" />
-        <input v-model="user" placeholder="User" />
-        <input v-model="password" type="password" placeholder="Password" />
-        <div class="form-ops">
-          <button @click="saveServer">Save</button>
-          <button @click="connect" class="ghost">Connect Once</button>
-          <button @click="showAddServer = false" class="ghost">Cancel</button>
+        <h3>New Server</h3>
+        <div class="form-grid">
+          <div class="form-item">
+            <label>Server Name</label>
+            <input v-model="label" placeholder="e.g. Home Server" :disabled="isProcessing" />
+          </div>
+          <div class="form-item">
+            <label>Host / IP Address</label>
+            <input v-model="host" placeholder="192.168.1.x" :disabled="isProcessing" />
+          </div>
+          <div class="form-item">
+            <label>Username</label>
+            <input v-model="user" placeholder="root" :disabled="isProcessing" />
+          </div>
+          <div class="form-item">
+            <label>Password</label>
+            <input v-model="password" type="password" placeholder="••••••••" :disabled="isProcessing" />
+          </div>
         </div>
+        <div class="form-ops">
+          <button @click="saveServer" class="primary-btn" :disabled="isProcessing">
+            <span v-if="!isProcessing">Save & Exit</span>
+            <span v-else class="loader"></span>
+          </button>
+          <button @click="connect" class="ghost-btn" :disabled="isProcessing">
+            <span v-if="!isProcessing">Connect Now</span>
+            <span v-else class="loader"></span>
+          </button>
+          <button @click="showAddServer = false" class="cancel-btn" :disabled="isProcessing">Cancel</button>
+        </div>
+        <div v-if="errorMsg" class="error-text">{{ errorMsg }}</div>
       </div>
     </div>
 
+    <!-- Main Interface -->
     <div v-else class="main-layout">
       <aside :class="['sidebar', { collapsed: !showDashboard }]">
         <div class="sidebar-header">
@@ -454,12 +506,63 @@ const toggleDashboard = () => {
 </template>
 
 <style scoped>
-.app-container { height: 100vh; background: #09090b; color: #fafafa; font-family: Inter, sans-serif; overflow: hidden; }
-.unlock-overlay, .login-panel { display: flex; align-items: center; justify-content: center; height: 100%; flex-direction: column; gap: 20px; }
-.unlock-card, .add-form { background: #18181b; padding: 40px; border-radius: 12px; border: 1px solid #27272a; width: 350px; display: flex; flex-direction: column; gap: 15px; }
-input { background: #09090b; border: 1px solid #27272a; padding: 10px; color: white; border-radius: 6px; }
-button { background: #6366f1; color: white; border: none; padding: 10px; border-radius: 6px; cursor: pointer; }
-button.ghost { background: transparent; border: 1px solid #27272a; }
+.app-container { height: 100vh; background: #09090b; color: #fafafa; font-family: 'Inter', system-ui, sans-serif; overflow: hidden; }
+
+/* Shared UI Components */
+label { display: block; font-size: 11px; font-weight: 600; color: #71717a; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.02em; }
+input { background: #09090b; border: 1px solid #27272a; padding: 12px; color: white; border-radius: 8px; font-size: 14px; transition: all 0.2s; width: 100%; box-sizing: border-box; }
+input:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2); }
+input:disabled { opacity: 0.5; cursor: not-allowed; }
+
+button { cursor: pointer; transition: all 0.2s; border: none; font-weight: 600; display: flex; align-items: center; justify-content: center; }
+button:active { transform: scale(0.96); }
+button:disabled { opacity: 0.6; cursor: not-allowed; transform: none !important; }
+
+.primary-btn { background: #6366f1; color: white; padding: 12px 20px; border-radius: 8px; font-size: 14px; }
+.primary-btn:hover:not(:disabled) { background: #4f46e5; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3); }
+
+.ghost-btn { background: #1e1e2e; color: #a1a1aa; border: 1px solid #313244; padding: 12px 20px; border-radius: 8px; }
+.ghost-btn:hover:not(:disabled) { border-color: #6366f1; color: white; }
+
+.cancel-btn { background: transparent; color: #71717a; padding: 12px 20px; border-radius: 8px; }
+.cancel-btn:hover:not(:disabled) { color: #fafafa; }
+
+/* Unlock & Login Panels */
+.unlock-overlay, .login-panel { display: flex; align-items: center; justify-content: center; height: 100%; flex-direction: column; background: radial-gradient(circle at center, #121215 0%, #09090b 100%); }
+
+.unlock-card { background: #18181b; padding: 40px; border-radius: 20px; border: 1px solid #27272a; width: 380px; text-align: center; box-shadow: 0 20px 40px rgba(0,0,0,0.4); }
+.icon-header { font-size: 40px; margin-bottom: 15px; }
+.unlock-card h2 { margin: 0 0 8px 0; font-size: 24px; }
+.unlock-card p { color: #71717a; font-size: 14px; margin-bottom: 30px; }
+
+.server-mgmt { width: 500px; display: flex; flex-direction: column; gap: 24px; }
+.mgmt-header { display: flex; justify-content: space-between; align-items: center; }
+.add-btn { background: #27272a; padding: 6px 14px; border-radius: 6px; font-size: 13px; color: #a1a1aa; }
+.add-btn:hover { background: #3f3f46; color: white; }
+
+.server-grid { display: flex; flex-direction: column; gap: 12px; max-height: 400px; overflow-y: auto; padding-right: 5px; }
+.server-card { background: #18181b; border: 1px solid #27272a; padding: 16px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+.server-card:hover:not(.disabled) { border-color: #6366f1; background: #1e1e2e; }
+.s-info { display: flex; flex-direction: column; gap: 4px; }
+.s-label { font-weight: 700; font-size: 15px; }
+.s-host { font-size: 12px; color: #71717a; font-family: monospace; }
+.del-btn { background: transparent; color: #52525b; font-size: 16px; width: 32px; height: 32px; border-radius: 50%; }
+.del-btn:hover { background: #ef4444; color: white; }
+
+.add-form { background: #18181b; padding: 32px; border-radius: 16px; border: 1px solid #27272a; width: 420px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
+.add-form h3 { margin: 0 0 24px 0; font-size: 20px; }
+.form-grid { display: grid; grid-template-columns: 1fr; gap: 16px; margin-bottom: 32px; }
+.form-ops { display: flex; flex-direction: column; gap: 10px; }
+
+/* Feedback */
+.error-text { color: #ef4444; font-size: 13px; margin-top: 15px; text-align: center; }
+.error-toast { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: #ef4444; padding: 12px; border-radius: 8px; font-size: 13px; text-align: center; }
+
+/* Loader Animation */
+.loader { width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.3); border-radius: 50%; border-top-color: #fff; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Main UI (Retained & Integrated) */
 .main-layout { display: flex; height: 100%; }
 .sidebar { width: 260px; background: #121215; border-right: 1px solid #27272a; display: flex; flex-direction: column; transition: 0.2s; }
 .sidebar.collapsed { width: 50px; }
