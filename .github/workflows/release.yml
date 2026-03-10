@@ -39,6 +39,11 @@ jobs:
         with:
           toolchain: stable
 
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          work-dir: src-tauri
+
       - name: Go setup
         uses: actions/setup-go@v5
         with:

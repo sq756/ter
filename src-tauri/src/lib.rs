@@ -471,12 +471,16 @@ pub fn run() {
             crypto: tokio::sync::Mutex::new(None),
             model_path: tokio::sync::Mutex::new(None),
         })
-        .register_uri_scheme_protocol("ter-model", |app, request| {
+        .register_uri_scheme_protocol("ter-model", |_, request| {
+            // In Tauri v2, we can't easily get state from the first closure param if it's UriSchemeContext
+            // Use our static APP_HANDLE instead
+            let app = APP_HANDLE.get().expect("APP_HANDLE not initialized");
             let state = app.state::<AppState>();
+            
             // Use block_on for simple sync protocol handler
             let model_path_guard = tauri::async_runtime::block_on(async { state.model_path.lock().await });
             
-            let base_path = match &*model_path_guard {
+            let base_path: std::path::PathBuf = match &*model_path_guard {
                 Some(p) => p.clone(),
                 None => return tauri::http::Response::builder().status(404).body(Vec::new()).unwrap(),
             };
