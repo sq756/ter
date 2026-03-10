@@ -39,23 +39,46 @@ struct AppState {
     session: tokio::sync::Mutex<Option<Arc<client::Handle<Client>>>>,
     agent_token: tokio::sync::Mutex<String>,
     db: tokio::sync::OnceCell<Db>,
+    db_error: tokio::sync::Mutex<Option<String>>,
     crypto: tokio::sync::Mutex<Option<Crypto>>,
 }
 
 #[tauri::command]
 async fn set_master_password(password: String, state: State<'_, AppState>) -> Result<(), String> {
+    eprintln!("DEBUG: Received set_master_password command");
     let crypto = tokio::task::spawn_blocking(move || {
         Crypto::new(&password)
     }).await.map_err(|e| e.to_string())?;
 
     let mut crypto_guard = state.crypto.lock().await;
     *crypto_guard = Some(crypto);
+    eprintln!("DEBUG: Master password set successfully.");
     Ok(())
+}
+
+async fn get_db(state: &State<'_, AppState>) -> Result<Db, String> {
+    if let Some(db) = state.db.get() {
+        Ok(db.clone())
+    } else {
+        eprintln!("DEBUG: Database not found in state, checking for error...");
+        let err_guard = state.db_error.lock().await;
+        match &*err_guard {
+            Some(e) => {
+                let err_msg = format!("Database initialization failed: {}", e);
+                eprintln!("DEBUG: {}", err_msg);
+                Err(err_msg)
+            },
+            None => {
+                eprintln!("DEBUG: Database not initialized yet.");
+                Err("Database not initialized".to_string())
+            },
+        }
+    }
 }
 
 #[tauri::command]
 async fn save_server_config(config: ServerConfig, state: State<'_, AppState>) -> Result<(), String> {
-    let db = state.db.get().ok_or("Database not initialized")?;
+    let db = get_db(&state).await?;
     let mut config = config;
     
     // Encrypt password if present
@@ -74,25 +97,46 @@ async fn save_server_config(config: ServerConfig, state: State<'_, AppState>) ->
 
 #[tauri::command]
 async fn list_server_configs(state: State<'_, AppState>) -> Result<Vec<ServerConfig>, String> {
-    let db = state.db.get().ok_or("Database not initialized")?;
+    let db = get_db(&state).await?;
     db.list_servers().await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 async fn delete_server_config(id: String, state: State<'_, AppState>) -> Result<(), String> {
-    let db = state.db.get().ok_or("Database not initialized")?;
+    let db = get_db(&state).await?;
     db.delete_server(&id).await.map_err(|e| e.to_string())
 }
 
 async fn deploy_agent(session: &client::Handle<Client>, token: &str, app_handle: &AppHandle) -> Result<(), String> {
-    // 1. Prepare remote directory
-    let mut channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
-    channel.exec(true, "mkdir -p ~/.ter").await.map_err(|e| e.to_string())?;
-    
-    // Wait for command completion
-    while let Some(_) = channel.wait().await {}
+    // 1. Kill existing agent if running and wait a bit
+    let kill_cmd = "pkill -9 -f agent_linux_amd64 || true";
+    let mut kill_channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
+    kill_channel.exec(true, kill_cmd).await.map_err(|e| e.to_string())?;
+    while let Some(_) = kill_channel.wait().await {}
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
-    // 2. Upload Agent binary via SFTP
+    // 2. Get home directory for absolute paths
+    let mut home_channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
+    home_channel.exec(true, "echo $HOME").await.map_err(|e| e.to_string())?;
+    let mut home_dir = String::new();
+    while let Some(msg) = home_channel.wait().await {
+        if let russh::ChannelMsg::Data { data } = msg {
+            home_dir.push_str(&String::from_utf8_lossy(&data));
+        }
+    }
+    let home_dir = home_dir.trim();
+    if home_dir.is_empty() {
+        return Err("Failed to determine remote home directory".to_string());
+    }
+
+    // 3. Prepare remote directory and remove old file to avoid ETXTBSY
+    let remote_path = format!("{}/.ter/agent_linux_amd64", home_dir);
+    let prep_cmd = format!("mkdir -p {}/.ter && rm -f {}", home_dir, remote_path);
+    let mut prep_channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
+    prep_channel.exec(true, prep_cmd.as_str()).await.map_err(|e| e.to_string())?;
+    while let Some(_) = prep_channel.wait().await {}
+
+    // 4. Upload Agent binary via SFTP
     let sftp_channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
     sftp_channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
     
@@ -100,7 +144,6 @@ async fn deploy_agent(session: &client::Handle<Client>, token: &str, app_handle:
 
     let res_dir = app_handle.path().resource_dir().map_err(|e| e.to_string())?;
     
-    // In Tauri v2 bundled resources, the path is often flattened or prefixed with _up_
     let possible_paths = [
         res_dir.join("agent_linux_amd64"),
         res_dir.join("_up_/ter_agent/agent_linux_amd64"),
@@ -122,23 +165,24 @@ async fn deploy_agent(session: &client::Handle<Client>, token: &str, app_handle:
     })?;
 
     let mut local_file = tokio::fs::File::open(&local_path).await.map_err(|e| format!("Failed to open agent at {:?}: {}", local_path, e))?;
-    let remote_path = ".ter/agent_linux_amd64";
-    let mut remote_file = sftp.create(remote_path).await.map_err(|e| format!("Failed to create remote file: {}", e))?;
+    
+    // Use a try-catch like approach for better error messaging on create
+    let mut remote_file = sftp.create(&remote_path).await.map_err(|e| {
+        format!("Failed to create remote file at {}. This often happens if the file is busy or permissions are insufficient. SFTP Error: {}", remote_path, e)
+    })?;
     
     let mut buf = vec![0; 16384];
     while let Ok(n) = local_file.read(&mut buf).await {
         if n == 0 { break; }
-        // Use explicit trait method call to resolve type inference issues on Windows/Linux
         tokio::io::AsyncWriteExt::write_all(&mut remote_file, &buf[..n]).await.map_err(|e| format!("Write error: {}", e))?;
     }
-    // Ensure data is flushed
     tokio::io::AsyncWriteExt::flush(&mut remote_file).await.map_err(|e| e.to_string())?;
     drop(remote_file);
 
-    // 3. Set executable permission and start agent
+    // 5. Set executable permission and start agent
     let run_channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
-    let cmd = format!("chmod +x ~/.ter/agent_linux_amd64 && TER_AGENT_TOKEN={} nohup ~/.ter/agent_linux_amd64 --port 34567 > /dev/null 2>&1 &", token);
-    run_channel.exec(true, cmd).await.map_err(|e| e.to_string())?;
+    let cmd = format!("chmod +x {remote_path} && TER_AGENT_TOKEN={token} nohup {remote_path} --port 34567 > /dev/null 2>&1 &", remote_path=remote_path, token=token);
+    run_channel.exec(true, cmd.as_str()).await.map_err(|e| e.to_string())?;
     
     // Give it a second to start
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -212,48 +256,56 @@ async fn connect_to_ssh(host: String, user: String, pass: String, app_handle: Ap
     if let Some(session_arc) = session_guard.as_ref() {
         let session_clone = session_arc.clone();
         tauri::async_runtime::spawn(async move {
-            let listener = TcpListener::bind("127.0.0.1:54321").await.unwrap();
-            println!("Tunnel listening on 127.0.0.1:54321 -> remote 127.0.0.1:34567");
-            while let Ok((mut stream, _)) = listener.accept().await {
-                let session_inner = session_clone.clone();
-                tokio::spawn(async move {
-                    match session_inner.channel_open_direct_tcpip("127.0.0.1", 34567, "127.0.0.1", 54321).await {
-                        Ok(channel) => {
-                            let (mut reader, mut writer) = stream.split();
-                            let (mut chan_reader, mut chan_writer) = tokio::io::split(channel.into_stream());
-                            let _ = tokio::join!(
-                                tokio::io::copy(&mut reader, &mut chan_writer),
-                                tokio::io::copy(&mut chan_reader, &mut writer)
-                            );
-                        }
-                        Err(e) => {
-                            eprintln!("Failed to open direct tcpip channel: {}", e);
-                        }
+            match TcpListener::bind("127.0.0.1:54321").await {
+                Ok(listener) => {
+                    println!("Tunnel listening on 127.0.0.1:54321 -> remote 127.0.0.1:34567");
+                    while let Ok((mut stream, _)) = listener.accept().await {
+                        let session_inner = session_clone.clone();
+                        tokio::spawn(async move {
+                            match session_inner.channel_open_direct_tcpip("127.0.0.1", 34567, "127.0.0.1", 54321).await {
+                                Ok(channel) => {
+                                    let (mut reader, mut writer) = stream.split();
+                                    let (mut chan_reader, mut chan_writer) = tokio::io::split(channel.into_stream());
+                                    let _ = tokio::join!(
+                                        tokio::io::copy(&mut reader, &mut chan_writer),
+                                        tokio::io::copy(&mut chan_reader, &mut writer)
+                                    );
+                                }
+                                Err(e) => {
+                                    eprintln!("Failed to open direct tcpip channel: {}", e);
+                                }
+                            }
+                        });
                     }
-                });
+                }
+                Err(e) => eprintln!("ERROR: Failed to bind to tunnel port 54321: {}", e),
             }
         });
 
         // Tunnel for VNC (127.0.0.1:5901) -> localhost:55901
         let session_clone_vnc = session_arc.clone();
         tauri::async_runtime::spawn(async move {
-            let listener = TcpListener::bind("127.0.0.1:55901").await.unwrap();
-            println!("VNC Tunnel listening on 127.0.0.1:55901 -> remote 127.0.0.1:5901");
-            while let Ok((mut stream, _)) = listener.accept().await {
-                let session_inner = session_clone_vnc.clone();
-                tokio::spawn(async move {
-                    match session_inner.channel_open_direct_tcpip("127.0.0.1", 5901, "127.0.0.1", 55901).await {
-                        Ok(channel) => {
-                            let (mut reader, mut writer) = stream.split();
-                            let (mut chan_reader, mut chan_writer) = tokio::io::split(channel.into_stream());
-                            let _ = tokio::join!(
-                                tokio::io::copy(&mut reader, &mut chan_writer),
-                                tokio::io::copy(&mut chan_reader, &mut writer)
-                            );
-                        }
-                        Err(e) => eprintln!("VNC tunnel error: {}", e),
+            match TcpListener::bind("127.0.0.1:55901").await {
+                Ok(listener) => {
+                    println!("VNC Tunnel listening on 127.0.0.1:55901 -> remote 127.0.0.1:5901");
+                    while let Ok((mut stream, _)) = listener.accept().await {
+                        let session_inner = session_clone_vnc.clone();
+                        tokio::spawn(async move {
+                            match session_inner.channel_open_direct_tcpip("127.0.0.1", 5901, "127.0.0.1", 55901).await {
+                                Ok(channel) => {
+                                    let (mut reader, mut writer) = stream.split();
+                                    let (mut chan_reader, mut chan_writer) = tokio::io::split(channel.into_stream());
+                                    let _ = tokio::join!(
+                                        tokio::io::copy(&mut reader, &mut chan_writer),
+                                        tokio::io::copy(&mut chan_reader, &mut writer)
+                                    );
+                                }
+                                Err(e) => eprintln!("VNC tunnel error: {}", e),
+                            }
+                        });
                     }
-                });
+                }
+                Err(e) => eprintln!("ERROR: Failed to bind to VNC tunnel port 55901: {}", e),
             }
         });
     }
@@ -345,6 +397,15 @@ struct RemoteFile {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .manage(AppState {
+            pty_tx: tokio::sync::Mutex::new(None),
+            ctrl_tx: tokio::sync::Mutex::new(None),
+            session: tokio::sync::Mutex::new(None),
+            agent_token: tokio::sync::Mutex::new(String::new()),
+            db: tokio::sync::OnceCell::new(),
+            db_error: tokio::sync::Mutex::new(None),
+            crypto: tokio::sync::Mutex::new(None),
+        })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
@@ -367,21 +428,24 @@ pub fn run() {
             }
             
             let db_path = app_dir.join("ter.db");
-            let db_url = format!("sqlite://{}?mode=rwc", db_path.to_str().ok_or("Invalid path encoding")?);
+            // Use 3 slashes for absolute path in sqlite:// URL
+            let db_url = format!("sqlite:///{}?mode=rwc", db_path.to_string_lossy());
             eprintln!("Database URL: {}", db_url);
 
             let state = app_handle.state::<AppState>();
-            let db_state = state.db.clone();
             
             tauri::async_runtime::block_on(async move {
                 eprintln!("Initializing database...");
                 match Db::new(&db_url).await {
                     Ok(db) => {
                         eprintln!("Database initialized successfully.");
-                        let _ = db_state.set(db);
+                        if let Err(_) = state.db.set(db) {
+                            eprintln!("ERROR: Failed to set database in state (already set?)");
+                        }
                     }
                     Err(e) => {
                         eprintln!("ERROR: Failed to initialize database: {}", e);
+                        *state.db_error.lock().await = Some(e.to_string());
                     }
                 }
             });
@@ -395,14 +459,6 @@ pub fn run() {
             }
             eprintln!("Setup completed.");
             Ok(())
-        })
-        .manage(AppState {
-            pty_tx: tokio::sync::Mutex::new(None),
-            ctrl_tx: tokio::sync::Mutex::new(None),
-            session: tokio::sync::Mutex::new(None),
-            agent_token: tokio::sync::Mutex::new(String::new()),
-            db: tokio::sync::OnceCell::new(),
-            crypto: tokio::sync::Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
             connect_to_ssh, 
@@ -424,15 +480,15 @@ pub fn run() {
 
 #[tauri::command]
 async fn connect_with_id(id: String, app_handle: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
-    let db = state.db.get().ok_or("Database not initialized")?;
+    let db = get_db(&state).await?;
     let configs = db.list_servers().await.map_err(|e| e.to_string())?;
     let config = configs.into_iter().find(|c| c.id == id).ok_or("Server config not found")?;
 
     let mut password = String::new();
-    if let Some(enc_pass) = config.password_enc {
+    if let Some(enc_pass) = &config.password_enc {
         let crypto_guard = state.crypto.lock().await;
         if let Some(crypto) = crypto_guard.as_ref() {
-            password = crypto.decrypt(&enc_pass).ok_or("Failed to decrypt password")?;
+            password = crypto.decrypt(enc_pass).ok_or("Failed to decrypt password")?;
         } else {
             return Err("Master password not set".to_string());
         }
