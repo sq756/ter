@@ -1,0 +1,567 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Server handler. Each client will have their own handler."><title>Handler in russh::server - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-77263533.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="russh" data-themes="" data-resource-suffix="" data-rustdoc-version="1.94.0 (4a4ef493e 2026-03-02)" data-channel="1.94.0" data-search-js="search-9e2438ea.js" data-stringdex-js="stringdex-b897f86f.js" data-settings-js="settings-c38705f0.js" ><script src="../../static.files/storage-e2aeef58.js"></script><script defer src="sidebar-items.js"></script><script defer src="../../static.files/main-7bab91a1.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-ffcac47a.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc trait"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Handler</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../russh/index.html">russh</a><span class="version">0.57.1</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Handler</a></h2><h3><a href="#required-associated-types">Required Associated Types</a></h3><ul class="block"><li><a href="#associatedtype.Error" title="Error">Error</a></li></ul><h3><a href="#provided-methods">Provided Methods</a></h3><ul class="block"><li><a href="#method.adjust_window" title="adjust_window">adjust_window</a></li><li><a href="#method.agent_request" title="agent_request">agent_request</a></li><li><a href="#method.auth_keyboard_interactive" title="auth_keyboard_interactive">auth_keyboard_interactive</a></li><li><a href="#method.auth_none" title="auth_none">auth_none</a></li><li><a href="#method.auth_openssh_certificate" title="auth_openssh_certificate">auth_openssh_certificate</a></li><li><a href="#method.auth_password" title="auth_password">auth_password</a></li><li><a href="#method.auth_publickey" title="auth_publickey">auth_publickey</a></li><li><a href="#method.auth_publickey_offered" title="auth_publickey_offered">auth_publickey_offered</a></li><li><a href="#method.auth_succeeded" title="auth_succeeded">auth_succeeded</a></li><li><a href="#method.authentication_banner" title="authentication_banner">authentication_banner</a></li><li><a href="#method.cancel_streamlocal_forward" title="cancel_streamlocal_forward">cancel_streamlocal_forward</a></li><li><a href="#method.cancel_tcpip_forward" title="cancel_tcpip_forward">cancel_tcpip_forward</a></li><li><a href="#method.channel_close" title="channel_close">channel_close</a></li><li><a href="#method.channel_eof" title="channel_eof">channel_eof</a></li><li><a href="#method.channel_open_confirmation" title="channel_open_confirmation">channel_open_confirmation</a></li><li><a href="#method.channel_open_direct_streamlocal" title="channel_open_direct_streamlocal">channel_open_direct_streamlocal</a></li><li><a href="#method.channel_open_direct_tcpip" title="channel_open_direct_tcpip">channel_open_direct_tcpip</a></li><li><a href="#method.channel_open_forwarded_tcpip" title="channel_open_forwarded_tcpip">channel_open_forwarded_tcpip</a></li><li><a href="#method.channel_open_session" title="channel_open_session">channel_open_session</a></li><li><a href="#method.channel_open_x11" title="channel_open_x11">channel_open_x11</a></li><li><a href="#method.data" title="data">data</a></li><li><a href="#method.env_request" title="env_request">env_request</a></li><li><a href="#method.exec_request" title="exec_request">exec_request</a></li><li><a href="#method.extended_data" title="extended_data">extended_data</a></li><li><a href="#method.lookup_dh_gex_group" title="lookup_dh_gex_group">lookup_dh_gex_group</a></li><li><a href="#method.pty_request" title="pty_request">pty_request</a></li><li><a href="#method.shell_request" title="shell_request">shell_request</a></li><li><a href="#method.signal" title="signal">signal</a></li><li><a href="#method.streamlocal_forward" title="streamlocal_forward">streamlocal_forward</a></li><li><a href="#method.subsystem_request" title="subsystem_request">subsystem_request</a></li><li><a href="#method.tcpip_forward" title="tcpip_forward">tcpip_forward</a></li><li><a href="#method.window_adjusted" title="window_adjusted">window_adjusted</a></li><li><a href="#method.window_change_request" title="window_change_request">window_change_request</a></li><li><a href="#method.x11_request" title="x11_request">x11_request</a></li></ul><h3><a href="#dyn-compatibility">Dyn Compatibility</a></h3><h3><a href="#implementors">Implementors</a></h3></section><div id="rustdoc-modnav"><h2><a href="index.html">In russh::<wbr>server</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">russh</a>::<wbr><a href="index.html">server</a></div><h1>Trait <span class="trait">Handler</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/russh/server/mod.rs.html#210-795">Source</a> </span></div><pre class="rust item-decl"><code>pub trait Handler: <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Sized.html" title="trait core::marker::Sized">Sized</a> {
+    type <a href="#associatedtype.Error" class="associatedtype">Error</a>: <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/convert/trait.From.html" title="trait core::convert::From">From</a>&lt;<a class="enum" href="../enum.Error.html" title="enum russh::Error">Error</a>&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a>;
+
+<details class="toggle type-contents-toggle"><summary class="hideme"><span>Show 34 methods</span></summary>    // Provided methods
+    fn <a href="#method.auth_none" class="fn">auth_none</a>(
+        &amp;mut self,
+        user: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="enum" href="enum.Auth.html" title="enum russh::server::Auth">Auth</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.auth_password" class="fn">auth_password</a>(
+        &amp;mut self,
+        user: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+        password: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="enum" href="enum.Auth.html" title="enum russh::server::Auth">Auth</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.auth_publickey_offered" class="fn">auth_publickey_offered</a>(
+        &amp;mut self,
+        user: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+        public_key: &amp;<a class="struct" href="../keys/struct.PublicKey.html" title="struct russh::keys::PublicKey">PublicKey</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="enum" href="enum.Auth.html" title="enum russh::server::Auth">Auth</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.auth_publickey" class="fn">auth_publickey</a>(
+        &amp;mut self,
+        user: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+        public_key: &amp;<a class="struct" href="../keys/struct.PublicKey.html" title="struct russh::keys::PublicKey">PublicKey</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="enum" href="enum.Auth.html" title="enum russh::server::Auth">Auth</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.auth_openssh_certificate" class="fn">auth_openssh_certificate</a>(
+        &amp;mut self,
+        user: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+        certificate: &amp;<a class="struct" href="../keys/struct.Certificate.html" title="struct russh::keys::Certificate">Certificate</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="enum" href="enum.Auth.html" title="enum russh::server::Auth">Auth</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.auth_keyboard_interactive" class="fn">auth_keyboard_interactive</a>&lt;'a&gt;(
+        &amp;'a mut self,
+        user: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+        submethods: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+        response: <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;<a class="struct" href="struct.Response.html" title="struct russh::server::Response">Response</a>&lt;'a&gt;&gt;,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="enum" href="enum.Auth.html" title="enum russh::server::Auth">Auth</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.auth_succeeded" class="fn">auth_succeeded</a>(
+        &amp;mut self,
+        session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.authentication_banner" class="fn">authentication_banner</a>(
+        &amp;mut self,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="enum" href="https://doc.rust-lang.org/1.94.0/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.94.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.channel_close" class="fn">channel_close</a>(
+        &amp;mut self,
+        channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+        session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.channel_eof" class="fn">channel_eof</a>(
+        &amp;mut self,
+        channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+        session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.channel_open_session" class="fn">channel_open_session</a>(
+        &amp;mut self,
+        channel: <a class="struct" href="../struct.Channel.html" title="struct russh::Channel">Channel</a>&lt;<a class="enum" href="enum.Msg.html" title="enum russh::server::Msg">Msg</a>&gt;,
+        session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.bool.html">bool</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.channel_open_x11" class="fn">channel_open_x11</a>(
+        &amp;mut self,
+        channel: <a class="struct" href="../struct.Channel.html" title="struct russh::Channel">Channel</a>&lt;<a class="enum" href="enum.Msg.html" title="enum russh::server::Msg">Msg</a>&gt;,
+        originator_address: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+        originator_port: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+        session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.bool.html">bool</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.channel_open_direct_tcpip" class="fn">channel_open_direct_tcpip</a>(
+        &amp;mut self,
+        channel: <a class="struct" href="../struct.Channel.html" title="struct russh::Channel">Channel</a>&lt;<a class="enum" href="enum.Msg.html" title="enum russh::server::Msg">Msg</a>&gt;,
+        host_to_connect: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+        port_to_connect: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+        originator_address: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+        originator_port: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+        session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.bool.html">bool</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.channel_open_forwarded_tcpip" class="fn">channel_open_forwarded_tcpip</a>(
+        &amp;mut self,
+        channel: <a class="struct" href="../struct.Channel.html" title="struct russh::Channel">Channel</a>&lt;<a class="enum" href="enum.Msg.html" title="enum russh::server::Msg">Msg</a>&gt;,
+        host_to_connect: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+        port_to_connect: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+        originator_address: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+        originator_port: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+        session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.bool.html">bool</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.channel_open_direct_streamlocal" class="fn">channel_open_direct_streamlocal</a>(
+        &amp;mut self,
+        channel: <a class="struct" href="../struct.Channel.html" title="struct russh::Channel">Channel</a>&lt;<a class="enum" href="enum.Msg.html" title="enum russh::server::Msg">Msg</a>&gt;,
+        socket_path: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+        session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.bool.html">bool</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.channel_open_confirmation" class="fn">channel_open_confirmation</a>(
+        &amp;mut self,
+        id: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+        max_packet_size: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+        window_size: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+        session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.data" class="fn">data</a>(
+        &amp;mut self,
+        channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+        data: &amp;[<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u8.html">u8</a>],
+        session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.extended_data" class="fn">extended_data</a>(
+        &amp;mut self,
+        channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+        code: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+        data: &amp;[<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u8.html">u8</a>],
+        session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.window_adjusted" class="fn">window_adjusted</a>(
+        &amp;mut self,
+        channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+        new_size: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+        session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.adjust_window" class="fn">adjust_window</a>(&amp;mut self, channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>, current: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>) -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.pty_request" class="fn">pty_request</a>(
+        &amp;mut self,
+        channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+        term: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+        col_width: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+        row_height: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+        pix_width: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+        pix_height: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+        modes: &amp;[(<a class="enum" href="../enum.Pty.html" title="enum russh::Pty">Pty</a>, <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>)],
+        session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.x11_request" class="fn">x11_request</a>(
+        &amp;mut self,
+        channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+        single_connection: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.bool.html">bool</a>,
+        x11_auth_protocol: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+        x11_auth_cookie: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+        x11_screen_number: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+        session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.env_request" class="fn">env_request</a>(
+        &amp;mut self,
+        channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+        variable_name: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+        variable_value: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+        session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.shell_request" class="fn">shell_request</a>(
+        &amp;mut self,
+        channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+        session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.exec_request" class="fn">exec_request</a>(
+        &amp;mut self,
+        channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+        data: &amp;[<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u8.html">u8</a>],
+        session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.subsystem_request" class="fn">subsystem_request</a>(
+        &amp;mut self,
+        channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+        name: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+        session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.window_change_request" class="fn">window_change_request</a>(
+        &amp;mut self,
+        channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+        col_width: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+        row_height: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+        pix_width: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+        pix_height: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+        session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.agent_request" class="fn">agent_request</a>(
+        &amp;mut self,
+        channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+        session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.bool.html">bool</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.signal" class="fn">signal</a>(
+        &amp;mut self,
+        channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+        signal: <a class="enum" href="../enum.Sig.html" title="enum russh::Sig">Sig</a>,
+        session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.tcpip_forward" class="fn">tcpip_forward</a>(
+        &amp;mut self,
+        address: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+        port: &amp;mut <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+        session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.bool.html">bool</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.cancel_tcpip_forward" class="fn">cancel_tcpip_forward</a>(
+        &amp;mut self,
+        address: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+        port: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+        session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.bool.html">bool</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.streamlocal_forward" class="fn">streamlocal_forward</a>(
+        &amp;mut self,
+        socket_path: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+        session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.bool.html">bool</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.cancel_streamlocal_forward" class="fn">cancel_streamlocal_forward</a>(
+        &amp;mut self,
+        socket_path: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+        session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.bool.html">bool</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+<span class="item-spacer"></span>    fn <a href="#method.lookup_dh_gex_group" class="fn">lookup_dh_gex_group</a>(
+        &amp;mut self,
+        gex_params: &amp;<a class="struct" href="../client/struct.GexParams.html" title="struct russh::client::GexParams">GexParams</a>,
+    ) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="enum" href="https://doc.rust-lang.org/1.94.0/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;<a class="struct" href="../kex/dh/groups/struct.DhGroup.html" title="struct russh::kex::dh::groups::DhGroup">DhGroup</a>&gt;, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> { ... }
+</details>}</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Server handler. Each client will have their own handler.</p>
+<p>Note: this is an async trait. The trait functions return <code>impl Future</code>,
+and you can simply define them as <code>async fn</code> instead.</p>
+</div></details><h2 id="required-associated-types" class="section-header">Required Associated Types<a href="#required-associated-types" class="anchor">§</a></h2><div class="methods"><section id="associatedtype.Error" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#211">Source</a><h4 class="code-header">type <a href="#associatedtype.Error" class="associatedtype">Error</a>: <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/convert/trait.From.html" title="trait core::convert::From">From</a>&lt;<a class="enum" href="../enum.Error.html" title="enum russh::Error">Error</a>&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></div><h2 id="provided-methods" class="section-header">Provided Methods<a href="#provided-methods" class="anchor">§</a></h2><div class="methods"><details class="toggle method-toggle" open><summary><section id="method.auth_none" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#217-219">Source</a><h4 class="code-header">fn <a href="#method.auth_none" class="fn">auth_none</a>(
+    &amp;mut self,
+    user: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="enum" href="enum.Auth.html" title="enum russh::server::Auth">Auth</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>Check authentication using the “none” method. Russh makes
+sure rejection happens in time <code>config.auth_rejection_time</code>,
+except if this method takes more than that.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.auth_password" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#226-232">Source</a><h4 class="code-header">fn <a href="#method.auth_password" class="fn">auth_password</a>(
+    &amp;mut self,
+    user: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+    password: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="enum" href="enum.Auth.html" title="enum russh::server::Auth">Auth</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>Check authentication using the “password” method. Russh
+makes sure rejection happens in time
+<code>config.auth_rejection_time</code>, except if this method takes more
+than that.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.auth_publickey_offered" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#242-248">Source</a><h4 class="code-header">fn <a href="#method.auth_publickey_offered" class="fn">auth_publickey_offered</a>(
+    &amp;mut self,
+    user: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+    public_key: &amp;<a class="struct" href="../keys/struct.PublicKey.html" title="struct russh::keys::PublicKey">PublicKey</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="enum" href="enum.Auth.html" title="enum russh::server::Auth">Auth</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>Check authentication using the “publickey” method. This method
+should just check whether the public key matches the
+authorized ones. Russh then checks the signature. If the key
+is unknown, or the signature is invalid, Russh guarantees
+that rejection happens in constant time
+<code>config.auth_rejection_time</code>, except if this method takes more
+time than that.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.auth_publickey" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#257-263">Source</a><h4 class="code-header">fn <a href="#method.auth_publickey" class="fn">auth_publickey</a>(
+    &amp;mut self,
+    user: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+    public_key: &amp;<a class="struct" href="../keys/struct.PublicKey.html" title="struct russh::keys::PublicKey">PublicKey</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="enum" href="enum.Auth.html" title="enum russh::server::Auth">Auth</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>Check authentication using the “publickey” method. This method
+is called after the signature has been verified and key
+ownership has been confirmed.
+Russh guarantees that rejection happens in constant time
+<code>config.auth_rejection_time</code>, except if this method takes more
+time than that.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.auth_openssh_certificate" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#272-278">Source</a><h4 class="code-header">fn <a href="#method.auth_openssh_certificate" class="fn">auth_openssh_certificate</a>(
+    &amp;mut self,
+    user: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+    certificate: &amp;<a class="struct" href="../keys/struct.Certificate.html" title="struct russh::keys::Certificate">Certificate</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="enum" href="enum.Auth.html" title="enum russh::server::Auth">Auth</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>Check authentication using an OpenSSH certificate. This method
+is called after the signature has been verified and key
+ownership has been confirmed.
+Russh guarantees that rejection happens in constant time
+<code>config.auth_rejection_time</code>, except if this method takes more
+time than that.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.auth_keyboard_interactive" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#285-292">Source</a><h4 class="code-header">fn <a href="#method.auth_keyboard_interactive" class="fn">auth_keyboard_interactive</a>&lt;'a&gt;(
+    &amp;'a mut self,
+    user: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+    submethods: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+    response: <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;<a class="struct" href="struct.Response.html" title="struct russh::server::Response">Response</a>&lt;'a&gt;&gt;,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="enum" href="enum.Auth.html" title="enum russh::server::Auth">Auth</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>Check authentication using the “keyboard-interactive”
+method. Russh makes sure rejection happens in time
+<code>config.auth_rejection_time</code>, except if this method takes more
+than that.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.auth_succeeded" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#296-301">Source</a><h4 class="code-header">fn <a href="#method.auth_succeeded" class="fn">auth_succeeded</a>(
+    &amp;mut self,
+    session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>Called when authentication succeeds for a session.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.authentication_banner" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#306-310">Source</a><h4 class="code-header">fn <a href="#method.authentication_banner" class="fn">authentication_banner</a>(
+    &amp;mut self,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="enum" href="https://doc.rust-lang.org/1.94.0/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.94.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>Called when authentication starts but before it is successful.
+Return value is an authentication banner, usually a warning message shown to the client.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.channel_close" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#314-320">Source</a><h4 class="code-header">fn <a href="#method.channel_close" class="fn">channel_close</a>(
+    &amp;mut self,
+    channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+    session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>Called when the client closes a channel.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.channel_eof" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#324-330">Source</a><h4 class="code-header">fn <a href="#method.channel_eof" class="fn">channel_eof</a>(
+    &amp;mut self,
+    channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+    session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>Called when the client sends EOF to a channel.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.channel_open_session" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#335-341">Source</a><h4 class="code-header">fn <a href="#method.channel_open_session" class="fn">channel_open_session</a>(
+    &amp;mut self,
+    channel: <a class="struct" href="../struct.Channel.html" title="struct russh::Channel">Channel</a>&lt;<a class="enum" href="enum.Msg.html" title="enum russh::server::Msg">Msg</a>&gt;,
+    session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.bool.html">bool</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>Called when a new session channel is created.
+Return value indicates whether the channel request should be granted.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.channel_open_x11" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#346-354">Source</a><h4 class="code-header">fn <a href="#method.channel_open_x11" class="fn">channel_open_x11</a>(
+    &amp;mut self,
+    channel: <a class="struct" href="../struct.Channel.html" title="struct russh::Channel">Channel</a>&lt;<a class="enum" href="enum.Msg.html" title="enum russh::server::Msg">Msg</a>&gt;,
+    originator_address: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+    originator_port: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+    session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.bool.html">bool</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>Called when a new X11 channel is created.
+Return value indicates whether the channel request should be granted.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.channel_open_direct_tcpip" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#359-369">Source</a><h4 class="code-header">fn <a href="#method.channel_open_direct_tcpip" class="fn">channel_open_direct_tcpip</a>(
+    &amp;mut self,
+    channel: <a class="struct" href="../struct.Channel.html" title="struct russh::Channel">Channel</a>&lt;<a class="enum" href="enum.Msg.html" title="enum russh::server::Msg">Msg</a>&gt;,
+    host_to_connect: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+    port_to_connect: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+    originator_address: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+    originator_port: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+    session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.bool.html">bool</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>Called when a new direct TCP/IP (“local TCP forwarding”) channel is opened.
+Return value indicates whether the channel request should be granted.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.channel_open_forwarded_tcpip" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#374-384">Source</a><h4 class="code-header">fn <a href="#method.channel_open_forwarded_tcpip" class="fn">channel_open_forwarded_tcpip</a>(
+    &amp;mut self,
+    channel: <a class="struct" href="../struct.Channel.html" title="struct russh::Channel">Channel</a>&lt;<a class="enum" href="enum.Msg.html" title="enum russh::server::Msg">Msg</a>&gt;,
+    host_to_connect: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+    port_to_connect: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+    originator_address: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+    originator_port: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+    session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.bool.html">bool</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>Called when a new remote forwarded TCP connection comes in.
+<a href="https://www.rfc-editor.org/rfc/rfc4254#section-7">https://www.rfc-editor.org/rfc/rfc4254#section-7</a></p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.channel_open_direct_streamlocal" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#389-396">Source</a><h4 class="code-header">fn <a href="#method.channel_open_direct_streamlocal" class="fn">channel_open_direct_streamlocal</a>(
+    &amp;mut self,
+    channel: <a class="struct" href="../struct.Channel.html" title="struct russh::Channel">Channel</a>&lt;<a class="enum" href="enum.Msg.html" title="enum russh::server::Msg">Msg</a>&gt;,
+    socket_path: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+    session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.bool.html">bool</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>Called when a new direct-streamlocal (“local UNIX socket forwarding”) channel is created.
+Return value indicates whether the channel request should be granted.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.channel_open_confirmation" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#402-410">Source</a><h4 class="code-header">fn <a href="#method.channel_open_confirmation" class="fn">channel_open_confirmation</a>(
+    &amp;mut self,
+    id: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+    max_packet_size: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+    window_size: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+    session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>Called when the client confirmed our request to open a
+channel. A channel can only be written to after receiving this
+message (this library panics otherwise).</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.data" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#415-422">Source</a><h4 class="code-header">fn <a href="#method.data" class="fn">data</a>(
+    &amp;mut self,
+    channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+    data: &amp;[<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u8.html">u8</a>],
+    session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>Called when a data packet is received. A response can be
+written to the <code>response</code> argument.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.extended_data" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#429-437">Source</a><h4 class="code-header">fn <a href="#method.extended_data" class="fn">extended_data</a>(
+    &amp;mut self,
+    channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+    code: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+    data: &amp;[<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u8.html">u8</a>],
+    session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>Called when an extended data packet is received. Code 1 means
+that this packet comes from stderr, other codes are not
+defined (see
+<a href="https://tools.ietf.org/html/rfc4254#section-5.2">RFC4254</a>).</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.window_adjusted" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#442-449">Source</a><h4 class="code-header">fn <a href="#method.window_adjusted" class="fn">window_adjusted</a>(
+    &amp;mut self,
+    channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+    new_size: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+    session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>Called when the network window is adjusted, meaning that we
+can send more bytes.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.adjust_window" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#454-456">Source</a><h4 class="code-header">fn <a href="#method.adjust_window" class="fn">adjust_window</a>(&amp;mut self, channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>, current: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>) -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a></h4></section></summary><div class="docblock"><p>Called when this server adjusts the network window. Return the
+next target window.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.pty_request" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#482-494">Source</a><h4 class="code-header">fn <a href="#method.pty_request" class="fn">pty_request</a>(
+    &amp;mut self,
+    channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+    term: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+    col_width: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+    row_height: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+    pix_width: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+    pix_height: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+    modes: &amp;[(<a class="enum" href="../enum.Pty.html" title="enum russh::Pty">Pty</a>, <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>)],
+    session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>The client requests a pseudo-terminal with the given
+specifications.</p>
+<p><strong>Note:</strong> Success or failure should be communicated to the client by calling
+<code>session.channel_success(channel)</code> or <code>session.channel_failure(channel)</code> respectively. For
+instance:</p>
+
+<div class="example-wrap ignore"><a href="#" class="tooltip" title="This example is not tested">ⓘ</a><pre class="rust rust-example-rendered"><code><span class="kw">async fn </span>pty_request(
+    <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+    channel: ChannelId,
+    term: <span class="kw-2">&amp;</span>str,
+    col_width: u32,
+    row_height: u32,
+    pix_width: u32,
+    pix_height: u32,
+    modes: <span class="kw-2">&amp;</span>[(Pty, u32)],
+    session: <span class="kw-2">&amp;mut </span>Session,
+) -&gt; <span class="prelude-ty">Result</span>&lt;(), <span class="self">Self</span>::Error&gt; {
+    session.channel_success(channel);
+    <span class="prelude-val">Ok</span>(())
+}</code></pre></div></div></details><details class="toggle method-toggle" open><summary><section id="method.x11_request" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#517-527">Source</a><h4 class="code-header">fn <a href="#method.x11_request" class="fn">x11_request</a>(
+    &amp;mut self,
+    channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+    single_connection: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.bool.html">bool</a>,
+    x11_auth_protocol: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+    x11_auth_cookie: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+    x11_screen_number: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+    session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>The client requests an X11 connection.</p>
+<p><strong>Note:</strong> Success or failure should be communicated to the client by calling
+<code>session.channel_success(channel)</code> or <code>session.channel_failure(channel)</code> respectively. For
+instance:</p>
+
+<div class="example-wrap ignore"><a href="#" class="tooltip" title="This example is not tested">ⓘ</a><pre class="rust rust-example-rendered"><code><span class="kw">async fn </span>x11_request(
+    <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+    channel: ChannelId,
+    single_connection: bool,
+    x11_auth_protocol: <span class="kw-2">&amp;</span>str,
+    x11_auth_cookie: <span class="kw-2">&amp;</span>str,
+    x11_screen_number: u32,
+    session: <span class="kw-2">&amp;mut </span>Session,
+) -&gt; <span class="prelude-ty">Result</span>&lt;(), <span class="self">Self</span>::Error&gt; {
+    session.channel_success(channel);
+    <span class="prelude-val">Ok</span>(())
+}</code></pre></div></div></details><details class="toggle method-toggle" open><summary><section id="method.env_request" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#550-558">Source</a><h4 class="code-header">fn <a href="#method.env_request" class="fn">env_request</a>(
+    &amp;mut self,
+    channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+    variable_name: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+    variable_value: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+    session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>The client wants to set the given environment variable. Check
+these carefully, as it is dangerous to allow any variable
+environment to be set.</p>
+<p><strong>Note:</strong> Success or failure should be communicated to the client by calling
+<code>session.channel_success(channel)</code> or <code>session.channel_failure(channel)</code> respectively. For
+instance:</p>
+
+<div class="example-wrap ignore"><a href="#" class="tooltip" title="This example is not tested">ⓘ</a><pre class="rust rust-example-rendered"><code><span class="kw">async fn </span>env_request(
+    <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+    channel: ChannelId,
+    variable_name: <span class="kw-2">&amp;</span>str,
+    variable_value: <span class="kw-2">&amp;</span>str,
+    session: <span class="kw-2">&amp;mut </span>Session,
+) -&gt; <span class="prelude-ty">Result</span>&lt;(), <span class="self">Self</span>::Error&gt; {
+    session.channel_success(channel);
+    <span class="prelude-val">Ok</span>(())
+}</code></pre></div></div></details><details class="toggle method-toggle" open><summary><section id="method.shell_request" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#577-583">Source</a><h4 class="code-header">fn <a href="#method.shell_request" class="fn">shell_request</a>(
+    &amp;mut self,
+    channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+    session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>The client requests a shell.</p>
+<p><strong>Note:</strong> Success or failure should be communicated to the client by calling
+<code>session.channel_success(channel)</code> or <code>session.channel_failure(channel)</code> respectively. For
+instance:</p>
+
+<div class="example-wrap ignore"><a href="#" class="tooltip" title="This example is not tested">ⓘ</a><pre class="rust rust-example-rendered"><code><span class="kw">async fn </span>shell_request(
+    <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+    channel: ChannelId,
+    session: <span class="kw-2">&amp;mut </span>Session,
+) -&gt; <span class="prelude-ty">Result</span>&lt;(), <span class="self">Self</span>::Error&gt; {
+    session.channel_success(channel);
+    <span class="prelude-val">Ok</span>(())
+}</code></pre></div></div></details><details class="toggle method-toggle" open><summary><section id="method.exec_request" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#604-611">Source</a><h4 class="code-header">fn <a href="#method.exec_request" class="fn">exec_request</a>(
+    &amp;mut self,
+    channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+    data: &amp;[<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u8.html">u8</a>],
+    session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>The client sends a command to execute, to be passed to a
+shell. Make sure to check the command before doing so.</p>
+<p><strong>Note:</strong> Success or failure should be communicated to the client by calling
+<code>session.channel_success(channel)</code> or <code>session.channel_failure(channel)</code> respectively. For
+instance:</p>
+
+<div class="example-wrap ignore"><a href="#" class="tooltip" title="This example is not tested">ⓘ</a><pre class="rust rust-example-rendered"><code><span class="kw">async fn </span>exec_request(
+    <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+    channel: ChannelId,
+    data: <span class="kw-2">&amp;</span>[u8],
+    session: <span class="kw-2">&amp;mut </span>Session,
+) -&gt; <span class="prelude-ty">Result</span>&lt;(), <span class="self">Self</span>::Error&gt; {
+    session.channel_success(channel);
+    <span class="prelude-val">Ok</span>(())
+}</code></pre></div></div></details><details class="toggle method-toggle" open><summary><section id="method.subsystem_request" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#632-639">Source</a><h4 class="code-header">fn <a href="#method.subsystem_request" class="fn">subsystem_request</a>(
+    &amp;mut self,
+    channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+    name: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+    session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>The client asks to start the subsystem with the given name
+(such as sftp).</p>
+<p><strong>Note:</strong> Success or failure should be communicated to the client by calling
+<code>session.channel_success(channel)</code> or <code>session.channel_failure(channel)</code> respectively. For
+instance:</p>
+
+<div class="example-wrap ignore"><a href="#" class="tooltip" title="This example is not tested">ⓘ</a><pre class="rust rust-example-rendered"><code><span class="kw">async fn </span>subsystem_request(
+    <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+    channel: ChannelId,
+    name: <span class="kw-2">&amp;</span>str,
+    session: <span class="kw-2">&amp;mut </span>Session,
+) -&gt; <span class="prelude-ty">Result</span>&lt;(), <span class="self">Self</span>::Error&gt; {
+    session.channel_success(channel);
+    <span class="prelude-val">Ok</span>(())
+}</code></pre></div></div></details><details class="toggle method-toggle" open><summary><section id="method.window_change_request" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#662-672">Source</a><h4 class="code-header">fn <a href="#method.window_change_request" class="fn">window_change_request</a>(
+    &amp;mut self,
+    channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+    col_width: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+    row_height: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+    pix_width: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+    pix_height: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+    session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>The client’s pseudo-terminal window size has changed.</p>
+<p><strong>Note:</strong> Success or failure should be communicated to the client by calling
+<code>session.channel_success(channel)</code> or <code>session.channel_failure(channel)</code> respectively. For
+instance:</p>
+
+<div class="example-wrap ignore"><a href="#" class="tooltip" title="This example is not tested">ⓘ</a><pre class="rust rust-example-rendered"><code><span class="kw">async fn </span>window_change_request(
+    <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+    channel: ChannelId,
+    col_width: u32,
+    row_height: u32,
+    pix_width: u32,
+    pix_height: u32,
+    session: <span class="kw-2">&amp;mut </span>Session,
+) -&gt; <span class="prelude-ty">Result</span>&lt;(), <span class="self">Self</span>::Error&gt; {
+    session.channel_success(channel);
+    <span class="prelude-val">Ok</span>(())
+}</code></pre></div></div></details><details class="toggle method-toggle" open><summary><section id="method.agent_request" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#691-697">Source</a><h4 class="code-header">fn <a href="#method.agent_request" class="fn">agent_request</a>(
+    &amp;mut self,
+    channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+    session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.bool.html">bool</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>The client requests OpenSSH agent forwarding</p>
+<p><strong>Note:</strong> Success or failure should be communicated to the client by calling
+<code>session.channel_success(channel)</code> or <code>session.channel_failure(channel)</code> respectively. For
+instance:</p>
+
+<div class="example-wrap ignore"><a href="#" class="tooltip" title="This example is not tested">ⓘ</a><pre class="rust rust-example-rendered"><code><span class="kw">async fn </span>agent_request(
+    <span class="kw-2">&amp;mut </span><span class="self">self</span>,
+    channel: ChannelId,
+    session: <span class="kw-2">&amp;mut </span>Session,
+) -&gt; <span class="prelude-ty">Result</span>&lt;bool, <span class="self">Self</span>::Error&gt; {
+    session.channel_success(channel);
+    <span class="prelude-val">Ok</span>(())
+}</code></pre></div></div></details><details class="toggle method-toggle" open><summary><section id="method.signal" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#702-709">Source</a><h4 class="code-header">fn <a href="#method.signal" class="fn">signal</a>(
+    &amp;mut self,
+    channel: <a class="struct" href="../struct.ChannelId.html" title="struct russh::ChannelId">ChannelId</a>,
+    signal: <a class="enum" href="../enum.Sig.html" title="enum russh::Sig">Sig</a>,
+    session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.unit.html">()</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>The client is sending a signal (usually to pass to the
+currently running process).</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.tcpip_forward" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#715-722">Source</a><h4 class="code-header">fn <a href="#method.tcpip_forward" class="fn">tcpip_forward</a>(
+    &amp;mut self,
+    address: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+    port: &amp;mut <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+    session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.bool.html">bool</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>Used for reverse-forwarding ports, see
+<a href="https://tools.ietf.org/html/rfc4254#section-7">RFC4254</a>.
+If <code>port</code> is 0, you should set it to the allocated port number.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.cancel_tcpip_forward" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#727-734">Source</a><h4 class="code-header">fn <a href="#method.cancel_tcpip_forward" class="fn">cancel_tcpip_forward</a>(
+    &amp;mut self,
+    address: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+    port: <a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.u32.html">u32</a>,
+    session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.bool.html">bool</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>Used to stop the reverse-forwarding of a port, see
+<a href="https://tools.ietf.org/html/rfc4254#section-7">RFC4254</a>.</p>
+</div></details><section id="method.streamlocal_forward" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#737-743">Source</a><h4 class="code-header">fn <a href="#method.streamlocal_forward" class="fn">streamlocal_forward</a>(
+    &amp;mut self,
+    socket_path: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+    session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.bool.html">bool</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section><section id="method.cancel_streamlocal_forward" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#746-752">Source</a><h4 class="code-header">fn <a href="#method.cancel_streamlocal_forward" class="fn">cancel_streamlocal_forward</a>(
+    &amp;mut self,
+    socket_path: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.str.html">str</a>,
+    session: &amp;mut <a class="struct" href="struct.Session.html" title="struct russh::server::Session">Session</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.94.0/std/primitive.bool.html">bool</a>, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section><details class="toggle method-toggle" open><summary><section id="method.lookup_dh_gex_group" class="method"><a class="src rightside" href="../../src/russh/server/mod.rs.html#767-794">Source</a><h4 class="code-header">fn <a href="#method.lookup_dh_gex_group" class="fn">lookup_dh_gex_group</a>(
+    &amp;mut self,
+    gex_params: &amp;<a class="struct" href="../client/struct.GexParams.html" title="struct russh::client::GexParams">GexParams</a>,
+) -&gt; impl <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/future/future/trait.Future.html" title="trait core::future::future::Future">Future</a>&lt;Output = <a class="enum" href="https://doc.rust-lang.org/1.94.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="enum" href="https://doc.rust-lang.org/1.94.0/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;<a class="struct" href="../kex/dh/groups/struct.DhGroup.html" title="struct russh::kex::dh::groups::DhGroup">DhGroup</a>&gt;, Self::<a class="associatedtype" href="trait.Handler.html#associatedtype.Error" title="type russh::server::Handler::Error">Error</a>&gt;&gt; + <a class="trait" href="https://doc.rust-lang.org/1.94.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a></h4></section></summary><div class="docblock"><p>Override when enabling the <code>diffie-hellman-group-exchange-*</code> key exchange methods.
+Should return a Diffie-Hellman group with a safe prime whose length is
+between <code>gex_params.min_group_size</code> and <code>gex_params.max_group_size</code> and
+(if possible) over and as close as possible to <code>gex_params.preferred_group_size</code>.</p>
+<p>OpenSSH uses a pre-generated database of safe primes stored in <code>/etc/ssh/moduli</code></p>
+<p>The default implementation picks a group from a very short static list
+of built-in standard groups and is not really taking advantage of the security
+offered by these kex methods.</p>
+<p>See https://datatracker.ietf.org/doc/html/rfc4419#section-3</p>
+</div></details></div><h2 id="dyn-compatibility" class="section-header">Dyn Compatibility<a href="#dyn-compatibility" class="anchor">§</a></h2><div class="dyn-compatibility-info"><p>This trait is <b>not</b> <a href="https://doc.rust-lang.org/1.94.0/reference/items/traits.html#dyn-compatibility">dyn compatible</a>.</p><p><i>In older versions of Rust, dyn compatibility was called "object safety", so this trait is not object safe.</i></p></div><h2 id="implementors" class="section-header">Implementors<a href="#implementors" class="anchor">§</a></h2><div id="implementors-list"></div><script src="../../trait.impl/russh/server/trait.Handler.js" async></script></section></div></main></body></html>

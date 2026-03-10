@@ -1,0 +1,9 @@
+(function() {
+    const implementors = Object.fromEntries([["internal_russh_forked_ssh_key",[["impl <a class=\"trait\" href=\"ssh_encoding/label/trait.Label.html\" title=\"trait ssh_encoding::label::Label\">Label</a> for <a class=\"enum\" href=\"internal_russh_forked_ssh_key/enum.Algorithm.html\" title=\"enum internal_russh_forked_ssh_key::Algorithm\">Algorithm</a>",0],["impl <a class=\"trait\" href=\"ssh_encoding/label/trait.Label.html\" title=\"trait ssh_encoding::label::Label\">Label</a> for <a class=\"enum\" href=\"internal_russh_forked_ssh_key/enum.EcdsaCurve.html\" title=\"enum internal_russh_forked_ssh_key::EcdsaCurve\">EcdsaCurve</a>",0],["impl <a class=\"trait\" href=\"ssh_encoding/label/trait.Label.html\" title=\"trait ssh_encoding::label::Label\">Label</a> for <a class=\"enum\" href=\"internal_russh_forked_ssh_key/enum.HashAlg.html\" title=\"enum internal_russh_forked_ssh_key::HashAlg\">HashAlg</a>",0],["impl <a class=\"trait\" href=\"ssh_encoding/label/trait.Label.html\" title=\"trait ssh_encoding::label::Label\">Label</a> for <a class=\"enum\" href=\"internal_russh_forked_ssh_key/enum.KdfAlg.html\" title=\"enum internal_russh_forked_ssh_key::KdfAlg\">KdfAlg</a>",0]]],["ssh_cipher",[["impl <a class=\"trait\" href=\"ssh_encoding/label/trait.Label.html\" title=\"trait ssh_encoding::label::Label\">Label</a> for <a class=\"enum\" href=\"ssh_cipher/enum.Cipher.html\" title=\"enum ssh_cipher::Cipher\">Cipher</a>",0]]]]);
+    if (window.register_implementors) {
+        window.register_implementors(implementors);
+    } else {
+        window.pending_implementors = implementors;
+    }
+})()
+//{"start":59,"fragment_lengths":[1139,249]}
