@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "ter",
-  "version": "0.1.0",
-  "identifier": "com.ter.ssh.manager",
+  "version": "0.1.1",
+  "identifier": "com.sq756.ter",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5173",

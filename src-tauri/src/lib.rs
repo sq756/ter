@@ -80,7 +80,7 @@ async fn delete_server_config(id: String, state: State<'_, AppState>) -> Result<
     db.delete_server(&id).await.map_err(|e| e.to_string())
 }
 
-async fn deploy_agent(session: &client::Handle<Client>, token: &str) -> Result<(), String> {
+async fn deploy_agent(session: &client::Handle<Client>, token: &str, app_handle: &AppHandle) -> Result<(), String> {
     // 1. Prepare remote directory
     let mut channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
     channel.exec(true, "mkdir -p ~/.ter").await.map_err(|e| e.to_string())?;
@@ -94,10 +94,22 @@ async fn deploy_agent(session: &client::Handle<Client>, token: &str) -> Result<(
     
     let sftp = SftpSession::new(sftp_channel.into_stream()).await.map_err(|e| format!("SFTP init error: {}", e))?;
 
-    let local_path = "../ter_agent/agent_linux_amd64";
-    let remote_path = ".ter/agent_linux_amd64";
+    let res_dir = app_handle.path().resource_dir().map_err(|e| e.to_string())?;
+    let local_path = res_dir.join("agent_linux_amd64");
 
-    let mut local_file = tokio::fs::File::open(local_path).await.map_err(|e| format!("Local agent not found: {}", e))?;
+    // Fallback for development or nested structure
+    let local_path = if local_path.exists() {
+        local_path
+    } else {
+        let dev_path = std::env::current_dir().unwrap().join("../ter_agent/agent_linux_amd64");
+        if dev_path.exists() {
+            dev_path
+        } else {
+            res_dir.join("ter_agent/agent_linux_amd64") // Try nested as well
+        }
+    };
+
+    let mut local_file = tokio::fs::File::open(&local_path).await.map_err(|e| format!("Local agent not found at {:?}: {}", local_path, e))?;
     let mut remote_file = sftp.create(remote_path).await.map_err(|e| format!("Failed to create remote file: {}", e))?;
     
     let mut buf = vec![0; 16384];
@@ -135,7 +147,7 @@ async fn connect_to_ssh(host: String, user: String, pass: String, app_handle: Ap
     *state.agent_token.lock().await = token.clone();
 
     // Deploy Agent
-    deploy_agent(&session, &token).await?;
+    deploy_agent(&session, &token, &app_handle).await?;
 
     let mut channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
     channel.request_pty(true, "xterm-256color", 80, 24, 0, 0, &[]).await.map_err(|e| e.to_string())?;
