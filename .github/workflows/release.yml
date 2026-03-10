@@ -26,6 +26,11 @@ jobs:
       - name: Rust setup
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Go setup
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
