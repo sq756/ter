@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { open, save } from '@tauri-apps/plugin-dialog';
@@ -76,10 +76,12 @@ let statsInterval: number | null = null;
 
 const initCharts = () => {
   if (cpuChartRef.value) {
+    if (cpuChart) cpuChart.dispose();
     cpuChart = echarts.init(cpuChartRef.value);
     cpuChart.setOption(getChartOption('CPU Usage (%)', '#6366f1'));
   }
   if (memChartRef.value) {
+    if (memChart) memChart.dispose();
     memChart = echarts.init(memChartRef.value);
     memChart.setOption(getChartOption('Memory Usage (%)', '#a855f7'));
   }
@@ -90,7 +92,7 @@ const getChartOption = (title: string, color: string) => ({
   grid: { top: 25, bottom: 5, left: 30, right: 5 },
   xAxis: { type: 'category', show: false },
   yAxis: { type: 'value', min: 0, max: 100, splitLine: { lineStyle: { color: '#27272a' } } },
-  series: [{ data: [], type: 'line', smooth: true, showSymbol: false, areaStyle: { color }, itemStyle: { color } }],
+  series: [{ data: title.includes('CPU') ? cpuHistory.value : memHistory.value, type: 'line', smooth: true, showSymbol: false, areaStyle: { color }, itemStyle: { color } }],
   animation: false
 });
 
@@ -118,14 +120,16 @@ onMounted(async () => {
   });
   fitAddon = new FitAddon();
   term.loadAddon(fitAddon);
-  if (terminalRef.value) {
-    term.open(terminalRef.value);
-    try { term.loadAddon(new WebglAddon()); } catch (e) {}
-    fitAddon.fit();
-  }
+  
   term.onData(async (data) => { if (isConnected.value) await invoke('write_pty', { data }); });
   term.onResize(async (size) => { if (isConnected.value) await invoke('resize_pty', { cols: size.cols, rows: size.rows }); });
-  window.addEventListener('resize', () => { fitAddon?.fit(); cpuChart?.resize(); memChart?.resize(); });
+  window.addEventListener('resize', () => { 
+    if (isConnected.value) {
+      fitAddon?.fit(); 
+      cpuChart?.resize(); 
+      memChart?.resize(); 
+    }
+  });
 });
 
 onUnmounted(() => {
@@ -171,23 +175,34 @@ const deleteServer = async (id: string) => {
 const connectWithId = async (id: string) => {
   isProcessing.value = true;
   errorMsg.value = '';
-  try { await invoke('connect_with_id', { id }); onConnected(); } catch (e) { errorMsg.value = String(e); }
+  try { await invoke('connect_with_id', { id }); await onConnected(); } catch (e) { errorMsg.value = String(e); }
   finally { isProcessing.value = false; }
 };
 
 const connect = async () => {
   isProcessing.value = true;
   errorMsg.value = '';
-  try { await invoke('connect_to_ssh', { host: host.value, user: user.value, pass: password.value }); onConnected(); } catch (e) { errorMsg.value = String(e); }
+  try { await invoke('connect_to_ssh', { host: host.value, user: user.value, pass: password.value }); await onConnected(); } catch (e) { errorMsg.value = String(e); }
   finally { isProcessing.value = false; }
 };
 
 const onConnected = async () => {
   isConnected.value = true;
   agentToken.value = await invoke('get_agent_token');
-  setTimeout(() => { fitAddon.fit(); invoke('resize_pty', { cols: term.cols, rows: term.rows }); }, 100);
+  
+  await nextTick();
+  
+  if (terminalRef.value) {
+    term.open(terminalRef.value);
+    try { term.loadAddon(new WebglAddon()); } catch (e) { console.warn('WebGL Addon failed', e); }
+    setTimeout(() => {
+      fitAddon.fit();
+      invoke('resize_pty', { cols: term.cols, rows: term.rows });
+      term.focus();
+    }, 150);
+  }
+  
   fetchFiles('.');
-  term.focus();
   unlistenPty = await listen<number[]>('pty-data', (event) => { term.write(new Uint8Array(event.payload)); });
   statsInterval = window.setInterval(() => { fetchStats(); fetchTasks(); fetchGuiStatus(); }, 2000);
   initCharts();
@@ -287,22 +302,55 @@ const fetchStats = async () => {
 };
 
 const fetchFiles = async (path: string) => {
-  try { currentPath.value = path; fileList.value = await invoke('ls_remote', { path }); } catch (e) { console.error(e); }
-};
-
-const handleFileClick = async (f: any) => {
-  if (f.is_dir) { fetchFiles(currentPath.value + '/' + f.name); }
-  else {
-    const localPath = await save({ defaultPath: f.name });
-    if (localPath) await invoke('download_file', { remotePath: currentPath.value + '/' + f.name, localPath });
+  try { 
+    currentPath.value = path; 
+    const files = await invoke('ls_remote', { path });
+    // Sort: directories first, then files
+    (files as any[]).sort((a, b) => {
+      if (a.is_dir === b.is_dir) return a.name.localeCompare(b.name);
+      return a.is_dir ? -1 : 1;
+    });
+    fileList.value = files as any[];
+  } catch (e) { 
+    console.error('ls_remote failed:', e); 
+    errorMsg.value = 'Failed to list files: ' + e;
   }
 };
 
+const handleFileClick = async (f: any) => {
+  try {
+    const path = currentPath.value === '.' ? f.name : (currentPath.value.endsWith('/') ? currentPath.value + f.name : currentPath.value + '/' + f.name);
+    if (f.is_dir) { 
+      await fetchFiles(path); 
+    } else {
+      const localPath = await save({ defaultPath: f.name });
+      if (localPath) await invoke('download_file', { remotePath: path, localPath });
+    }
+  } catch (e) {
+    console.error('File click failed:', e);
+    alert('Error: ' + e);
+  }
+};
+
+const goBack = () => {
+  if (currentPath.value === '.' || currentPath.value === '/') return;
+  const parts = currentPath.value.split('/').filter(p => p);
+  parts.pop();
+  const newPath = parts.length === 0 ? '.' : '/' + parts.join('/');
+  fetchFiles(newPath);
+};
+
 const uploadFile = async () => {
-  const selected = await open({ multiple: false, directory: false });
-  if (selected && typeof selected === 'string') {
-    await invoke('upload_file', { localPath: selected, remotePath: currentPath.value + '/' + selected.split('/').pop() });
-    fetchFiles(currentPath.value);
+  try {
+    const selected = await open({ multiple: false, directory: false });
+    if (selected && typeof selected === 'string') {
+      const filename = selected.includes('/') ? selected.split('/').pop() : selected.split('\\').pop();
+      const remotePath = currentPath.value === '.' ? filename : (currentPath.value.endsWith('/') ? currentPath.value + filename : currentPath.value + '/' + filename);
+      await invoke('upload_file', { localPath: selected, remotePath });
+      await fetchFiles(currentPath.value);
+    }
+  } catch (e) {
+    alert('Upload failed: ' + e);
   }
 };
 
@@ -414,10 +462,21 @@ const toggleDashboard = () => {
             <div class="chart-box" ref="memChartRef"></div>
           </div>
           <div class="widget">
-            <div class="widget-header"><label>Files</label><button @click="uploadFile">Upload</button></div>
+            <div class="widget-header">
+              <label>Files</label>
+              <div class="file-ops">
+                <button v-if="currentPath !== '.' && currentPath !== '/'" @click="goBack" class="mini-btn">⤴ Back</button>
+                <button @click="uploadFile" class="mini-btn">Upload</button>
+              </div>
+            </div>
+            <div class="current-path">{{ currentPath }}</div>
             <ul class="file-list">
               <li v-for="f in fileList" :key="f.name" @click="handleFileClick(f)">
-                <span>{{ f.is_dir ? '📁' : '📄' }}</span> {{ f.name }}
+                <span class="f-item">
+                  <span class="f-icon">{{ f.is_dir ? '📁' : '📄' }}</span>
+                  <span class="f-name">{{ f.name }}</span>
+                </span>
+                <span class="f-size">{{ f.is_dir ? '' : formatBytes(f.size) }}</span>
               </li>
             </ul>
           </div>
@@ -569,10 +628,21 @@ button:disabled { opacity: 0.6; cursor: not-allowed; transform: none !important;
 .sidebar-header { padding: 15px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #27272a; }
 .sidebar-scroll { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 15px; }
 .widget { background: #18181b; border: 1px solid #27272a; padding: 10px; border-radius: 8px; }
-.widget-header { display: flex; justify-content: space-between; font-size: 11px; color: #71717a; text-transform: uppercase; margin-bottom: 8px; }
+.widget-header { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #71717a; text-transform: uppercase; margin-bottom: 8px; }
+.file-ops { display: flex; gap: 5px; }
+.mini-btn { font-size: 10px; padding: 2px 8px; background: #27272a; border-radius: 4px; color: #a1a1aa; }
+.mini-btn:hover { background: #3f3f46; color: white; }
+.current-path { font-size: 10px; color: #71717a; margin-bottom: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; border-bottom: 1px solid #27272a; padding-bottom: 2px; }
+
 .chart-box { height: 60px; }
-.file-list, .task-list, .proc-list { list-style: none; padding: 0; font-size: 12px; }
-.file-list li, .task-list li, .proc-list li { padding: 5px; cursor: pointer; display: flex; justify-content: space-between; }
+.file-list, .task-list, .proc-list { list-style: none; padding: 0; font-size: 12px; max-height: 180px; overflow-y: auto; }
+.file-list li, .task-list li, .proc-list li { padding: 6px 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-radius: 6px; transition: 0.2s; }
+.file-list li:hover, .task-list li:hover, .proc-list li:hover { background: #1e1e2e; }
+
+.f-item { display: flex; align-items: center; gap: 8px; overflow: hidden; }
+.f-icon { font-size: 14px; flex-shrink: 0; }
+.f-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.f-size { font-size: 10px; color: #52525b; flex-shrink: 0; }
 .ai-card { background: #1e1e2e; padding: 12px; border-radius: 8px; cursor: pointer; display: flex; flex-direction: column; }
 .content { flex: 1; display: flex; flex-direction: column; }
 .top-bar { height: 50px; background: #121215; border-bottom: 1px solid #27272a; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; }
