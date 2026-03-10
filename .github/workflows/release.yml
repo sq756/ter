@@ -36,11 +36,14 @@ jobs:
 
       - name: Rust setup
         uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
 
       - name: Go setup
         uses: actions/setup-go@v5
         with:
           go-version: '1.21'
+          cache-dependency-path: ter_agent/go.sum
 
       - name: Rust cache
         uses: swatinem/rust-cache@v2
@@ -67,6 +70,8 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CARGO_HTTP_MULTIPLEXING: false
+          CARGO_NET_RETRY: 10
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Ter v__VERSION__ - Cyber Edition"

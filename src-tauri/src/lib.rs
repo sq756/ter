@@ -498,7 +498,7 @@ pub fn run() {
 
             match std::fs::read(&file_path) {
                 Ok(content) => {
-                    let mime = match file_path.extension().and_then(|s| s.to_str()) {
+                    let mime = match file_path.extension().and_then(|s: &std::ffi::OsStr| s.to_str()) {
                         Some("json") => "application/json",
                         Some("bin") => "application/octet-stream",
                         Some("wasm") => "application/wasm",
