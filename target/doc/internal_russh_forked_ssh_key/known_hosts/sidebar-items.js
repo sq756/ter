@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["HostPatterns","Marker"],"struct":["Entry","KnownHosts"]};

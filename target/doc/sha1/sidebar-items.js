@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"mod":["block_api"],"struct":["Sha1"],"trait":["Digest"]};

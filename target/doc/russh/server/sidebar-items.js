@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["Auth","Msg"],"fn":["run_stream"],"struct":["Config","Handle","Response","RunningServer","RunningServerHandle","RunningSession","Session"],"trait":["Handler","Server"]};

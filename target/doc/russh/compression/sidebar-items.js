@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["ALL_COMPRESSION_ALGORITHMS","NONE","ZLIB","ZLIB_LEGACY"],"enum":["Compress","Compression","Decompress"],"struct":["Name"]};

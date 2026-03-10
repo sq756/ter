@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["CertType","Field"],"struct":["Builder","Certificate","OptionsMap"]};

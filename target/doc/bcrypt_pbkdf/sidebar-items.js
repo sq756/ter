@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"enum":["Error"],"fn":["bcrypt_pbkdf","bcrypt_pbkdf_with_memory"]};

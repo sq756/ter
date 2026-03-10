@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["encapsulate","generate_key_pair"]};

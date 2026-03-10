@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"macro":["map","unwrap_or"],"struct":["Choice","CtOption"],"trait":["BytesCtEq","BytesCtSelect","CtEq","CtFind","CtGt","CtLookup","CtLt","CtNeg","CtSelect"]};
