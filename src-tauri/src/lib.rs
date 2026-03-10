@@ -110,7 +110,8 @@ async fn deploy_agent(session: &client::Handle<Client>, token: &str, app_handle:
     };
 
     let mut local_file = tokio::fs::File::open(&local_path).await.map_err(|e| format!("Local agent not found at {:?}: {}", local_path, e))?;
-    let mut remote_file = sftp.create(remote_path).await.map_err(|e| format!("Failed to create remote file: {}", e))?;
+    let remote_path = ".ter/agent_linux_amd64";
+    let mut remote_file: russh_sftp::client::File = sftp.create(remote_path).await.map_err(|e| format!("Failed to create remote file: {}", e))?;
     
     let mut buf = vec![0; 16384];
     while let Ok(n) = local_file.read(&mut buf).await {
