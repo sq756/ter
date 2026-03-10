@@ -170,20 +170,36 @@ onUnmounted(() => {
   memChart?.dispose();
 });
 
+const isUnlocking = ref(false);
+const shouldShake = ref(false);
+
 const setMasterPass = async () => {
   if (!masterPassword.value) {
     errorMsg.value = 'Please enter a master password to continue.';
+    triggerShake();
     return;
   }
-  errorMsg.value = 'Unlocking...';
+  
+  isUnlocking.value = true;
+  errorMsg.value = '';
+  
   try {
+    // Artificial slight delay for smoother animation transition
+    await new Promise(r => setTimeout(r, 300));
     await invoke('set_master_password', { password: masterPassword.value });
     isMasterPasswordSet.value = true;
-    errorMsg.value = '';
     loadServers();
   } catch (e) {
-    errorMsg.value = 'Failed to set master password: ' + e;
+    errorMsg.value = 'Invalid master password or system error.';
+    triggerShake();
+  } finally {
+    isUnlocking.value = false;
   }
+};
+
+const triggerShake = () => {
+  shouldShake.value = true;
+  setTimeout(() => shouldShake.value = false, 500);
 };
 
 const loadServers = async () => {
@@ -553,14 +569,37 @@ const toggleDashboard = () => {
 <template>
   <div class="app-container">
     <!-- Master Password Setup -->
-    <div v-if="!isMasterPasswordSet" class="login-panel">
-      <h2>Unlock Ter</h2>
-      <p>Enter master password to access saved servers</p>
-      <div class="form-group">
-        <input v-model="masterPassword" type="password" placeholder="Master Password" @keyup.enter="setMasterPass" />
+    <div v-if="!isMasterPasswordSet" class="unlock-overlay">
+      <div :class="['unlock-card', { 'shake-anim': shouldShake }]">
+        <div class="unlock-icon">🔒</div>
+        <h2>Unlock Ter</h2>
+        <p>Enter your master password to access secure vault</p>
+        
+        <div class="unlock-form">
+          <div class="input-wrapper">
+            <input 
+              v-model="masterPassword" 
+              type="password" 
+              placeholder="Master Password" 
+              @keyup.enter="setMasterPass"
+              :disabled="isUnlocking"
+              autofocus
+            />
+            <div class="input-focus-bg"></div>
+          </div>
+          
+          <button @click="setMasterPass" :disabled="isUnlocking" class="primary-unlock-btn">
+            <span v-if="!isUnlocking" class="btn-content">
+              <span class="lock-small">🔒</span> Unlock Vault
+            </span>
+            <div v-else class="spinner"></div>
+          </button>
+        </div>
+
+        <div v-if="errorMsg" class="unlock-error-msg">
+          <span class="error-icon">⚠️</span> {{ errorMsg }}
+        </div>
       </div>
-      <button @click="setMasterPass">Unlock</button>
-      <div v-if="errorMsg" class="error">{{ errorMsg }}</div>
     </div>
 
     <!-- Login/Server List Panel -->
@@ -802,36 +841,159 @@ const toggleDashboard = () => {
   overflow: hidden;
 }
 
-.login-panel h2 {
-  margin-bottom: 5px;
-  color: #007acc;
+/* Unlock and Login Overhaul */
+.unlock-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at center, #1e1e1e 0%, #0a0a0a 100%);
+  z-index: 2000;
 }
 
-.login-panel p {
-  font-size: 13px;
+.unlock-card {
+  width: 380px;
+  padding: 40px;
+  background: #181818;
+  border: 1px solid #333;
+  border-radius: 16px;
+  text-align: center;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+}
+
+.unlock-icon {
+  font-size: 48px;
+  margin-bottom: 20px;
+}
+
+.unlock-card h2 {
+  margin: 0 0 10px 0;
+  font-size: 24px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.unlock-card p {
   color: #888;
-  margin-bottom: 10px;
+  font-size: 14px;
+  margin-bottom: 30px;
 }
 
-.login-panel input {
+.unlock-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.input-wrapper {
+  position: relative;
   width: 100%;
-  padding: 12px;
+}
+
+.unlock-card input {
+  width: 100%;
+  padding: 14px 16px;
   background: #252526;
   border: 1px solid #444;
-  border-radius: 6px;
-  color: white;
-  font-size: 14px;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 16px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-sizing: border-box;
 }
 
-.login-panel input:focus {
-  border-color: #007acc;
+.unlock-card input:focus {
   outline: none;
+  border-color: #007acc;
+  box-shadow: 0 0 0 4px rgba(0, 122, 204, 0.15);
+  background: #2d2d2d;
 }
 
-.login-panel button {
-  width: 300px;
-  padding: 12px;
-  font-weight: bold;
+.primary-unlock-btn {
+  width: 100%;
+  padding: 14px;
+  background: linear-gradient(135deg, #007acc 0%, #005a9e 100%);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+}
+
+.primary-unlock-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 15px rgba(0, 122, 204, 0.4);
+}
+
+.primary-unlock-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.primary-unlock-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.btn-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Animations */
+.shake-anim {
+  animation: shake 0.5s cubic-bezier(.36,.07,.19,.97) both;
+}
+
+@keyframes shake {
+  10%, 90% { transform: translate3d(-1px, 0, 0); }
+  20%, 80% { transform: translate3d(2px, 0, 0); }
+  30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+  40%, 60% { transform: translate3d(4px, 0, 0); }
+}
+
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-radius: 50%;
+  border-top-color: #fff;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.unlock-error-msg {
+  margin-top: 20px;
+  padding: 10px;
+  background: rgba(255, 82, 82, 0.1);
+  border-radius: 6px;
+  color: #ff5252;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+/* Reusing some styles for login-panel but centering it too */
+.login-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at center, #1e1e1e 0%, #0a0a0a 100%);
+  gap: 20px;
 }
 
 .server-management {

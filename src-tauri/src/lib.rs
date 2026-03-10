@@ -44,8 +44,12 @@ struct AppState {
 
 #[tauri::command]
 async fn set_master_password(password: String, state: State<'_, AppState>) -> Result<(), String> {
+    let crypto = tokio::task::spawn_blocking(move || {
+        Crypto::new(&password)
+    }).await.map_err(|e| e.to_string())?;
+
     let mut crypto_guard = state.crypto.lock().await;
-    *crypto_guard = Some(Crypto::new(&password));
+    *crypto_guard = Some(crypto);
     Ok(())
 }
 
