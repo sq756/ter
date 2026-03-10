@@ -99,21 +99,29 @@ async fn deploy_agent(session: &client::Handle<Client>, token: &str, app_handle:
     let sftp = SftpSession::new(sftp_channel.into_stream()).await.map_err(|e| format!("SFTP init error: {}", e))?;
 
     let res_dir = app_handle.path().resource_dir().map_err(|e| e.to_string())?;
-    let local_path = res_dir.join("agent_linux_amd64");
+    
+    // In Tauri v2 bundled resources, the path is often flattened or prefixed with _up_
+    let possible_paths = [
+        res_dir.join("agent_linux_amd64"),
+        res_dir.join("_up_/ter_agent/agent_linux_amd64"),
+        res_dir.join("resources/agent_linux_amd64"),
+        std::env::current_dir().unwrap().join("../ter_agent/agent_linux_amd64"),
+        std::env::current_dir().unwrap().join("ter_agent/agent_linux_amd64"),
+    ];
 
-    // Fallback for development or nested structure
-    let local_path = if local_path.exists() {
-        local_path
-    } else {
-        let dev_path = std::env::current_dir().unwrap().join("../ter_agent/agent_linux_amd64");
-        if dev_path.exists() {
-            dev_path
-        } else {
-            res_dir.join("ter_agent/agent_linux_amd64") // Try nested as well
+    let mut local_path = None;
+    for path in possible_paths {
+        if path.exists() {
+            local_path = Some(path);
+            break;
         }
-    };
+    }
 
-    let mut local_file = tokio::fs::File::open(&local_path).await.map_err(|e| format!("Local agent not found at {:?}: {}", local_path, e))?;
+    let local_path = local_path.ok_or_else(|| {
+        format!("Local agent not found in any of the search paths. Resource dir was: {:?}", res_dir)
+    })?;
+
+    let mut local_file = tokio::fs::File::open(&local_path).await.map_err(|e| format!("Failed to open agent at {:?}: {}", local_path, e))?;
     let remote_path = ".ter/agent_linux_amd64";
     let mut remote_file = sftp.create(remote_path).await.map_err(|e| format!("Failed to create remote file: {}", e))?;
     
@@ -345,10 +353,12 @@ pub fn run() {
             let db_path = app_dir.join("ter.db");
             let db_url = format!("sqlite://{}", db_path.to_str().unwrap());
 
-            tauri::async_runtime::spawn(async move {
+            let state = app_handle.state::<AppState>();
+            let db_state = state.db.clone();
+            
+            tauri::async_runtime::block_on(async move {
                 let db = Db::new(&db_url).await.expect("Failed to initialize database");
-                let state = app_handle.state::<AppState>();
-                let _ = state.db.set(db);
+                let _ = db_state.set(db);
             });
 
             if cfg!(debug_assertions) {
