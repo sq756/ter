@@ -649,145 +649,431 @@ const toggleDashboard = () => {
     
     <!-- Main Interface -->
     <div v-else class="main-layout">
-      <!-- Sidebar / Dashboard -->
-      <div :class="['dashboard-sidebar', { collapsed: !showDashboard }]">
+      <!-- 1. Sidebar -->
+      <aside :class="['sidebar', { collapsed: !showDashboard }]">
         <div class="sidebar-header">
-          <h3>System Status</h3>
+          <div v-if="showDashboard" class="brand">
+            <span class="brand-icon">⚡</span>
+            <h3>System</h3>
+          </div>
           <button class="toggle-btn" @click="toggleDashboard">
             {{ showDashboard ? '«' : '»' }}
           </button>
         </div>
         
-        <div v-if="showDashboard" class="stats-content">
-          <div v-if="stats" class="stat-card">
-            <label>CPU Usage: {{ stats.cpu_usage.toFixed(1) }}%</label>
-            <div class="chart-container" ref="cpuChartRef"></div>
+        <div v-if="showDashboard" class="sidebar-scroll">
+          <div v-if="stats" class="widget">
+            <div class="widget-header">
+              <label>CPU Usage</label>
+              <span class="value">{{ stats.cpu_usage.toFixed(1) }}%</span>
+            </div>
+            <div class="chart-box" ref="cpuChartRef"></div>
           </div>
           
-          <div v-if="stats" class="stat-card">
-            <label>Memory: {{ formatBytes(stats.mem_used) }} / {{ formatBytes(stats.mem_total) }}</label>
-            <div class="chart-container" ref="memChartRef"></div>
+          <div v-if="stats" class="widget">
+            <div class="widget-header">
+              <label>Memory Usage</label>
+              <span class="value">{{ formatBytes(stats.mem_used) }}</span>
+            </div>
+            <div class="chart-box" ref="memChartRef"></div>
           </div>
 
           <!-- File Explorer Section -->
-          <div class="file-explorer">
-            <div class="explorer-header">
-              <label>Files: {{ currentPath }}</label>
-              <button class="upload-btn" @click="uploadFile">⬆️ Upload</button>
+          <div class="widget explorer">
+            <div class="widget-header">
+              <label>Remote Files</label>
+              <button class="mini-btn" @click="uploadFile">Upload</button>
             </div>
+            <div class="current-path">/{{ currentPath }}</div>
             <ul class="file-list">
               <li v-for="f in fileList" :key="f.name" @click="handleFileClick(f)">
-                <span :class="['file-icon', { dir: f.is_dir }]">{{ f.is_dir ? '📁' : '📄' }}</span>
-                <span class="file-name">{{ f.name }}</span>
-                <span v-if="!f.is_dir" class="download-hint">⬇️</span>
+                <span :class="['icon', { dir: f.is_dir }]">{{ f.is_dir ? '📁' : '📄' }}</span>
+                <span class="name">{{ f.name }}</span>
               </li>
             </ul>
           </div>
 
-          <div v-if="stats" class="stat-card">
-            <label>Top Processes</label>
-            <ul class="proc-list">
-              <li v-for="p in stats.processes" :key="p.pid">
-                <div class="proc-info">
-                  <span class="proc-name" :title="p.name">{{ p.name }} ({{ p.pid }})</span>
-                  <span class="proc-cpu">{{ p.cpu_usage.toFixed(1) }}%</span>
-                </div>
-                <button class="kill-btn" @click="killProcess(p.pid)" title="Kill Process">✕</button>
-              </li>
-            </ul>
-          </div>
-
-          <!-- Managed Tasks Section -->
-          <div class="managed-tasks">
-            <div class="explorer-header">
+          <!-- Managed Tasks -->
+          <div class="widget tasks">
+            <div class="widget-header">
               <label>Managed Tasks</label>
-              <button class="upload-btn" @click="showAddTask = !showAddTask">{{ showAddTask ? '✕' : '+ Task' }}</button>
+              <button class="mini-btn" @click="showAddTask = !showAddTask">+</button>
             </div>
-            
-            <div v-if="showAddTask" class="add-task-inline">
-              <input v-model="newTaskCmd" placeholder="Command (e.g. ping 8.8.8.8)" @keyup.enter="startTask" />
+            <div v-if="showAddTask" class="inline-input">
+              <input v-model="newTaskCmd" placeholder="Command..." @keyup.enter="startTask" />
             </div>
-
             <ul class="task-list">
               <li v-for="t in managedTasks" :key="t.id">
-                <div class="task-info">
-                  <span class="task-cmd" :title="t.command">{{ t.command }}</span>
-                  <span :class="['task-status', t.status]">{{ t.status }}</span>
-                </div>
-                <div class="task-actions">
-                  <button @click="viewLogs(t.id)" title="View Logs">📜</button>
-                  <button v-if="t.status === 'running'" @click="stopTask(t.id)" title="Stop Task">🛑</button>
+                <span class="task-name">{{ t.command }}</span>
+                <div class="task-ops">
+                  <span :class="['dot', t.status]"></span>
+                  <button @click="viewLogs(t.id)">Log</button>
                 </div>
               </li>
             </ul>
           </div>
 
-          <div v-if="errorMsg" class="status-msg">{{ errorMsg }}</div>
-          
-          <!-- GUI Remote Desktop Section -->
-          <div class="managed-tasks">
-            <div class="explorer-header">
-              <label>Remote Desktop</label>
-              <button class="upload-btn" @click="showGui = !showGui">{{ showGui ? '✕ Close' : '🖥️ Open' }}</button>
-            </div>
-            <div class="gui-status-info">
-              <span v-if="!guiStatus.installed" class="status-hint">GUI Environment not installed.</span>
-              <button v-if="!guiStatus.installed" @click="initGui" class="init-btn">Initialize GUI (Fluxbox)</button>
-              <span v-else-if="!guiStatus.running" class="status-hint">GUI installed but not running.</span>
-              <button v-if="guiStatus.installed && !guiStatus.running" @click="initGui" class="init-btn">Start GUI</button>
-              <span v-else class="status-hint running">GUI is active on :1</span>
+          <div class="ai-trigger-card" @click="showAiPanel = true">
+            <div class="ai-glow"></div>
+            <span class="icon">✨</span>
+            <div class="text">
+              <label>AI Sidekick</label>
+              <small>{{ isAiInitialized ? 'Online' : 'Initialize' }}</small>
             </div>
           </div>
+        </div>
+      </aside>
 
-          <div class="ai-entry-card" @click="showAiPanel = true">
-            <span class="ai-icon">✨</span>
-            <div class="ai-text">
-              <label>AI Assistant</label>
-              <small>{{ isAiInitialized ? 'Ready' : 'Click to Init' }}</small>
+      <!-- 2. Main Content Area -->
+      <main class="content-area">
+        <!-- 2.1 Header / Top Bar -->
+        <header class="top-bar">
+          <div class="connection-status">
+            <span class="status-led online"></span>
+            <span class="connection-info">{{ user }}@{{ host }}</span>
+          </div>
+          <div class="actions">
+            <button @click="explainTerminalError" class="ai-btn">
+              <span class="star">✦</span> Explain Output
+            </button>
+            <button @click="showGui = !showGui" class="gui-btn">
+              🖥️ Remote Desktop
+            </button>
+          </div>
+        </header>
+
+        <!-- 2.2 Terminal Workspace -->
+        <div class="terminal-workspace">
+          <div class="terminal-card">
+            <div class="terminal-container" ref="terminalRef"></div>
+          </div>
+        </div>
+      </main>
+
+      <!-- AI Side Panel (Overlay/Slide-in) -->
+      <Transition name="slide">
+        <div v-if="showAiPanel" class="ai-panel">
+          <div class="panel-header">
+            <h3>AI Diagnosis</h3>
+            <button @click="showAiPanel = false">✕</button>
+          </div>
+          <!-- AI Content remains same but styled better -->
+          <div v-if="!isAiInitialized" class="ai-init">
+            <p>Loading local intelligence...</p>
+            <div class="p-bar"><div class="p-fill" :style="{width: aiProgress.includes('%') ? aiProgress.match(/\d+/)?.[0]+'%' : '5%'}"></div></div>
+            <button @click="initAi">Initialize WebGPU AI</button>
+          </div>
+          <div v-else class="chat-flow">
+            <div class="messages" ref="chatRef">
+              <div v-for="(msg, i) in aiChatHistory" :key="i" :class="['bubble', msg.role]">
+                {{ msg.content }}
+              </div>
+            </div>
+            <div class="chat-input-box">
+              <input v-model="userMessage" placeholder="Ask about output..." @keyup.enter="sendToAi()" />
             </div>
           </div>
         </div>
-      </div>
+      </Transition>
+    </div>
+  </div>
+</template>
 
-      <!-- Terminal Area -->
-      <div class="terminal-main">
-        <div class="terminal-toolbar">
-          <button @click="explainTerminalError" class="tool-btn" title="AI Diagnosis">✨ Explain Error</button>
-        </div>
-        <div class="terminal-container" ref="terminalRef"></div>
-      </div>
+<style scoped>
+/* Color Palette */
+:root {
+  --bg-dark: #09090b;
+  --bg-sidebar: #121215;
+  --bg-card: #18181b;
+  --accent: #6366f1;
+  --text-primary: #fafafa;
+  --text-muted: #a1a1aa;
+  --border: #27272a;
+}
 
-      <!-- AI Side Panel -->
-      <div v-if="showAiPanel" class="ai-side-panel">
-        <div class="ai-header">
-          <h3>AI Sidekick (Local)</h3>
-          <button @click="showAiPanel = false">✕</button>
-        </div>
-        
-        <div v-if="!isAiInitialized" class="ai-init-screen">
-          <p>Local AI Model will be loaded into your browser (WebGPU). Inference is 100% offline and secure.</p>
-          <div v-if="aiLoading" class="ai-progress-bar">
-            <div class="ai-progress-fill" :style="{ width: aiProgress.includes('%') ? aiProgress.match(/\d+/)?.[0] + '%' : '10%' }"></div>
-          </div>
-          <p class="progress-text">{{ aiProgress }}</p>
-          <button v-if="!aiLoading" @click="initAi">Initialize AI</button>
-        </div>
+.app-container {
+  height: 100vh;
+  width: 100vw;
+  background-color: #09090b;
+  color: #fafafa;
+  font-family: 'Inter', system-ui, sans-serif;
+  overflow: hidden;
+}
 
-        <div v-else class="ai-chat-container">
-          <div class="chat-messages" ref="chatRef">
-            <div v-for="(msg, i) in aiChatHistory" :key="i" :class="['chat-msg', msg.role]">
-              <div class="msg-bubble">{{ msg.content }}</div>
-            </div>
-            <div v-if="aiLoading" class="chat-msg assistant loading">
-              <div class="msg-bubble">Thinking...</div>
-            </div>
-          </div>
-          <div class="chat-input">
-            <input v-model="userMessage" placeholder="Ask AI anything about the server..." @keyup.enter="sendToAi()" />
-            <button @click="sendToAi()" :disabled="aiLoading">Send</button>
-          </div>
-        </div>
-      </div>
+/* Three-Pane Layout */
+.main-layout {
+  display: flex;
+  height: 100%;
+  width: 100%;
+}
+
+/* Sidebar Styling */
+.sidebar {
+  width: 280px;
+  background: #121215;
+  border-right: 1px solid #27272a;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar.collapsed {
+  width: 60px;
+}
+
+.sidebar-header {
+  padding: 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #27272a;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brand h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.sidebar-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.widget {
+  background: #18181b;
+  border: 1px solid #27272a;
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.widget-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.widget-header label {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #71717a;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+.chart-box {
+  height: 80px;
+  width: 100%;
+}
+
+/* Content Area */
+.content-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #09090b;
+  position: relative;
+}
+
+/* Top Bar */
+.top-bar {
+  height: 56px;
+  background: #121215;
+  border-bottom: 1px solid #27272a;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  z-index: 10;
+}
+
+.connection-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.status-led {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 12px rgba(34, 197, 94, 0.4);
+}
+
+.connection-info {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  color: #a1a1aa;
+}
+
+/* AI Button Styling */
+.ai-btn {
+  background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%);
+  border: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: white;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.ai-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+}
+
+/* Terminal Workspace */
+.terminal-workspace {
+  flex: 1;
+  padding: 24px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.terminal-card {
+  width: 100%;
+  height: 100%;
+  background: #000;
+  border: 1px solid #27272a;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  display: flex;
+  position: relative;
+}
+
+/* Terminal text padding */
+.terminal-container {
+  flex: 1;
+  padding: 16px; /* 增加终端内边距 */
+  background: #000;
+}
+
+/* AI Sidebar Panel */
+.ai-panel {
+  position: absolute;
+  top: 70px;
+  right: 20px;
+  bottom: 20px;
+  width: 380px;
+  background: rgba(18, 18, 21, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid #3f3f46;
+  border-radius: 16px;
+  box-shadow: -20px 0 50px rgba(0,0,0,0.5);
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+}
+
+/* Transitions */
+.slide-enter-active, .slide-leave-active {
+  transition: all 0.3s ease;
+}
+.slide-enter-from, .slide-leave-to {
+  transform: translateX(400px);
+  opacity: 0;
+}
+
+/* Widget Lists */
+.file-list, .task-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.file-list li {
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  display: flex;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.file-list li:hover {
+  background: #27272a;
+}
+
+.ai-trigger-card {
+  position: relative;
+  background: #1e1e2e;
+  border: 1px solid #313244;
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.ai-glow {
+  position: absolute;
+  top: -20px;
+  left: -20px;
+  width: 100px;
+  height: 100px;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.2) 0%, transparent 70%);
+}
+
+/* Modal/Overlay Styles (Unchanged but adapted) */
+.unlock-overlay {
+  position: fixed;
+  inset: 0;
+  background: #09090b;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+
+.unlock-card {
+  background: #18181b;
+  border: 1px solid #27272a;
+  padding: 40px;
+  border-radius: 20px;
+  width: 400px;
+  text-align: center;
+}
+
+.unlock-card input {
+  width: 100%;
+  padding: 14px;
+  background: #09090b;
+  border: 1px solid #27272a;
+  border-radius: 10px;
+  color: white;
+  margin-bottom: 20px;
+}
+
+button.primary-unlock-btn {
+  width: 100%;
+  padding: 14px;
+  background: #6366f1;
+  border-radius: 10px;
+  font-weight: bold;
+}
+</style>
 
       <!-- Remote Desktop Overlay -->
       <div v-if="showGui" class="gui-overlay">
