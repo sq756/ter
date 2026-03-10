@@ -40,7 +40,8 @@ jobs:
       - name: Install frontend dependencies
         run: npm install
 
-      - name: Build Agent (Linux version for all platforms)
+      - name: Build Agent
+        shell: bash
         run: |
           cd ter_agent
           GOOS=linux GOARCH=amd64 go build -o agent_linux_amd64 main.go
@@ -54,5 +55,5 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "Ter v__VERSION__"
           releaseBody: "Release of Ter SSH Visual Manager"
-          releaseDraft: true
+          releaseDraft: false
           prerelease: false
