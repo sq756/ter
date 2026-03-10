@@ -62,7 +62,13 @@ const userMessage = ref('');
 const isAiInitialized = ref(false);
 const showAiPanel = ref(false);
 const localModelPath = ref('');
+const aiStats = ref<any>(null);
 const chatRef = ref<HTMLElement | null>(null);
+
+const addLog = (msg: string) => {
+  backendLogs.value.push(msg);
+  if (backendLogs.value.length > MAX_LOGS) backendLogs.value.shift();
+};
 
 const selectModelFolder = async () => {
   try {
@@ -70,6 +76,7 @@ const selectModelFolder = async () => {
     if (selected && typeof selected === 'string') {
       await invoke('set_model_path', { path: selected });
       localModelPath.value = selected;
+      addLog(`[SYSTEM] Model path updated: ${selected}`);
     }
   } catch (e) { alert(e); }
 };
@@ -246,23 +253,29 @@ const initAi = async () => {
   if (isAiInitialized.value) return;
   aiLoading.value = true;
   try {
-    const appConfig = {
+    const appConfig: any = {
       model_list: [{
         model_id: MODEL_ID,
+        model: MODEL_ID,
+        model_lib: `${webllm.modelLibURLPrefix}SmolLM2-135M-Instruct-v0.1-q4f16_1-MLC-webgpu.wasm`,
         model_url: `ter-model://localhost/`,
-        model_lib_url: webllm.modelLibURLPrefix + webllm.ModelSpec.model_lib_map[MODEL_ID],
         low_resource_required: true,
       }],
     };
     
     const engine = await webllm.CreateMLCEngine(MODEL_ID, { 
       appConfig,
-      initProgressCallback: (p) => { aiProgress.value = `Loading: ${Math.round(p.progress * 100)}%`; } 
+      initProgressCallback: (p) => { 
+        const perc = Math.round(p.progress * 100);
+        aiProgress.value = `Loading: ${perc}%`;
+        addLog(`[NEURAL] Weight sequence: ${perc}% | ${p.text}`);
+      } 
     });
     aiEngine.value = engine;
     isAiInitialized.value = true;
     aiProgress.value = 'AI Online';
-  } catch (e) { aiProgress.value = 'Error: ' + e; } finally { aiLoading.value = false; }
+    addLog(`[NEURAL] Core engaged: ${MODEL_ID}`);
+  } catch (e) { addLog(`[NEURAL] Core failure: ${e}`); aiProgress.value = 'Error: ' + e; } finally { aiLoading.value = false; }
 };
 
 const sendToAi = async (msg: string = '') => {
@@ -270,11 +283,37 @@ const sendToAi = async (msg: string = '') => {
   if (!content || !aiEngine.value) return;
   aiChatHistory.value.push({ role: 'user', content });
   userMessage.value = ''; aiLoading.value = true; scrollToBottom();
+
+  // Placeholder for assistant reply
+  const assistantIdx = aiChatHistory.value.push({ role: 'assistant', content: '' }) - 1;
+
   try {
-    const reply = await aiEngine.value.chat.completions.create({ messages: aiChatHistory.value as any, stream: false });
-    aiChatHistory.value.push({ role: 'assistant', content: reply.choices[0].message.content || '' });
-    scrollToBottom();
-  } catch (e) { aiChatHistory.value.push({ role: 'assistant', content: 'Error: ' + e }); } finally { aiLoading.value = false; }
+    const chunks = await aiEngine.value.chat.completions.create({ 
+      messages: aiChatHistory.value.slice(0, -1) as any, 
+      stream: true 
+    });
+    
+    let fullReply = "";
+    for await (const chunk of chunks) {
+      const delta = chunk.choices[0]?.delta?.content || "";
+      fullReply += delta;
+      if (aiChatHistory.value[assistantIdx]) {
+        aiChatHistory.value[assistantIdx].content = fullReply;
+      }
+      scrollToBottom();
+      
+      const stats = await aiEngine.value.runtimeStats();
+      if (stats) {
+        aiStats.value = stats;
+        addLog(`[NEURAL] Synapse firing: ${stats.decodeTokensPerSec.toFixed(1)} t/s | ${stats.decodeTotalTokens} tokens active`);
+      }
+    }
+  } catch (e) { 
+    if (aiChatHistory.value[assistantIdx]) {
+      aiChatHistory.value[assistantIdx].content = 'Error: ' + e; 
+    }
+    addLog(`[NEURAL] Synapse error: ${e}`);
+  } finally { aiLoading.value = false; }
 };
 
 const explainTerminalError = async () => {
