@@ -171,9 +171,15 @@ onUnmounted(() => {
 });
 
 const setMasterPass = async () => {
+  if (!masterPassword.value) {
+    errorMsg.value = 'Please enter a master password to continue.';
+    return;
+  }
+  errorMsg.value = 'Unlocking...';
   try {
     await invoke('set_master_password', { password: masterPassword.value });
     isMasterPasswordSet.value = true;
+    errorMsg.value = '';
     loadServers();
   } catch (e) {
     errorMsg.value = 'Failed to set master password: ' + e;
@@ -796,14 +802,36 @@ const toggleDashboard = () => {
   overflow: hidden;
 }
 
-.login-panel {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  gap: 15px;
-  background: #1e1e1e;
+.login-panel h2 {
+  margin-bottom: 5px;
+  color: #007acc;
+}
+
+.login-panel p {
+  font-size: 13px;
+  color: #888;
+  margin-bottom: 10px;
+}
+
+.login-panel input {
+  width: 100%;
+  padding: 12px;
+  background: #252526;
+  border: 1px solid #444;
+  border-radius: 6px;
+  color: white;
+  font-size: 14px;
+}
+
+.login-panel input:focus {
+  border-color: #007acc;
+  outline: none;
+}
+
+.login-panel button {
+  width: 300px;
+  padding: 12px;
+  font-weight: bold;
 }
 
 .server-management {
