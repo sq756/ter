@@ -190,7 +190,7 @@ const setMasterPass = async () => {
     isMasterPasswordSet.value = true;
     loadServers();
   } catch (e) {
-    errorMsg.value = 'Invalid master password or system error.';
+    errorMsg.value = 'Security Error: ' + e;
     triggerShake();
   } finally {
     isUnlocking.value = false;

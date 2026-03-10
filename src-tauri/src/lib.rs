@@ -12,7 +12,7 @@ use tauri::{AppHandle, State, Manager};
 use tokio::sync::mpsc;
 use tauri::Emitter;
 use tokio::net::TcpListener;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::AsyncReadExt;
 use uuid::Uuid;
 
 #[derive(Clone)]

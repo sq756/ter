@@ -15,7 +15,8 @@ pub struct Crypto {
 
 impl Crypto {
     pub fn new(master_password: &str) -> Self {
-        let salt = SaltString::from_b64("static_salt_for_simplicity_in_prototype").unwrap();
+        // Use a valid 16-byte Base64 encoded salt
+        let salt = SaltString::from_b64("U29tZVN0YXRpY1NhbHQxMg").unwrap(); 
         let argon2 = Argon2::default();
         let password_hash = argon2
             .hash_password(master_password.as_bytes(), &salt)
