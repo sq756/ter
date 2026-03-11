@@ -133,24 +133,40 @@ const onConnected = async () => {
 
   if (unlistenPty) unlistenPty();
   unlistenPty = await listen<number[]>('pty-data', (event) => {
-    const data = new Uint8Array(event.payload);
+    let data = new Uint8Array(event.payload);
     const text = new TextDecoder().decode(data);
 
     // [反向控制]: 拦截来自 AI 的 [TER_RPC] 指令
     if (text.includes('[TER_RPC]')) {
-      try {
-        const rpcMatch = text.match(/\[TER_RPC\]\s*({.*})/);
-        if (rpcMatch && rpcMatch[1]) {
-          const rpc = JSON.parse(rpcMatch[1]);
+      const rpcRegex = /\[TER_RPC\]\s*({.*?})/g;
+      let match;
+      let cleanedText = text;
+      let foundRpc = false;
+
+      while ((match = rpcRegex.exec(text)) !== null) {
+        if (!match[1]) continue;
+        try {
+          const rpc = JSON.parse(match[1]);
           console.log("[RPC] Intercepted from AI:", rpc);
+          foundRpc = true;
+
           if (rpc.action === 'screenshot') {
-            // AI 请求截图，悄悄截图上传，不显示在屏幕上
             captureAndUpload(true);
-            return; // 拦截成功，不再广播到终端显示
+          } else if (rpc.action === 'notify') {
+            backendLogs.value.push(`[🔔 NOTIFY] ${rpc.msg || rpc.message || 'New message from AI'}`);
+          } else if (rpc.action === 'chart') {
+            backendLogs.value.push(`[📊 AI CHART DATA] ${JSON.stringify(rpc.data)}`);
           }
+          
+          cleanedText = cleanedText.replace(match[0], '');
+        } catch (e) {
+          console.warn("RPC Parse Error:", e);
         }
-      } catch (e) {
-        console.warn("RPC Parse Error:", e);
+      }
+
+      if (foundRpc) {
+        if (cleanedText.trim() === '') return; // Fully consumed
+        data = new TextEncoder().encode(cleanedText);
       }
     }
 
