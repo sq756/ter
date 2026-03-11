@@ -50,11 +50,9 @@ watch(activeTabId, async (newId) => {
   if (newId) {
     await nextTick();
     const tab = terminalTabs.value.find(t => t.id === newId);
-    if (tab && tab.fitAddon) {
-      setTimeout(() => {
-        tab.fitAddon.fit();
-        tab.instance?.focus();
-      }, 100);
+    if (tab) {
+      // ResizeObserver in TerminalTabs.vue will handle fit()
+      tab.instance?.focus();
     }
   }
 });
@@ -136,7 +134,11 @@ const connectWithId = async (id: string) => {
 
 const runSkill = (rpc: string) => {
   if (isConnected.value) {
-    invoke('write_pty', { data: rpc + "\r" });
+    // If command involves audit or gemini, auto-enable autopilot
+    if (rpc.includes('audit') || rpc.toLowerCase().includes('gemini') || rpc.includes('ter')) {
+      isAutoPilot.value = true;
+    }
+    invoke('write_pty', { data: rpc.endsWith('\n') ? rpc : rpc + "\r\n" });
   }
 };
 
@@ -216,11 +218,12 @@ const workspaceRef = ref<HTMLElement | null>(null);
 const captureAndUpload = async (auto = false) => {
   if (!workspaceRef.value) return;
   console.log("📸 [RPC] Visual Audit Triggered...");
+  isAutoPilot.value = true;
   try {
     const canvas = await html2canvas(workspaceRef.value, { backgroundColor: '#000', useCORS: true, scale: 1.5 });
     const remotePath = await invoke<string>('upload_ui_snapshot', { base64Data: canvas.toDataURL('image/png') });
     const msg = auto ? `[SYSTEM] Snapshot ready at: ${remotePath}` : `Manual audit done: ${remotePath}`;
-    await invoke('write_pty', { data: msg + "\r" });
+    await invoke('write_pty', { data: msg + "\n" });
   } catch (e) { console.error("Capture Failed:", e); }
 };
 
@@ -259,6 +262,11 @@ let unlistenLog: any, unlistenPty: any;
 onMounted(async () => {
   unlistenLog = await listen<string>('backend-log', (e) => { backendLogs.value.push(e.payload); if (backendLogs.value.length > 100) backendLogs.value.shift(); });
   window.addEventListener('keydown', (e) => { if (e.altKey && e.key.toLowerCase() === 'l') isLocked.value = !isLocked.value; });
+  
+  // Re-focus terminal when window gets focus
+  window.addEventListener('focus', () => {
+    activeTab.value?.instance?.focus();
+  });
 });
 onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty(); });
 </script>
@@ -313,7 +321,7 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
         @audit-ui="captureAndUpload(false)"
       />
 
-      <main class="workspace" ref="workspaceRef">
+      <main class="workspace" ref="workspaceRef" @click="activeTab?.instance?.focus()">
         <!-- Context Menu -->
         <div v-if="showContextMenu" 
              class="context-menu" 

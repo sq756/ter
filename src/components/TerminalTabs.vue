@@ -16,9 +16,28 @@ const vMountTerm = {
       console.log(`[UI] Mounting terminal: ${tab.id}`);
       tab.instance.open(el);
       try { tab.instance.loadAddon(new WebglAddon()); } catch (e) {}
-      setTimeout(() => tab.fitAddon?.fit(), 50);
+      
+      // Use ResizeObserver for immediate and reactive fit
+      const ro = new ResizeObserver(() => {
+        if (tab.fitAddon && el.clientWidth > 0 && el.clientHeight > 0) {
+          tab.fitAddon.fit();
+          console.log(`[UI] Terminal fit triggered for: ${tab.id}`);
+        }
+      });
+      ro.observe(el);
+      (el as any)._ro = ro;
+
+      // Initial fit after a tiny delay to ensure DOM is fully ready
+      requestAnimationFrame(() => {
+        if (tab.fitAddon) tab.fitAddon.fit();
+      });
     } else {
       console.warn(`[UI] Terminal instance not ready for tab: ${tab?.id}`);
+    }
+  },
+  unmounted: (el: HTMLElement) => {
+    if ((el as any)._ro) {
+      (el as any)._ro.disconnect();
     }
   }
 };
@@ -64,6 +83,6 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
 .btn-new-tab { background: transparent; border: none; color: #52525b; padding: 0 10px; cursor: pointer; font-size: 18px; line-height: 1; }
 
 .workspace-body { flex: 1; display: flex; overflow: hidden; }
-.terminal-pane { flex: 1; padding: 10px; overflow: hidden; position: relative; background: #000; }
-.terminal-container { height: 100%; width: 100%; }
+.terminal-pane { flex: 1; padding: 0; overflow: hidden; position: relative; background: #000; }
+.terminal-container { height: 100%; width: 100%; overflow: hidden; }
 </style>
