@@ -86,7 +86,7 @@ const onItemClick = (f: any) => {
 
 <style scoped>
 .side-bar { background: #0a192f; width: 260px; height: 100%; display: flex; flex-direction: column; flex-shrink: 0; border-right: 1px solid #1a1a1c; }
-.sys-health { min-height: 120px; }
+.sys-health { height: 160px; flex-shrink: 0; }
 .module { padding: 15px; border-bottom: 1px solid #1a1a1c; }
 .module header { font-size: 10px; text-transform: uppercase; color: #52525b; margin-bottom: 12px; font-weight: bold; }
 .scroller { flex: 1; overflow-y: auto; }

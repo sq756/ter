@@ -122,11 +122,14 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
  * and ensures the container always fills its parent 1:1.
  */
 .terminal-container { 
-  position: absolute;
-  inset: 0;
-  overflow: hidden; 
-  min-width: 100px;
-  min-height: 100px;
+  display: block !important;
+  position: absolute !important;
+  width: 100% !important;
+  height: 100% !important;
+  top: 0 !important;
+  left: 0 !important;
+  background: #000 !important;
+  overflow: hidden !important;
   pointer-events: auto !important;
 }
 

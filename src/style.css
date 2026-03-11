@@ -21,3 +21,15 @@ body {
   margin: 0;
   padding: 0;
 }
+
+/* 
+ * CRITICAL: Hide the xterm.js focus capture box. 
+ * This prevents the 'left-corner white box' from showing up if mounting is delayed.
+ */
+.xterm-helper-textarea {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  position: absolute !important;
+  left: -9999px !important;
+  top: -9999px !important;
+}

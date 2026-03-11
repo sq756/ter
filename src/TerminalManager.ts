@@ -47,8 +47,16 @@ class TerminalManager {
   public mount(id: string, el: HTMLElement) {
     const instance = this.instances.get(id);
     if (instance) {
-      console.log(`[Manager] Mounting terminal ${id} to DOM`);
-      instance.term.open(el);
+      // Physical Seizure: Clear container to prevent duplicate elements or stale nodes
+      if (instance.term.element !== el) {
+        console.log(`[Manager] Redirecting terminal ${id} to new DOM node`);
+        el.innerHTML = ''; 
+        instance.term.open(el);
+      } else if (!el.contains(instance.term.element)) {
+        // Handle cases where the element might be empty or lost its children
+        el.innerHTML = '';
+        instance.term.open(el);
+      }
       
       // Try to load WebGL for performance if not already loaded
       if (!instance.webgl) {
@@ -61,8 +69,11 @@ class TerminalManager {
         }
       }
       
-      // Initial fit
-      instance.fit.fit();
+      // Initial fit with forced dimensions check
+      requestAnimationFrame(() => {
+        instance.fit.fit();
+        instance.term.focus();
+      });
     }
   }
 
