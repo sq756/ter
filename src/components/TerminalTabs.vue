@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { nextTick } from 'vue';
 import { WebglAddon } from '@xterm/addon-webgl';
 
 const props = defineProps<{
@@ -13,13 +12,17 @@ const emit = defineEmits(['switch-tab', 'close-tab', 'new-tab', 'terminal-contex
 const vMountTerm = {
   mounted: (el: HTMLElement, binding: any) => {
     const tab = binding.value;
-    if (tab.instance) {
+    if (tab && tab.instance) {
+      console.log(`[UI] Mounting terminal: ${tab.id}`);
       tab.instance.open(el);
       try { tab.instance.loadAddon(new WebglAddon()); } catch (e) {}
-      nextTick(() => tab.fitAddon?.fit());
+      setTimeout(() => tab.fitAddon?.fit(), 50);
+    } else {
+      console.warn(`[UI] Terminal instance not ready for tab: ${tab?.id}`);
     }
   }
 };
+
 
 const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
 </script>

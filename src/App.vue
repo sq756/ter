@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, nextTick, computed, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { Terminal } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
 import * as echarts from 'echarts';
 import html2canvas from 'html2canvas';
 
@@ -19,12 +21,17 @@ const isConnecting = ref(false);
 const isMasterPasswordSet = ref(false);
 const isAutoPilot = ref(false); 
 const isLocked = ref(false);
-const cyberMode = ref(0); // 0: Dashboard, 1: Webview, 2: Cyber Logs, 3: AI
+const cyberMode = ref(0); 
 const agentToken = ref('');
 const backendLogs = ref<string[]>([]);
 const savedServers = ref<any[]>([]);
 const showAddServer = ref(false);
 const host = ref('Remote Server');
+
+// Context Menu State
+const showContextMenu = ref(false);
+const menuX = ref(0);
+const menuY = ref(0);
 
 // Tabs State
 const terminalTabs = ref<any[]>([]);
@@ -34,9 +41,73 @@ const backgroundTabs = computed(() => terminalTabs.value.filter(t => t.isBackgro
 
 // SFTP / Data State
 const realFiles = ref<any[]>([]);
-
-// Component Refs
 const webviewRef = ref<any>(null);
+
+// Watch for tab switch to fit terminal
+watch(activeTabId, async (newId) => {
+  if (newId) {
+    await nextTick();
+    const tab = terminalTabs.value.find(t => t.id === newId);
+    if (tab && tab.fitAddon) {
+      setTimeout(() => tab.fitAddon.fit(), 100);
+    }
+  }
+});
+
+// ==========================================
+// --- TAB MANAGEMENT ---
+// ==========================================
+const createNewTab = (title = "Shell") => {
+  const id = 'tab-' + Math.random().toString(36).substr(2, 9);
+  
+  const term = new Terminal({ 
+    cursorBlink: true, 
+    fontSize: 14, 
+    fontFamily: "'JetBrains Mono', monospace",
+    theme: { background: '#000', foreground: '#fafafa' }, 
+    allowTransparency: true 
+  });
+  const fit = new FitAddon();
+  term.loadAddon(fit);
+
+  // Bind data input
+  term.onData(data => {
+    if (isConnected.value) invoke('write_pty', { data });
+  });
+
+  terminalTabs.value.push({ 
+    id, 
+    title, 
+    instance: term, 
+    fitAddon: fit, 
+    isBackground: false 
+  });
+  
+  activeTabId.value = id;
+  console.log(`[CORE] New tab created: ${id}`);
+  return id;
+};
+
+const sendToBackground = () => {
+  if (activeTab.value) {
+    activeTab.value.isBackground = true;
+    activeTab.value.title = "Task: " + activeTab.value.id.substr(0,5);
+    activeTabId.value = null;
+    createNewTab("New Shell");
+  }
+  showContextMenu.value = false;
+};
+
+const onTerminalContextMenu = (e: MouseEvent) => {
+  menuX.value = e.clientX;
+  menuY.value = e.clientY;
+  showContextMenu.value = true;
+};
+
+// Close context menu on click elsewhere
+onMounted(() => {
+  window.addEventListener('click', () => { showContextMenu.value = false; });
+});
 
 // ==========================================
 // --- CORE LOGIC: SSH Foundation ---
@@ -49,6 +120,7 @@ const connectWithId = async (id: string) => {
     if (s) host.value = s.label || s.host;
     await invoke('connect_with_id', { id }); 
     await onConnected();
+    backendLogs.value.push('[INFO] 已建立新会话，历史后台任务仅在当前会话生命周期内有效。');
   } catch (e) { alert("Connection Failed: " + e); } finally { isConnecting.value = false; }
 };
 
@@ -80,12 +152,23 @@ const onConnected = async () => {
         }
       } catch (e) {}
     }
-    // -----------------------
 
-    if (activeTab.value?.instance) activeTab.value.instance.write(data);
+    if (activeTab.value?.instance) {
+      activeTab.value.instance.write(data);
+    } else {
+      // Fallback: log if data is dropped due to no active tab
+      console.warn("[PTY] Data received but no active terminal instance found.");
+    }
   });
 
   initCharts();
+  
+  // Staggered trigger for data fetch to ensure connection stability
+  setTimeout(() => {
+    fetchStats();
+    invoke('ls_remote', { path: '/' }).then((files: any) => realFiles.value = files).catch(e => console.error(e));
+  }, 1000);
+
   setInterval(() => { fetchStats(); }, 3000);
 };
 
@@ -96,47 +179,12 @@ const workspaceRef = ref<HTMLElement | null>(null);
 const captureAndUpload = async (auto = false) => {
   if (!workspaceRef.value) return;
   console.log("📸 [RPC] Visual Audit Triggered...");
-  
   try {
-    const canvas = await html2canvas(workspaceRef.value, { 
-      backgroundColor: '#000',
-      useCORS: true,
-      scale: 1.5 
-    });
-    const base64 = canvas.toDataURL('image/png');
-    const remotePath = await invoke<string>('upload_ui_snapshot', { base64Data: base64 });
-    
-    const msg = auto 
-      ? `[SYSTEM] Snapshot ready at: ${remotePath}` 
-      : `Manual audit completed. Snapshot: ${remotePath}`;
-    
+    const canvas = await html2canvas(workspaceRef.value, { backgroundColor: '#000', useCORS: true, scale: 1.5 });
+    const remotePath = await invoke<string>('upload_ui_snapshot', { base64Data: canvas.toDataURL('image/png') });
+    const msg = auto ? `[SYSTEM] Snapshot ready at: ${remotePath}` : `Manual audit done: ${remotePath}`;
     await invoke('write_pty', { data: msg + "\r" });
-    
-    pluginToasts.value.push({
-      type: 'text',
-      title: 'Visual Loop',
-      message: auto ? 'Auto-Snapshot Dispatched' : 'Manual Snapshot Saved',
-      timestamp: Date.now()
-    });
   } catch (e) { console.error("Capture Failed:", e); }
-};
-
-// ==========================================
-// --- TAB MANAGEMENT ---
-// ==========================================
-const createNewTab = (title = "Shell") => {
-  const id = 'tab-' + Math.random().toString(36).substr(2, 9);
-  terminalTabs.value.push({ id, title, instance: null, isBackground: false });
-  activeTabId.value = id;
-};
-
-const sendToBackground = () => {
-  if (activeTab.value) {
-    activeTab.value.isBackground = true;
-    activeTab.value.title = "Task: " + activeTab.value.id.substr(0,5);
-    activeTabId.value = null;
-    createNewTab("New Shell");
-  }
 };
 
 // ==========================================
@@ -202,7 +250,7 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
             <div class="info"><b>{{ s.label }}</b><br/><small>{{ s.user }}@{{ s.host }}</small></div>
           </div>
         </div>
-        <div v-if="isConnecting" class="connecting-mask"><div class="spinner"></div><p>Tunneling...</p></div>
+        <div v-if="isConnecting" class="connecting-mask"><div class="spinner"></div><p>Establishing SSH Tunnel...</p></div>
       </div>
       <div v-if="showAddServer" class="modal-overlay">
         <div class="auth-card glass">
@@ -221,47 +269,47 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
         :memChartRef="(el: any) => memChartRef = el"
         v-model:isAutoPilot="isAutoPilot"
         @switch-tab="(id: string) => activeTabId = id"
+        @switch-mode="(mode: number) => cyberMode = mode"
         @audit-ui="captureAndUpload(false)"
       />
 
       <main class="workspace" ref="workspaceRef">
+        <!-- Context Menu -->
+        <div v-if="showContextMenu" 
+             class="context-menu" 
+             :style="{ top: menuY + 'px', left: menuX + 'px' }">
+          <div class="menu-item" @click="sendToBackground">🚀 Background Task</div>
+          <div class="menu-divider"></div>
+          <div class="menu-item disabled">📋 Copy (Coming)</div>
+          <div class="menu-item disabled">📥 Paste (Coming)</div>
+        </div>
+
         <nav class="tool-bar">
           <div class="status-chip"><span class="pulse purple"></span> {{ host }}</div>
           <div class="actions">
             <button @click="isLocked = true" class="btn-tool">Lock</button>
-            <button @click="cyberMode = (cyberMode + 1) % 4" class="btn-tool">
-              {{ cyberMode === 1 ? 'Dashboard' : 'Cyber View' }}
+            <button @click="cyberMode = cyberMode === 1 ? 0 : 1" class="btn-tool">
+              {{ cyberMode === 1 ? 'Terminal Focus' : 'Cyber View' }}
             </button>
           </div>
         </nav>
 
         <div class="workspace-body">
-          <!-- Left: Terminal (Responsive based on mode) -->
-          <section class="terminal-pane" :style="{ flex: cyberMode === 1 ? '0 0 40%' : '1' }">
+          <section class="terminal-pane" :style="{ flex: cyberMode === 1 ? '0 0 45%' : '1' }">
             <TerminalTabs 
               :tabs="terminalTabs" 
               :activeTabId="activeTabId"
               @switch-tab="(id: string) => activeTabId = id"
               @new-tab="createNewTab()"
-              @terminal-context="sendToBackground()"
+              @terminal-context="onTerminalContextMenu"
             />
           </section>
 
-          <!-- Right: Cyber Panels -->
           <section class="cyber-pane" v-if="cyberMode !== 0" :style="{ flex: '1' }">
-            <!-- Mode 1: Real-time Webview -->
-            <CyberWebview 
-              v-if="cyberMode === 1" 
-              ref="webviewRef"
-              initialUrl="http://localhost:5173" 
-            />
-            
-            <!-- Mode 2: Cyber Logs -->
-            <div v-else-if="cyberMode === 2" class="cyber-logs-view">
+            <CyberWebview v-show="cyberMode === 1" ref="webviewRef" initialUrl="http://localhost:5173" />
+            <div v-if="cyberMode === 2" class="cyber-logs-view">
               <header>Cyber Transparency</header>
-              <div class="logs-container">
-                <div v-for="(log, i) in backendLogs" :key="i" class="log-line">{{ log }}</div>
-              </div>
+              <div class="logs-container"><div v-for="(log, i) in backendLogs" :key="i" class="log-line">{{ log }}</div></div>
             </div>
           </section>
         </div>
@@ -271,20 +319,21 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
 </template>
 
 <style scoped>
+.context-menu { position: fixed; z-index: 10000; background: #18181b; border: 1px solid #3f3f46; border-radius: 6px; padding: 4px; min-width: 150px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+.menu-item { padding: 8px 12px; font-size: 11px; color: #d4d4d8; cursor: pointer; border-radius: 4px; transition: 0.2s; }
+.menu-item:hover { background: #3f3f46; color: #fff; }
+.menu-item.disabled { color: #52525b; cursor: not-allowed; }
+.menu-divider { height: 1px; background: #27272a; margin: 4px 0; }
 .app-shell { height: 100vh; background: #050505; color: #e4e4e7; font-family: 'Inter', system-ui; overflow: hidden; position: relative; }
 .main-view { display: flex; height: 100%; width: 100%; }
-.workspace { flex: 1; display: flex; flex-direction: column; background: #000; overflow: hidden; }
+.workspace { flex: 1; display: flex; flex-direction: column; background: #000; overflow: hidden; position: relative; }
 .tool-bar { height: 45px; background: #0c0c0e; border-bottom: 1px solid #1a1a1c; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; }
 .workspace-body { flex: 1; display: flex; overflow: hidden; }
 .terminal-pane { height: 100%; display: flex; flex-direction: column; transition: flex 0.3s ease; }
 .cyber-pane { height: 100%; border-left: 1px solid #1a1a1c; overflow: hidden; }
-
-/* Cyber Logs Mode */
 .cyber-logs-view { height: 100%; display: flex; flex-direction: column; background: #0a0a0a; }
 .cyber-logs-view header { padding: 10px 15px; font-size: 11px; color: #6366f1; font-weight: bold; border-bottom: 1px solid #1a1a1c; }
 .logs-container { flex: 1; padding: 15px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #22c55e; }
-
-/* Preserved Core Styles */
 .workspace-setup { height: 100%; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle at center, #111 0%, #000 100%); }
 .vault-container { width: 450px; background: #111; border: 1px solid #333; border-radius: 12px; padding: 25px; box-shadow: 0 20px 50px rgba(0,0,0,0.8); position: relative; overflow: hidden; }
 .server-card { background: #1a1a1a; border: 1px solid #333; padding: 12px; border-radius: 8px; display: flex; align-items: center; cursor: pointer; transition: 0.2s; margin-bottom: 10px; }

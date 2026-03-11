@@ -7,7 +7,7 @@ const props = defineProps<{
   isAutoPilot: boolean;
 }>();
 
-const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui']);
+const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode']);
 
 const updateAutoPilot = (e: any) => {
   emit('update:isAutoPilot', e.target.checked);
@@ -16,8 +16,8 @@ const updateAutoPilot = (e: any) => {
 
 <template>
   <aside class="side-bar">
-    <div class="module sys-health">
-      <header>System Health</header>
+    <div class="module sys-health" @click="$emit('switch-mode', 0)" style="cursor: pointer;">
+      <header>System Health (Dashboard)</header>
       <div class="chart-box">
         <div :ref="cpuChartRef" class="mini-chart"></div>
         <div :ref="memChartRef" class="mini-chart"></div>
@@ -49,6 +49,7 @@ const updateAutoPilot = (e: any) => {
     <div class="sidebar-footer">
       <header>AI Control</header>
       <div class="ai-controls">
+        <button @click="$emit('switch-mode', 1)" class="btn-cyber">🌐 Open Cyber View</button>
         <button @click="$emit('audit-ui')" class="btn-audit">📸 Audit UI</button>
         <div class="toggle-box">
           <span>Auto-Pilot</span>
@@ -79,6 +80,8 @@ const updateAutoPilot = (e: any) => {
 .sidebar-footer { padding: 15px; background: #080809; border-top: 1px solid #1a1a1c; margin-top: auto; }
 .ai-controls { display: flex; flex-direction: column; gap: 8px; }
 .btn-audit { background: #6366f1; border: none; color: white; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: bold; }
+.btn-cyber { background: #1a1a1c; border: 1px solid #3f3f46; color: #d4d4d8; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: bold; }
+.btn-cyber:hover { border-color: #6366f1; color: #fff; }
 .toggle-box { display: flex; justify-content: space-between; align-items: center; font-size: 10px; color: #71717a; }
 
 .switch { position: relative; display: inline-block; width: 30px; height: 16px; background: #333; border-radius: 10px; cursor: pointer; }
