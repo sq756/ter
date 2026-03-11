@@ -5,7 +5,9 @@
       "name": "ai_audit_ui",
       "description": "截取当前 Ter 软件的 UI 快照。用于验证 CSS 修改、布局效果或插件弹窗。",
       "trigger": "curl http://127.0.0.1:1414",
-      "output": "snap/ter_audit_[timestamp].png"
+      "context_requirement": {
+        "require_screenshot": true
+      }
     },
     {
       "name": "run_plugin",

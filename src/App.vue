@@ -89,8 +89,12 @@ const closeTab = (id: string) => {
 
 const sendToBackground = () => {
   if (activeTab.value) {
+    const selection = terminalManager.getSelection(activeTab.value.id).trim();
     activeTab.value.isBackground = true;
-    activeTab.value.title = "Task: " + activeTab.value.id.substr(0,5);
+    // Use selection as semantic process name, fallback to task ID
+    activeTab.value.title = selection 
+      ? `Proc: ${selection.length > 20 ? selection.substring(0, 20) + '...' : selection}` 
+      : `Task: ${activeTab.value.id.substr(0, 5)}`;
     activeTabId.value = null;
     createNewTab("New Shell");
   }
@@ -115,11 +119,22 @@ const connectWithId = async (id: string) => {
     await invoke('connect_with_id', { id }); 
     await onConnected();
     backendLogs.value.push('[INFO] 已建立新会话。');
+    // Immediate stats flow
+    setTimeout(() => fetchStats(), 500);
   } catch (e) { alert("Connection Failed: " + e); } finally { isConnecting.value = false; }
 };
 
-const runSkill = (rpc: string) => {
-  if (isConnected.value) {
+const runSkill = async (skill: any) => {
+  if (!isConnected.value) return;
+
+  // Handle Context Requirement: Auto-screenshot for Manifest V2
+  if (skill.context_requirement?.require_screenshot) {
+    console.log("[SYSTEM] Skill requires UI context. Capturing...");
+    await captureAndUpload(true);
+  }
+
+  const rpc = skill.rpc || skill.trigger;
+  if (rpc) {
     if (rpc.includes('audit') || rpc.toLowerCase().includes('gemini') || rpc.includes('ter')) {
       isAutoPilot.value = true;
     }
@@ -172,6 +187,8 @@ const onConnected = async () => {
   unlistenPort = await listen<number>('agent-tunnel-opened', (event) => {
     currentAgentPort.value = event.payload;
     backendLogs.value.push(`[SYSTEM] Agent tunnel established on port ${event.payload}`);
+    // Trigger stats immediately once tunnel is open
+    nextTick(() => fetchStats());
   });
 
   initCharts();
@@ -187,15 +204,48 @@ const onConnected = async () => {
 // --- CORE LOGIC: Visual Audit Loop ---
 // ==========================================
 const workspaceRef = ref<HTMLElement | null>(null);
+const cyberPaneRef = ref<HTMLElement | null>(null);
+const cyberWebviewRef = ref<HTMLElement | null>(null);
+
 const captureAndUpload = async (auto = false) => {
-  if (!workspaceRef.value) return;
+  // 1. Smart Capture: Prioritize the webview viewport only
+  // This ensures the AI sees only the relevant UI context (the web view)
+  const target = (cyberWebviewRef.value && cyberWebviewRef.value.offsetParent !== null)
+    ? cyberWebviewRef.value
+    : (cyberPaneRef.value && cyberPaneRef.value.offsetParent !== null)
+      ? cyberPaneRef.value
+      : workspaceRef.value;
+    
+  if (!target) return;
+  
   isAutoPilot.value = true;
   try {
-    const canvas = await html2canvas(workspaceRef.value, { backgroundColor: '#000', useCORS: true, scale: 1.5 });
-    const remotePath = await invoke<string>('upload_ui_snapshot', { base64Data: canvas.toDataURL('image/png') });
-    const msg = auto ? `[SYSTEM] Snapshot ready at: ${remotePath}` : `Manual audit done: ${remotePath}`;
+    // 2. Capture Snapshot
+    const canvas = await html2canvas(target, { 
+      backgroundColor: '#000000', 
+      useCORS: true, 
+      scale: 2.0, // High resolution for AI vision
+      logging: false,
+      allowTaint: true,
+      ignoreElements: (element) => element.classList.contains('terminal-pane') && target !== workspaceRef.value
+    });
+    
+    const base64Data = canvas.toDataURL('image/png');
+    const remotePath = await invoke<string>('upload_ui_snapshot', { base64Data });
+    
+    // 3. Dual-Sync Logs: Save last 10 JSON logs for transparency
+    const lastLogs = backendLogs.value.slice(-10).join('\n');
+    await invoke('write_remote_text', { text: lastLogs, remotePath: '/tmp/current_logs.json' });
+
+    const msg = auto 
+      ? `[SYSTEM] Audit Done: ${remotePath} + Logs Sync` 
+      : `Manual audit completed. Snapshot: ${remotePath}, Logs: /tmp/current_logs.json`;
+    
     await invoke('write_pty', { data: msg + "\n" });
-  } catch (e) { console.error("Capture Failed:", e); }
+  } catch (e) { 
+    console.error("Capture Failed:", e); 
+    backendLogs.value.push(`[ERROR] Visual Audit failed: ${e}`);
+  }
 };
 
 // ==========================================
@@ -210,13 +260,19 @@ const initCharts = () => { if (cpuChartRef.value) cpuChart = echarts.init(cpuCha
 const fetchStats = async () => {
   if (!currentAgentPort.value) return;
   try {
-    const r = await fetch(`http://localhost:${currentAgentPort.value}/stats`, { headers: { 'X-Ter-Token': agentToken.value } });
+    const r = await fetch(`http://localhost:${currentAgentPort.value}/stats`, { 
+      headers: { 'X-Ter-Token': agentToken.value },
+      signal: AbortSignal.timeout(2000) // Safety timeout
+    });
+    if (!r.ok) throw new Error("Stats fetch failed");
     const d = await r.json();
     cpuHistory.value.push(d.cpu_usage); memHistory.value.push((d.mem_used / d.mem_total) * 100);
     if (cpuHistory.value.length > 30) { cpuHistory.value.shift(); memHistory.value.shift(); }
     cpuChart?.setOption(getChartOpt(cpuHistory.value, '#6366f1'));
     memChart?.setOption(getChartOpt(memHistory.value, '#a855f7'));
-  } catch (e) {}
+  } catch (e) {
+    console.warn("Cyber metrics sync waiting for agent...");
+  }
 };
 const getChartOpt = (d: any[], c: string) => ({ grid: { top: 5, bottom: 0, left: 0, right: 0 }, xAxis: { type: 'category', show: false }, yAxis: { type: 'value', min: 0, max: 100, show: false }, series: [{ data: d, type: 'line', smooth: true, areaStyle: { color: c }, itemStyle: { color: c }, showSymbol: false }], animation: false });
 
@@ -308,7 +364,7 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
         </nav>
 
         <div class="workspace-body">
-          <section class="terminal-pane" :style="{ flex: cyberMode === 1 ? '0 0 45%' : '1' }">
+          <section class="terminal-pane" :style="{ flex: cyberMode === 1 ? '0 0 50%' : '1' }">
             <TerminalTabs 
               :tabs="terminalTabs" 
               :activeTabId="activeTabId"
@@ -319,11 +375,31 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
             />
           </section>
 
-          <section class="cyber-pane" v-if="cyberMode !== 0" :style="{ flex: '1' }">
-            <CyberWebview v-show="cyberMode === 1" ref="webviewRef" initialUrl="http://localhost:5173" />
-            <div v-if="cyberMode === 2" class="cyber-logs-view">
-              <header>Cyber Transparency</header>
-              <div class="logs-container"><div v-for="(log, i) in backendLogs" :key="i" class="log-line">{{ log }}</div></div>
+          <section class="cyber-pane" v-if="cyberMode !== 0" :style="{ flex: '1' }" ref="cyberPaneRef">
+            <div class="cyber-container">
+              <!-- Logs View (Top 40%) -->
+              <div class="cyber-logs-view">
+                <header>
+                  <span class="title">Cyber Transparency</span>
+                  <span v-if="currentAgentPort" class="port-tag">PORT: {{ currentAgentPort }}</span>
+                </header>
+                <div class="logs-container" ref="logsScrollRef">
+                  <div v-for="(log, i) in backendLogs" :key="i" class="log-line">
+                    <span class="line-num">{{ i + 1 }}</span> {{ log }}
+                  </div>
+                  <div v-if="backendLogs.length === 0" class="empty-log">Waiting for agent JSON stream...</div>
+                </div>
+              </div>
+              
+              <div class="cyber-divider"></div>
+
+              <!-- Webview (Bottom 60%) -->
+              <div class="cyber-webview-wrapper" ref="cyberWebviewRef">
+                <CyberWebview 
+                  ref="webviewRef" 
+                  :url="`http://localhost:${currentAgentPort || 5173}`" 
+                />
+              </div>
             </div>
           </section>
         </div>
@@ -333,6 +409,84 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
 </template>
 
 <style scoped>
+.cyber-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #000;
+}
+
+.cyber-logs-view {
+  flex: 0 0 40%;
+  display: flex;
+  flex-direction: column;
+  background: #0a0a0a;
+  border-bottom: 1px solid #1a1a1c;
+  overflow: hidden;
+}
+
+.cyber-logs-view header {
+  padding: 8px 12px;
+  background: #0c0c0e;
+  border-bottom: 1px solid #1a1a1c;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.cyber-logs-view .title {
+  font-size: 10px;
+  color: #6366f1;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.port-tag {
+  font-size: 9px;
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.1);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.logs-container {
+  flex: 1;
+  padding: 10px;
+  overflow-y: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: #a1a1aa;
+}
+
+.log-line {
+  margin-bottom: 2px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.line-num { color: #3f3f46; margin-right: 8px; user-select: none; }
+
+.empty-log {
+  color: #3f3f46;
+  text-align: center;
+  margin-top: 20px;
+  font-style: italic;
+}
+
+.cyber-divider {
+  height: 1px;
+  background: #1a1a1c;
+  box-shadow: 0 0 10px rgba(0,0,0,0.5);
+}
+
+.cyber-webview-wrapper {
+  flex: 1;
+  background: #000;
+  position: relative;
+}
+
 .context-menu { position: fixed; z-index: 10000; background: #18181b; border: 1px solid #3f3f46; border-radius: 6px; padding: 4px; min-width: 150px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
 .menu-item { padding: 8px 12px; font-size: 11px; color: #d4d4d8; cursor: pointer; border-radius: 4px; transition: 0.2s; }
 .menu-item:hover { background: #3f3f46; color: #fff; }
@@ -344,10 +498,7 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
 .tool-bar { height: 45px; background: #0c0c0e; border-bottom: 1px solid #1a1a1c; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; }
 .workspace-body { flex: 1; display: flex; overflow: hidden; }
 .terminal-pane { height: 100%; display: flex; flex-direction: column; transition: flex 0.3s ease; position: relative; min-width: 0; min-height: 0; }
-.cyber-pane { height: 100%; border-left: 1px solid #1a1a1c; overflow: hidden; }
-.cyber-logs-view { height: 100%; display: flex; flex-direction: column; background: #0a0a0a; }
-.cyber-logs-view header { padding: 10px 15px; font-size: 11px; color: #6366f1; font-weight: bold; border-bottom: 1px solid #1a1a1c; }
-.logs-container { flex: 1; padding: 15px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #22c55e; }
+.cyber-pane { height: 100%; border-left: 1px solid #1a1a1c; overflow: hidden; background: #000; }
 .workspace-setup { height: 100%; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle at center, #111 0%, #000 100%); }
 .vault-container { width: 450px; background: #111; border: 1px solid #333; border-radius: 12px; padding: 25px; box-shadow: 0 20px 50px rgba(0,0,0,0.8); position: relative; overflow: hidden; }
 .server-card { background: #1a1a1a; border: 1px solid #333; padding: 12px; border-radius: 8px; display: flex; align-items: center; cursor: pointer; transition: 0.2s; margin-bottom: 10px; }

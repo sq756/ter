@@ -46,7 +46,7 @@ const onItemClick = (f: any) => {
     <div class="module scroller skills-hub">
       <header>Skill Hub (Remote)</header>
       <ul class="data-list">
-        <li v-for="s in skills" :key="s.id" @click="$emit('run-skill', s.rpc)" :title="s.description">
+        <li v-for="s in skills" :key="s.id" @click="$emit('run-skill', s)" :title="s.description">
           <span class="icon">{{ s.icon || '🛠️' }}</span>
           <span class="name">{{ s.name }}</span>
           <span class="val">RUN</span>

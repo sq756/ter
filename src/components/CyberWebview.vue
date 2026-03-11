@@ -3,10 +3,9 @@ import { ref } from 'vue';
 import { open } from '@tauri-apps/plugin-shell';
 
 const props = defineProps<{
-  initialUrl?: string;
+  url: string;
 }>();
 
-const previewUrl = ref(props.initialUrl || 'http://localhost:5173');
 const iframeRef = ref<HTMLIFrameElement | null>(null);
 
 const reload = () => {
@@ -16,13 +15,12 @@ const reload = () => {
 };
 
 const goHome = () => {
-  previewUrl.value = props.initialUrl || 'http://localhost:5173';
-  if (iframeRef.value) iframeRef.value.src = previewUrl.value;
+  if (iframeRef.value) iframeRef.value.src = props.url;
 };
 
 const openInBrowser = async () => {
   try {
-    await open(previewUrl.value);
+    await open(props.url);
   } catch (e) {
     console.error("Failed to open system browser:", e);
   }
@@ -37,7 +35,7 @@ defineExpose({ reload });
     <nav class="webview-toolbar">
       <div class="url-bar">
         <span class="secure-icon">🔒</span>
-        <input type="text" :value="previewUrl" readonly />
+        <input type="text" :value="url" readonly />
       </div>
       <div class="actions">
         <button @click="reload" title="Reload (Ctrl+R)">🔄</button>
@@ -48,11 +46,11 @@ defineExpose({ reload });
     <div class="iframe-container">
       <iframe 
         ref="iframeRef" 
-        :src="previewUrl" 
+        :src="url" 
         frameborder="0" 
         allow="cross-origin-isolated"
       ></iframe>
-      <div class="tunnel-hint">⚡ Tunneled via SSH (127.0.0.1:5173)</div>
+      <div class="tunnel-hint">⚡ Tunneled via SSH ({{ url }})</div>
     </div>
   </div>
 </template>
@@ -64,17 +62,16 @@ defineExpose({ reload });
   height: 100%;
   width: 100%;
   background: #000;
-  border-left: 1px solid #1a1a1c;
 }
 
 .webview-toolbar {
-  height: 40px;
-  background: rgba(10, 25, 47, 0.8);
+  height: 32px;
+  background: rgba(10, 25, 47, 0.9);
   backdrop-filter: blur(10px);
   display: flex;
   align-items: center;
-  padding: 0 10px;
-  gap: 10px;
+  padding: 0 8px;
+  gap: 8px;
   border-bottom: 1px solid rgba(99, 102, 241, 0.3);
 }
 
@@ -85,7 +82,7 @@ defineExpose({ reload });
   border-radius: 4px;
   display: flex;
   align-items: center;
-  padding: 2px 8px;
+  padding: 1px 8px;
   box-shadow: inset 0 0 5px rgba(99, 102, 241, 0.1);
 }
 
@@ -93,7 +90,7 @@ defineExpose({ reload });
   background: transparent;
   border: none;
   color: #818cf8;
-  font-size: 11px;
+  font-size: 10px;
   width: 100%;
   outline: none;
   font-family: 'JetBrains Mono', monospace;
@@ -101,16 +98,16 @@ defineExpose({ reload });
 
 .secure-icon { font-size: 10px; margin-right: 6px; opacity: 0.7; }
 
-.actions { display: flex; gap: 5px; }
+.actions { display: flex; gap: 4px; }
 .actions button {
   background: transparent;
   border: 1px solid #27272a;
   color: #a1a1aa;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -127,12 +124,13 @@ defineExpose({ reload });
   flex: 1;
   position: relative;
   overflow: hidden;
+  background: #000; /* Prevent white flash */
 }
 
 iframe {
   width: 100%;
   height: 100%;
-  background: #fff; /* Most web pages expect white bg */
+  background: #fff;
 }
 
 .tunnel-hint {
@@ -147,5 +145,6 @@ iframe {
   border: 1px solid rgba(34, 197, 94, 0.3);
   pointer-events: none;
   font-family: monospace;
+  z-index: 5;
 }
 </style>

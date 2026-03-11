@@ -70,11 +70,10 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
 
     <div class="workspace-body">
       <section class="terminal-pane">
-        <!-- Persistent Terminal Containers: Keeping them in DOM with v-show -->
+        <!-- Persistent Terminal Containers: Preserve physical size with visibility: hidden -->
         <div v-for="t in tabs" :key="t.id" 
-             v-show="t.id === activeTabId" 
+             :class="['terminal-container', { 'inactive-tab': t.id !== activeTabId }]"
              v-attach-term="t.id"
-             class="terminal-container"
              @contextmenu.prevent="$emit('terminal-context', $event)">
         </div>
       </section>
@@ -105,6 +104,13 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
   overflow: hidden; 
 }
 
+/* PHYSICAL-KEEP-ALIVE: visibility: hidden keeps the layout metrics alive */
+.inactive-tab {
+  visibility: hidden;
+  pointer-events: none;
+  z-index: -1;
+}
+
 /* Force xterm internal elements to fill container */
 :deep(.xterm), 
 :deep(.xterm-viewport), 
@@ -113,5 +119,6 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
   display: block !important;
   width: 100% !important;
   height: 100% !important;
+  background-color: #000 !important;
 }
 </style>

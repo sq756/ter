@@ -380,12 +380,25 @@ async fn connect_to_ssh(host: String, port: u16, user: String, pass: String, app
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
+struct ContextRequirement {
+    require_screenshot: Option<bool>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 struct Skill {
-    id: String,
+    id: Option<String>,
     name: String,
-    icon: String,
+    icon: Option<String>,
     description: String,
-    rpc: String,
+    rpc: Option<String>,
+    trigger: Option<String>,
+    context_requirement: Option<ContextRequirement>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+struct SkillManifest {
+    version: String,
+    skills: Vec<Skill>,
 }
 
 #[tauri::command]
@@ -413,8 +426,15 @@ async fn load_remote_skills(state: State<'_, AppState>) -> Result<Vec<Skill>, St
         Ok(mut remote_file) => {
             let mut content = Vec::new();
             tokio::io::AsyncReadExt::read_to_end(&mut remote_file, &mut content).await.map_err(|e| e.to_string())?;
-            let skills: Vec<Skill> = serde_json::from_slice(&content).map_err(|e| format!("Failed to parse skills.json: {}", e))?;
-            Ok(skills)
+            
+            // Try to parse as SkillManifest first, then fallback to Vec<Skill>
+            if let Ok(manifest) = serde_json::from_slice::<SkillManifest>(&content) {
+                Ok(manifest.skills)
+            } else if let Ok(skills) = serde_json::from_slice::<Vec<Skill>>(&content) {
+                Ok(skills)
+            } else {
+                Err("Failed to parse skills.json as either Manifest or List".to_string())
+            }
         }
         Err(_) => {
             // File doesn't exist or other error, return empty list gracefully
@@ -544,6 +564,21 @@ async fn upload_ui_snapshot(base64_data: String, state: State<'_, AppState>) -> 
     
     log::info!("UI Snapshot uploaded to remote: {}", remote_path);
     Ok(remote_path.to_string())
+}
+
+#[tauri::command]
+async fn write_remote_text(text: String, remote_path: String, state: State<'_, AppState>) -> Result<(), String> {
+    let session_guard = state.session.lock().await;
+    let session = session_guard.as_ref().ok_or("No active SSH session")?;
+
+    let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
+    channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
+    let sftp = SftpSession::new(channel.into_stream()).await.map_err(|e| e.to_string())?;
+
+    let mut remote_file = sftp.create(&remote_path).await.map_err(|e| e.to_string())?;
+    tokio::io::AsyncWriteExt::write_all(&mut remote_file, text.as_bytes()).await.map_err(|e| e.to_string())?;
+    
+    Ok(())
 }
 
 #[tauri::command]
@@ -859,7 +894,8 @@ pub fn run() {
             run_plugin,
             get_skill_manifest,
             load_remote_skills,
-            upload_ui_snapshot
+            upload_ui_snapshot,
+            write_remote_text
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

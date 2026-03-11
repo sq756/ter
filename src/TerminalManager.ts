@@ -25,8 +25,8 @@ class TerminalManager {
       cursorBlink: true,
       fontSize: 14,
       fontFamily: "'JetBrains Mono', monospace",
-      theme: { background: '#000', foreground: '#fafafa' },
-      allowTransparency: true,
+      theme: { background: '#000000', foreground: '#fafafa' },
+      allowTransparency: false, // Ensure solid black background
       ...options
     });
 
@@ -78,6 +78,11 @@ class TerminalManager {
     if (instance) {
       instance.term.focus();
     }
+  }
+
+  public getSelection(id: string): string {
+    const instance = this.instances.get(id);
+    return instance ? instance.term.getSelection() : '';
   }
 
   public write(id: string, data: string | Uint8Array) {
