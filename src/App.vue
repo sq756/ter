@@ -38,7 +38,6 @@ const contextMenuTabId = ref<string | null>(null);
 // Tabs State: Only store metadata in Vue's reactive system.
 const terminalTabs = ref<any[]>([]);
 const activeTabId = ref<string | null>(null);
-const activeTab = computed(() => terminalTabs.value.find(t => t.id === activeTabId.value));
 const backgroundTabs = computed(() => terminalTabs.value.filter(t => t.isBackground));
 
 // SFTP / Data State
@@ -454,7 +453,7 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
     <MatrixScreen 
       :isLocked="isLocked" 
       :logs="backendLogs" 
-      :cpuUsage="currentCpuUsage"
+      :cpuUsage="currentCpuUsage ?? 0"
       @unlock="isLocked = false" 
     />
   </div>

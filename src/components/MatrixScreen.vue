@@ -40,12 +40,15 @@ const startMatrix = () => {
     ctx.font = `bold ${fontSize}px 'JetBrains Mono', monospace`;
 
     for (let i = 0; i < drops.length; i++) {
+      const dropY = drops[i];
       const logLine = columnLogs[i];
-      const charIndex = Math.floor(drops[i]) % logLine.length;
+      if (dropY === undefined || logLine === undefined) continue;
+
+      const charIndex = Math.floor(dropY) % logLine.length;
       const char = logLine[charIndex] || " ";
 
       // Brightness: Darker at bottom, bright at the "head" of the drop
-      const yPos = drops[i] * fontSize;
+      const yPos = dropY * fontSize;
       const brightness = Math.max(0.05, 1 - (yPos / canvas.height));
       
       // Leading character is brighter/white
@@ -64,7 +67,7 @@ const startMatrix = () => {
         drops[i] = 0;
         columnLogs[i] = props.logs[Math.floor(Math.random() * props.logs.length)] || "RE-ENCRYPTING.DATA.STREAM";
       } else {
-        drops[i] += speed;
+        drops[i] = dropY + speed;
       }
     }
   };
