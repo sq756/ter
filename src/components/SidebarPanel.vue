@@ -8,10 +8,16 @@ const props = defineProps<{
   isAutoPilot: boolean;
 }>();
 
-const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill']);
+const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill', 'change-dir']);
 
 const updateAutoPilot = (e: any) => {
   emit('update:isAutoPilot', e.target.checked);
+};
+
+const onItemClick = (f: any) => {
+  if (f.is_dir) {
+    emit('change-dir', f.name);
+  }
 };
 </script>
 
@@ -52,7 +58,11 @@ const updateAutoPilot = (e: any) => {
     <div class="module scroller explorer">
       <header>SFTP Explorer</header>
       <ul class="data-list">
-        <li v-for="f in files" :key="f.name">
+        <li @click="$emit('change-dir', '..')">
+          <span class="icon">📁</span>
+          <span class="name">..</span>
+        </li>
+        <li v-for="f in files" :key="f.name" @click="onItemClick(f)">
           <span class="icon">{{ f.is_dir ? '📁' : '📄' }}</span>
           <span class="name">{{ f.name }}</span>
         </li>

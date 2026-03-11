@@ -27,6 +27,7 @@ const backendLogs = ref<string[]>([]);
 const savedServers = ref<any[]>([]);
 const showAddServer = ref(false);
 const host = ref('Remote Server');
+const currentPath = ref('/');
 
 // Context Menu State
 const showContextMenu = ref(false);
@@ -44,13 +45,16 @@ const realFiles = ref<any[]>([]);
 const skills = ref<any[]>([]);
 const webviewRef = ref<any>(null);
 
-// Watch for tab switch to fit terminal
+// Watch for tab switch to fit and focus terminal
 watch(activeTabId, async (newId) => {
   if (newId) {
     await nextTick();
     const tab = terminalTabs.value.find(t => t.id === newId);
     if (tab && tab.fitAddon) {
-      setTimeout(() => tab.fitAddon.fit(), 100);
+      setTimeout(() => {
+        tab.fitAddon.fit();
+        tab.instance?.focus();
+      }, 100);
     }
   }
 });
@@ -86,13 +90,18 @@ const createNewTab = (title = "Shell") => {
   
   activeTabId.value = id;
   console.log(`[CORE] New tab created: ${id}`);
+  
+  // Auto-focus new tab
+  nextTick(() => term.focus());
+  
   return id;
 };
 
 const sendToBackground = () => {
   if (activeTab.value) {
+    const selection = activeTab.value.instance?.getSelection();
     activeTab.value.isBackground = true;
-    activeTab.value.title = "Task: " + activeTab.value.id.substr(0,5);
+    activeTab.value.title = selection ? (selection.length > 15 ? selection.substr(0,12) + "..." : selection) : "Task: " + activeTab.value.id.substr(0,5);
     activeTabId.value = null;
     createNewTab("New Shell");
   }
@@ -129,6 +138,26 @@ const runSkill = (rpc: string) => {
   if (isConnected.value) {
     invoke('write_pty', { data: rpc + "\r" });
   }
+};
+
+const refreshExplorer = async () => {
+  if (!isConnected.value) return;
+  try {
+    realFiles.value = await invoke('ls_remote', { path: currentPath.value });
+  } catch (e) {
+    console.error("SFTP refresh failed:", e);
+  }
+};
+
+const changeDir = (path: string) => {
+  if (path === '..') {
+    const parts = currentPath.value.split('/').filter(p => p);
+    parts.pop();
+    currentPath.value = '/' + parts.join('/');
+  } else {
+    currentPath.value = (currentPath.value === '/' ? '' : currentPath.value) + '/' + path;
+  }
+  refreshExplorer();
 };
 
 const onConnected = async () => {
@@ -173,7 +202,7 @@ const onConnected = async () => {
   // Staggered trigger for data fetch to ensure connection stability
   setTimeout(() => {
     fetchStats();
-    invoke('ls_remote', { path: '/' }).then((files: any) => realFiles.value = files).catch(e => console.error(e));
+    refreshExplorer();
     invoke('load_remote_skills').then((s: any) => skills.value = s).catch(e => console.error(e));
   }, 1000);
 
@@ -280,6 +309,7 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
         @switch-tab="(id: string) => activeTabId = id"
         @switch-mode="(mode: number) => cyberMode = mode"
         @run-skill="runSkill"
+        @change-dir="changeDir"
         @audit-ui="captureAndUpload(false)"
       />
 

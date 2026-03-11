@@ -45,6 +45,7 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
              v-show="t.id === activeTabId" 
              v-mount-term="t"
              class="terminal-container"
+             @click="t.instance?.focus()"
              @contextmenu.prevent="$emit('terminal-context', $event)">
         </div>
       </section>
