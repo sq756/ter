@@ -15,6 +15,7 @@ use tokio::net::TcpListener;
 use tokio::io::AsyncReadExt;
 use uuid::Uuid;
 use std::sync::OnceLock;
+use base64::Engine;
 
 static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 
@@ -476,7 +477,7 @@ async fn upload_ui_snapshot(base64_data: String, state: State<'_, AppState>) -> 
     // 1. Decode base64
     let raw_data = base64::engine::general_purpose::STANDARD
         .decode(base64_data.replace("data:image/png;base64,", ""))
-        .map_err(|e| e.to_string())?;
+        .map_err(|e: base64::DecodeError| e.to_string())?;
 
     // 2. Open SFTP session
     let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
