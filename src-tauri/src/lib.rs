@@ -69,10 +69,10 @@ struct AppState {
     db_error: tokio::sync::Mutex<Option<String>>,
     crypto: tokio::sync::Mutex<Option<Crypto>>,
     model_path: tokio::sync::Mutex<Option<std::path::PathBuf>>,
-    agent_port: tokio::sync::Mutex<Option<u16>>,
-    vnc_port: tokio::sync::Mutex<Option<u16>>,
-    agent_abort: tokio::sync::Mutex<Option<tokio::task::AbortHandle>>,
-    vnc_abort: tokio::sync::Mutex<Option<tokio::task::AbortHandle>>,
+    agent_port: Arc<tokio::sync::Mutex<Option<u16>>>,
+    vnc_port: Arc<tokio::sync::Mutex<Option<u16>>>,
+    agent_abort: Arc<tokio::sync::Mutex<Option<tokio::task::AbortHandle>>>,
+    vnc_abort: Arc<tokio::sync::Mutex<Option<tokio::task::AbortHandle>>>,
 }
 
 #[tauri::command]
@@ -225,8 +225,8 @@ async fn deploy_agent(session: &client::Handle<Client>, token: &str, app_handle:
     let local_size = local_metadata.len();
     
     let mut should_upload = true;
-    if let Ok(remote_stat) = sftp.stat(&remote_path).await {
-        if let Some(remote_size) = remote_stat.size {
+    if let Ok(remote_metadata) = sftp.metadata(&remote_path).await {
+        if let Some(remote_size) = remote_metadata.size {
             if remote_size == local_size {
                 log::info!("Agent already exists on remote with matching size ({}), skipping upload.", remote_size);
                 should_upload = false;
@@ -343,21 +343,23 @@ async fn connect_to_ssh(host: String, port: u16, user: String, pass: String, app
     if let Some(session_arc) = session_guard.as_ref() {
         let session_clone = session_arc.clone();
         let app_handle_agent = app_handle.clone();
-        let state_agent = state.clone();
+        let agent_port_clone = state.agent_port.clone();
 
         // Cancel previous agent tunnel task if it exists
-        let mut agent_abort_guard = state.agent_abort.lock().await;
-        if let Some(handle) = agent_abort_guard.take() { handle.abort(); }
+        let agent_abort_field = state.agent_abort.clone();
+        {
+            let mut agent_abort_guard = agent_abort_field.lock().await;
+            if let Some(handle) = agent_abort_guard.take() { handle.abort(); }
+        }
 
-        let agent_task = tauri::async_runtime::spawn(async move {
+        let agent_task = tokio::spawn(async move {
             match TcpListener::bind("127.0.0.1:0").await {
                 Ok(listener) => {
                     let local_port = listener.local_addr().unwrap().port();
                     log::info!("Tunnel listening on 127.0.0.1:{} -> remote 127.0.0.1:34567", local_port);
                     
                     // Update AppState with assigned port
-                    let state_clone = state_agent.clone();
-                    *state_clone.agent_port.lock().await = Some(local_port);
+                    *agent_port_clone.lock().await = Some(local_port);
 
                     let _ = app_handle_agent.emit("agent-tunnel-opened", local_port);
 
@@ -383,25 +385,31 @@ async fn connect_to_ssh(host: String, port: u16, user: String, pass: String, app
                 Err(e) => log::error!("Failed to bind to dynamic tunnel port: {}", e),
             }
         });
-        *agent_abort_guard = Some(agent_task.abort_handle());
+        
+        {
+            let mut agent_abort_guard = agent_abort_field.lock().await;
+            *agent_abort_guard = Some(agent_task.abort_handle());
+        }
 
         // Tunnel for VNC (127.0.0.1:5901)
         let session_clone_vnc = session_arc.clone();
         let app_handle_vnc = app_handle.clone();
-        let state_vnc = state.clone();
+        let vnc_port_clone = state.vnc_port.clone();
+        let vnc_abort_field = state.vnc_abort.clone();
 
         // Cancel previous VNC tunnel task
-        let mut vnc_abort_guard = state.vnc_abort.lock().await;
-        if let Some(handle) = vnc_abort_guard.take() { handle.abort(); }
+        {
+            let mut vnc_abort_guard = vnc_abort_field.lock().await;
+            if let Some(handle) = vnc_abort_guard.take() { handle.abort(); }
+        }
 
-        let vnc_task = tauri::async_runtime::spawn(async move {
+        let vnc_task = tokio::spawn(async move {
             match TcpListener::bind("127.0.0.1:0").await {
                 Ok(listener) => {
                     let local_port = listener.local_addr().unwrap().port();
                     log::info!("VNC Tunnel listening on 127.0.0.1:{} -> remote 127.0.0.1:5901", local_port);
                     
-                    let state_clone = state_vnc.clone();
-                    *state_clone.vnc_port.lock().await = Some(local_port);
+                    *vnc_port_clone.lock().await = Some(local_port);
 
                     let _ = app_handle_vnc.emit("vnc-tunnel-opened", local_port);
 
@@ -425,7 +433,11 @@ async fn connect_to_ssh(host: String, port: u16, user: String, pass: String, app
                 Err(e) => log::error!("Failed to bind to dynamic VNC tunnel port: {}", e),
             }
         });
-        *vnc_abort_guard = Some(vnc_task.abort_handle());
+        
+        {
+            let mut vnc_abort_guard = vnc_abort_field.lock().await;
+            *vnc_abort_guard = Some(vnc_task.abort_handle());
+        }
     }
 
     Ok(())
@@ -808,10 +820,10 @@ pub fn run() {
             db_error: tokio::sync::Mutex::new(None),
             crypto: tokio::sync::Mutex::new(Option::None),
             model_path: tokio::sync::Mutex::new(None),
-            agent_port: tokio::sync::Mutex::new(None),
-            vnc_port: tokio::sync::Mutex::new(None),
-            agent_abort: tokio::sync::Mutex::new(None),
-            vnc_abort: tokio::sync::Mutex::new(None),
+            agent_port: Arc::new(tokio::sync::Mutex::new(None)),
+            vnc_port: Arc::new(tokio::sync::Mutex::new(None)),
+            agent_abort: Arc::new(tokio::sync::Mutex::new(None)),
+            vnc_abort: Arc::new(tokio::sync::Mutex::new(None)),
         })
         .register_uri_scheme_protocol("ter-model", |_, request| {
             // In Tauri v2, we can't easily get state from the first closure param if it's UriSchemeContext
