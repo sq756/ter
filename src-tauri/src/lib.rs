@@ -232,12 +232,12 @@ async fn deploy_agent(session: &client::Handle<Client>, token: &str, app_handle:
 }
 
 #[tauri::command]
-async fn connect_to_ssh(host: String, user: String, pass: String, app_handle: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+async fn connect_to_ssh(host: String, port: u16, user: String, pass: String, app_handle: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let config = client::Config::default();
     let config = Arc::new(config);
     let sh = Client {};
-    log::info!("Connecting to {}:22 as user {}", host, user);
-    let mut session = client::connect(config, (host.as_str(), 22), sh).await.map_err(|e| {
+    log::info!("Connecting to {}:{} as user {}", host, port, user);
+    let mut session = client::connect(config, (host.as_str(), port), sh).await.map_err(|e| {
         log::error!("Connection failed: {}", e);
         e.to_string()
     })?;
@@ -474,7 +474,10 @@ pub fn run() {
         .register_uri_scheme_protocol("ter-model", |_, request| {
             // In Tauri v2, we can't easily get state from the first closure param if it's UriSchemeContext
             // Use our static APP_HANDLE instead
-            let app = APP_HANDLE.get().expect("APP_HANDLE not initialized");
+            let app = match APP_HANDLE.get() {
+                Some(app) => app,
+                None => return tauri::http::Response::builder().status(503).body(Vec::new()).unwrap(),
+            };
             let state = app.state::<AppState>();
             
             // Use block_on for simple sync protocol handler
@@ -607,5 +610,5 @@ async fn connect_with_id(id: String, app_handle: AppHandle, state: State<'_, App
         }
     }
 
-    connect_to_ssh(config.host, config.user, password, app_handle, state).await
+    connect_to_ssh(config.host, config.port as u16, config.user, password, app_handle, state).await
 }
