@@ -29,7 +29,7 @@ const label = ref('Home Server');
 const masterPassword = ref('');
 const isMasterPasswordSet = ref(false);
 const isConnected = ref(false);
-const isProcessing = ref(false); // New: Tracking connection/save state
+const isProcessing = ref(false);
 const showDashboard = ref(true);
 const cyberMode = ref(false);
 const backendLogs = ref<string[]>([]);
@@ -51,9 +51,6 @@ const newTaskCmd = ref('');
 const selectedTaskLog = ref('');
 const showLogModal = ref(false);
 
-const guiStatus = ref({ installed: false, running: false });
-const showGui = ref(false);
-
 const aiEngine = ref<any>(null);
 const aiLoading = ref(false);
 const aiProgress = ref('');
@@ -65,39 +62,84 @@ const localModelPath = ref('');
 const aiStats = ref<any>(null);
 const chatRef = ref<HTMLElement | null>(null);
 
+const sidebarWidth = ref(260);
+const isResizing = ref(false);
+const terminalInputBuffer = ref('');
+const fontSize = ref(14);
+
+const showContextMenu = ref(false);
+const menuPos = ref({ x: 0, y: 0 });
+const selectedText = ref('');
+
+const MODEL_ID = "SmolLM2-135M-Instruct-v0.1-q4f16_1-MLC";
+
 const addLog = (msg: string) => {
   backendLogs.value.push(msg);
   if (backendLogs.value.length > MAX_LOGS) backendLogs.value.shift();
 };
 
-const selectModelFolder = async () => {
+const startResizing = (_e: MouseEvent) => {
+  isResizing.value = true;
+  document.addEventListener('mousemove', handleMouseMove);
+  document.addEventListener('mouseup', stopResizing);
+  document.body.style.cursor = 'col-resize';
+};
+
+const handleMouseMove = (e: MouseEvent) => {
+  if (!isResizing.value) return;
+  const newWidth = e.clientX;
+  if (newWidth > 150 && newWidth < 600) {
+    sidebarWidth.value = newWidth;
+    nextTick(() => { onResize(); });
+  }
+};
+
+const stopResizing = () => {
+  isResizing.value = false;
+  document.removeEventListener('mousemove', handleMouseMove);
+  document.removeEventListener('mouseup', stopResizing);
+  document.body.style.cursor = 'default';
+};
+
+const handleWheel = (e: WheelEvent) => {
+  if (e.ctrlKey) {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -1 : 1;
+    const newSize = Math.min(Math.max(fontSize.value + delta, 8), 40);
+    if (newSize !== fontSize.value) {
+      fontSize.value = newSize;
+      term.options.fontSize = fontSize.value;
+      nextTick(() => { fitAddon.fit(); });
+    }
+  }
+};
+
+const onTerminalContextMenu = (e: MouseEvent) => {
+  e.preventDefault();
+  const selection = term.getSelection();
+  if (selection) {
+    selectedText.value = selection;
+    menuPos.value = { x: e.clientX, y: e.clientY };
+    showContextMenu.value = true;
+  }
+};
+
+const runAsTask = async () => {
+  if (!selectedText.value) return;
+  const parts = selectedText.value.trim().split(/\s+/);
   try {
-    const selected = await open({ directory: true, multiple: false });
-    if (selected && typeof selected === 'string') {
-      await invoke('set_model_path', { path: selected });
-      localModelPath.value = selected;
-      addLog(`[SYSTEM] Model path updated: ${selected}`);
+    const res = await fetch('http://localhost:54321/task/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Ter-Token': agentToken.value },
+      body: JSON.stringify({ id: 'task-' + Date.now(), command: parts[0], args: parts.slice(1) })
+    });
+    if (res.ok) {
+      addLog(`[SYSTEM] Background task started: ${selectedText.value}`);
+      showContextMenu.value = false;
+      fetchTasks();
     }
   } catch (e) { alert(e); }
 };
-
-const scrollToBottom = () => {
-  setTimeout(() => {
-    if (chatRef.value) {
-      chatRef.value.scrollTop = chatRef.value.scrollHeight;
-    }
-  }, 100);
-};
-
-const MODEL_ID = "SmolLM2-135M-Instruct-v0.1-q4f16_1-MLC";
-
-let term: Terminal;
-let fitAddon: FitAddon;
-let unlistenPty: (() => void) | null = null;
-let statsInterval: number | null = null;
-let onDataListener: { dispose: () => void } | null = null;
-let onResizeListener: { dispose: () => void } | null = null;
-let unlistenLog: (() => void) | null = null;
 
 const initCharts = () => {
   if (cpuChartRef.value) {
@@ -121,10 +163,10 @@ const getChartOption = (title: string, color: string) => ({
   animation: false
 });
 
-const updateCharts = (stats: any) => {
+const updateCharts = (statsVal: any) => {
   const now = new Date().toLocaleTimeString();
-  const memPerc = (stats.mem_used / stats.mem_total) * 100;
-  cpuHistory.value.push(stats.cpu_usage);
+  const memPerc = (statsVal.mem_used / statsVal.mem_total) * 100;
+  cpuHistory.value.push(statsVal.cpu_usage);
   memHistory.value.push(memPerc);
   timeLabels.value.push(now);
   if (cpuHistory.value.length > MAX_HISTORY) {
@@ -144,25 +186,52 @@ const onResize = () => {
   }
 };
 
+const scrollToBottom = () => {
+  setTimeout(() => {
+    if (chatRef.value) {
+      chatRef.value.scrollTop = chatRef.value.scrollHeight;
+    }
+  }, 100);
+};
+
+let term: Terminal;
+let fitAddon: FitAddon;
+let unlistenPty: (() => void) | null = null;
+let statsInterval: number | null = null;
+let onDataListener: { dispose: () => void } | null = null;
+let onResizeListener: { dispose: () => void } | null = null;
+let unlistenLog: (() => void) | null = null;
+
 onMounted(async () => {
   term = new Terminal({
     cursorBlink: true,
-    fontFamily: '"JetBrains Mono", Menlo, monospace',
-    fontSize: 13,
-    theme: { background: '#000', foreground: '#fafafa' }
+    fontFamily: "'JetBrains Mono', 'Fira Code', 'Roboto Mono', monospace",
+    fontSize: fontSize.value,
+    letterSpacing: 0.5,
+    lineHeight: 1.2,
+    theme: { background: '#000', foreground: '#fafafa' },
+    allowTransparency: true
   });
   fitAddon = new FitAddon();
   term.loadAddon(fitAddon);
   
-  onDataListener = term.onData(async (data) => { if (isConnected.value) await invoke('write_pty', { data }); });
+  onDataListener = term.onData(async (data) => { 
+    if (isConnected.value) {
+      if (data === '\r') {
+        if (terminalInputBuffer.value.trim() === 'cyberon') cyberMode.value = true;
+        else if (terminalInputBuffer.value.trim() === 'cyberoff') cyberMode.value = false;
+        terminalInputBuffer.value = '';
+      } else if (data === '\u007f') terminalInputBuffer.value = terminalInputBuffer.value.slice(0, -1);
+      else terminalInputBuffer.value += data;
+      await invoke('write_pty', { data }); 
+    }
+  });
   onResizeListener = term.onResize(async (size) => { if (isConnected.value) await invoke('resize_pty', { cols: size.cols, rows: size.rows }); });
   window.addEventListener('resize', onResize);
 
   unlistenLog = await listen<string>('backend-log', (event) => {
     backendLogs.value.push(event.payload);
-    if (backendLogs.value.length > MAX_LOGS) {
-      backendLogs.value.shift();
-    }
+    if (backendLogs.value.length > MAX_LOGS) backendLogs.value.shift();
   });
 
   const savedPath = await invoke('get_model_path');
@@ -181,72 +250,15 @@ onUnmounted(() => {
   memChart?.dispose();
 });
 
-const setMasterPass = async () => {
-  if (!masterPassword.value) return;
-  isProcessing.value = true;
+const selectModelFolder = async () => {
   try {
-    await invoke('set_master_password', { password: masterPassword.value });
-    isMasterPasswordSet.value = true;
-    loadServers();
-  } catch (e) { errorMsg.value = 'Security Error: ' + e; }
-  finally { isProcessing.value = false; }
-};
-
-const loadServers = async () => {
-  try { savedServers.value = await invoke('list_server_configs'); } catch (e) { console.error(e); }
-};
-
-const saveServer = async () => {
-  isProcessing.value = true;
-  errorMsg.value = '';
-  try {
-    const config = { id: window.crypto.randomUUID(), label: label.value, host: host.value, user: user.value, port: 22, password_enc: password.value, key_path: null };
-    await invoke('save_server_config', { config });
-    showAddServer.value = false;
-    loadServers();
-  } catch (e) { errorMsg.value = String(e); }
-  finally { isProcessing.value = false; }
-};
-
-const deleteServer = async (id: string) => {
-  if (!confirm('Are you sure?')) return;
-  try { await invoke('delete_server_config', { id }); loadServers(); } catch (e) { errorMsg.value = String(e); }
-};
-
-const connectWithId = async (id: string) => {
-  isProcessing.value = true;
-  errorMsg.value = '';
-  try { await invoke('connect_with_id', { id }); await onConnected(); } catch (e) { errorMsg.value = String(e); }
-  finally { isProcessing.value = false; }
-};
-
-const connect = async () => {
-  isProcessing.value = true;
-  errorMsg.value = '';
-  try { await invoke('connect_to_ssh', { host: host.value, user: user.value, pass: password.value }); await onConnected(); } catch (e) { errorMsg.value = String(e); }
-  finally { isProcessing.value = false; }
-};
-
-const onConnected = async () => {
-  isConnected.value = true;
-  agentToken.value = await invoke('get_agent_token');
-  
-  await nextTick();
-  
-  if (terminalRef.value) {
-    term.open(terminalRef.value);
-    try { term.loadAddon(new WebglAddon()); } catch (e) { console.warn('WebGL Addon failed', e); }
-    setTimeout(() => {
-      fitAddon.fit();
-      invoke('resize_pty', { cols: term.cols, rows: term.rows });
-      term.focus();
-    }, 150);
-  }
-  
-  fetchFiles('.');
-  unlistenPty = await listen<number[]>('pty-data', (event) => { term.write(new Uint8Array(event.payload)); });
-  statsInterval = window.setInterval(() => { fetchStats(); fetchTasks(); fetchGuiStatus(); }, 2000);
-  initCharts();
+    const selected = await open({ directory: true, multiple: false });
+    if (selected && typeof selected === 'string') {
+      await invoke('set_model_path', { path: selected });
+      localModelPath.value = selected;
+      addLog(`[SYSTEM] Model path updated: ${selected}`);
+    }
+  } catch (e) { alert(String(e)); }
 };
 
 const initAi = async () => {
@@ -284,7 +296,6 @@ const sendToAi = async (msg: string = '') => {
   aiChatHistory.value.push({ role: 'user', content });
   userMessage.value = ''; aiLoading.value = true; scrollToBottom();
 
-  // Placeholder for assistant reply
   const assistantIdx = aiChatHistory.value.push({ role: 'assistant', content: '' }) - 1;
 
   try {
@@ -302,18 +313,160 @@ const sendToAi = async (msg: string = '') => {
       }
       scrollToBottom();
       
-      const stats = await aiEngine.value.runtimeStats();
-      if (stats) {
-        aiStats.value = stats;
-        addLog(`[NEURAL] Synapse firing: ${stats.decodeTokensPerSec.toFixed(1)} t/s | ${stats.decodeTotalTokens} tokens active`);
+      const rtStats = await aiEngine.value.runtimeStats();
+      if (rtStats) {
+        aiStats.value = rtStats;
+        addLog(`[NEURAL] Synapse firing: ${rtStats.decodeTokensPerSec.toFixed(1)} t/s`);
       }
     }
   } catch (e) { 
     if (aiChatHistory.value[assistantIdx]) {
       aiChatHistory.value[assistantIdx].content = 'Error: ' + e; 
     }
-    addLog(`[NEURAL] Synapse error: ${e}`);
   } finally { aiLoading.value = false; }
+};
+
+const fetchTasks = async () => {
+  if (!agentToken.value || !isConnected.value) return;
+  try {
+    const res = await fetch('http://localhost:54321/task/list', { 
+      headers: { 'X-Ter-Token': agentToken.value },
+      signal: AbortSignal.timeout(1500) 
+    });
+    if (res.ok) managedTasks.value = await res.json();
+  } catch (e) { console.debug(e); }
+};
+
+const startTask = async () => {
+  if (!newTaskCmd.value) return;
+  const parts = newTaskCmd.value.trim().split(/\s+/);
+  try {
+    const res = await fetch('http://localhost:54321/task/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Ter-Token': agentToken.value },
+      body: JSON.stringify({ id: 'task-' + Date.now(), command: parts[0], args: parts.slice(1) })
+    });
+    if (res.ok) { newTaskCmd.value = ''; showAddTask.value = false; fetchTasks(); }
+  } catch (e) { alert(String(e)); }
+};
+
+const stopTask = async (id: string) => {
+  try { await fetch(`http://localhost:54321/task/stop?id=${id}`, { headers: { 'X-Ter-Token': agentToken.value } }); fetchTasks(); } catch (e) { console.debug(e); }
+};
+
+const viewLogs = async (id: string) => {
+  try {
+    const res = await fetch(`http://localhost:54321/task/logs?id=${id}`, { headers: { 'X-Ter-Token': agentToken.value } });
+    if (res.ok) { selectedTaskLog.value = await res.text(); showLogModal.value = true; }
+  } catch (e) { console.debug(e); }
+};
+
+const fetchStats = async () => {
+  if (!agentToken.value || !isConnected.value) return;
+  try {
+    const res = await fetch('http://localhost:54321/stats', { 
+      headers: { 'X-Ter-Token': agentToken.value },
+      signal: AbortSignal.timeout(1500)
+    });
+    if (res.ok) { stats.value = await res.json(); updateCharts(stats.value); }
+  } catch (e) { console.debug(e); }
+};
+
+const onConnected = async () => {
+  if (unlistenPty) { unlistenPty(); unlistenPty = null; }
+  if (statsInterval) { clearInterval(statsInterval); statsInterval = null; }
+  isConnected.value = true;
+  agentToken.value = await invoke('get_agent_token');
+  await nextTick();
+  if (terminalRef.value) {
+    term.open(terminalRef.value);
+    try { term.loadAddon(new WebglAddon()); } catch (e) { console.debug(e); }
+    setTimeout(() => {
+      fitAddon.fit();
+      invoke('resize_pty', { cols: term.cols, rows: term.rows });
+      term.focus();
+    }, 150);
+  }
+  fetchFiles('.');
+  unlistenPty = await listen<number[]>('pty-data', (event) => { term.write(new Uint8Array(event.payload)); });
+  statsInterval = window.setInterval(() => { fetchStats(); fetchTasks(); }, 2000);
+  initCharts();
+};
+
+const fetchFiles = async (path: string) => {
+  try { 
+    currentPath.value = path; 
+    const files = await invoke('ls_remote', { path });
+    (files as any[]).sort((a, b) => {
+      if (a.is_dir === b.is_dir) return a.name.localeCompare(b.name);
+      return a.is_dir ? -1 : 1;
+    });
+    fileList.value = files as any[];
+  } catch (e) { errorMsg.value = 'Failed to list files: ' + e; }
+};
+
+const handleFileClick = async (f: any) => {
+  const path = currentPath.value === '.' ? f.name : (currentPath.value.endsWith('/') ? currentPath.value + f.name : currentPath.value + '/' + f.name);
+  if (f.is_dir) await fetchFiles(path); 
+  else {
+    const localPath = await save({ defaultPath: f.name });
+    if (localPath) await invoke('download_file', { remotePath: path, localPath });
+  }
+};
+
+const goBack = () => {
+  if (currentPath.value === '.' || currentPath.value === '/') return;
+  const parts = currentPath.value.split('/').filter(p => p);
+  parts.pop();
+  const newPath = parts.length === 0 ? '.' : '/' + parts.join('/');
+  fetchFiles(newPath);
+};
+
+const killProcess = async (pid: number) => {
+  if (!confirm(`Kill ${pid}?`)) return;
+  try { await fetch(`http://localhost:54321/proc/kill?pid=${pid}`, { headers: { 'X-Ter-Token': agentToken.value } }); fetchStats(); } catch (e) { console.debug(e); }
+};
+
+const toggleDashboard = () => {
+  showDashboard.value = !showDashboard.value;
+  setTimeout(() => { cpuChart?.resize(); memChart?.resize(); fitAddon?.fit(); }, 200);
+};
+
+const setMasterPass = async () => {
+  if (!masterPassword.value) return;
+  isProcessing.value = true;
+  try {
+    await invoke('set_master_password', { password: masterPassword.value });
+    isMasterPasswordSet.value = true;
+    loadServers();
+  } catch (e) { errorMsg.value = 'Security Error: ' + e; }
+  finally { isProcessing.value = false; }
+};
+
+const loadServers = async () => {
+  try { savedServers.value = await invoke('list_server_configs'); } catch (e) { console.debug(e); }
+};
+
+const saveServer = async () => {
+  isProcessing.value = true;
+  try {
+    const config = { id: window.crypto.randomUUID(), label: label.value, host: host.value, user: user.value, port: 22, password_enc: password.value, key_path: null };
+    await invoke('save_server_config', { config });
+    showAddServer.value = false;
+    loadServers();
+  } catch (e) { errorMsg.value = String(e); }
+  finally { isProcessing.value = false; }
+};
+
+const deleteServer = async (id: string) => {
+  if (!confirm('Are you sure?')) return;
+  try { await invoke('delete_server_config', { id }); loadServers(); } catch (e) { errorMsg.value = String(e); }
+};
+
+const connectWithId = async (id: string) => {
+  isProcessing.value = true;
+  try { await invoke('connect_with_id', { id }); await onConnected(); } catch (e) { errorMsg.value = String(e); }
+  finally { isProcessing.value = false; }
 };
 
 const explainTerminalError = async () => {
@@ -327,274 +480,67 @@ const explainTerminalError = async () => {
   }
   sendToAi(`Analyze this terminal output:\n\n${lines.join('\n')}`);
 };
-
-const explainLogs = async () => {
-  showAiPanel.value = true;
-  if (!isAiInitialized.value) await initAi();
-  sendToAi(`Analyze these logs:\n\n${selectedTaskLog.value}`);
-};
-
-const fetchGuiStatus = async () => {
-  try {
-    const res = await fetch('http://localhost:54321/gui/status', { headers: { 'X-Ter-Token': agentToken.value } });
-    if (res.ok) guiStatus.value = await res.json();
-  } catch (e) { console.error(e); }
-};
-
-const initGui = async () => {
-  try {
-    await fetch('http://localhost:54321/gui/init', { headers: { 'X-Ter-Token': agentToken.value } });
-    fetchGuiStatus();
-  } catch (e) { alert(e); }
-};
-
-const fetchTasks = async () => {
-  try {
-    const res = await fetch('http://localhost:54321/task/list', { headers: { 'X-Ter-Token': agentToken.value } });
-    if (res.ok) managedTasks.value = await res.json();
-  } catch (e) { console.error(e); }
-};
-
-const startTask = async () => {
-  if (!newTaskCmd.value) return;
-  const parts = newTaskCmd.value.trim().split(/\s+/);
-  try {
-    const res = await fetch('http://localhost:54321/task/start', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Ter-Token': agentToken.value },
-      body: JSON.stringify({ id: 'task-' + Date.now(), command: parts[0], args: parts.slice(1) })
-    });
-    if (res.ok) { newTaskCmd.value = ''; showAddTask.value = false; fetchTasks(); }
-  } catch (e) { alert(e); }
-};
-
-const stopTask = async (id: string) => {
-  try { await fetch(`http://localhost:54321/task/stop?id=${id}`, { headers: { 'X-Ter-Token': agentToken.value } }); fetchTasks(); } catch (e) { console.error(e); }
-};
-
-const viewLogs = async (id: string) => {
-  try {
-    const res = await fetch(`http://localhost:54321/task/logs?id=${id}`, { headers: { 'X-Ter-Token': agentToken.value } });
-    if (res.ok) { selectedTaskLog.value = await res.text(); showLogModal.value = true; }
-  } catch (e) { console.error(e); }
-};
-
-const fetchStats = async () => {
-  try {
-    const res = await fetch('http://localhost:54321/stats', { headers: { 'X-Ter-Token': agentToken.value } });
-    if (res.ok) { stats.value = await res.json(); updateCharts(stats.value); }
-  } catch (e) { console.error(e); }
-};
-
-const fetchFiles = async (path: string) => {
-  try { 
-    currentPath.value = path; 
-    const files = await invoke('ls_remote', { path });
-    // Sort: directories first, then files
-    (files as any[]).sort((a, b) => {
-      if (a.is_dir === b.is_dir) return a.name.localeCompare(b.name);
-      return a.is_dir ? -1 : 1;
-    });
-    fileList.value = files as any[];
-  } catch (e) { 
-    console.error('ls_remote failed:', e); 
-    errorMsg.value = 'Failed to list files: ' + e;
-  }
-};
-
-const handleFileClick = async (f: any) => {
-  try {
-    const path = currentPath.value === '.' ? f.name : (currentPath.value.endsWith('/') ? currentPath.value + f.name : currentPath.value + '/' + f.name);
-    if (f.is_dir) { 
-      await fetchFiles(path); 
-    } else {
-      const localPath = await save({ defaultPath: f.name });
-      if (localPath) await invoke('download_file', { remotePath: path, localPath });
-    }
-  } catch (e) {
-    console.error('File click failed:', e);
-    alert('Error: ' + e);
-  }
-};
-
-const goBack = () => {
-  if (currentPath.value === '.' || currentPath.value === '/') return;
-  const parts = currentPath.value.split('/').filter(p => p);
-  parts.pop();
-  const newPath = parts.length === 0 ? '.' : '/' + parts.join('/');
-  fetchFiles(newPath);
-};
-
-const uploadFile = async () => {
-  try {
-    const selected = await open({ multiple: false, directory: false });
-    if (selected && typeof selected === 'string') {
-      const filename = selected.includes('/') ? selected.split('/').pop() : selected.split('\\').pop();
-      const remotePath = currentPath.value === '.' ? filename : (currentPath.value.endsWith('/') ? currentPath.value + filename : currentPath.value + '/' + filename);
-      await invoke('upload_file', { localPath: selected, remotePath });
-      await fetchFiles(currentPath.value);
-    }
-  } catch (e) {
-    alert('Upload failed: ' + e);
-  }
-};
-
-const killProcess = async (pid: number) => {
-  if (!confirm(`Kill ${pid}?`)) return;
-  try { await fetch(`http://localhost:54321/proc/kill?pid=${pid}`, { headers: { 'X-Ter-Token': agentToken.value } }); fetchStats(); } catch (e) { console.error(e); }
-};
-
-const formatBytes = (bytes: number) => {
-  if (!bytes) return '0 B';
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + ['B', 'KB', 'MB', 'GB'][i];
-};
-
-const toggleDashboard = () => {
-  showDashboard.value = !showDashboard.value;
-  setTimeout(() => { cpuChart?.resize(); memChart?.resize(); fitAddon?.fit(); }, 200);
-};
 </script>
 
 <template>
-  <div :class="['app-container', { 'cyber-mode': cyberMode }]">
-    <!-- Cyber Transparency Layer -->
+  <div :class="['app-container', { 'cyber-mode': cyberMode }]" @contextmenu.prevent @click="showContextMenu = false">
     <div v-if="cyberMode" class="cyber-logs-layer">
-      <div v-for="(log, i) in backendLogs" :key="i" :class="['cyber-log-line', { 'neural': log.startsWith('[NEURAL]') }]">
-        {{ log }}
-      </div>
-      
-      <!-- Performance HUD -->
-      <div class="stats-hud">
-        <div class="hud-item"><span class="label">MODEL:</span> {{ MODEL_ID.split('-')[0] }}</div>
-        <div class="hud-item">
-          <span class="label">LINK:</span> 
-          <span :class="['status-dot', localModelPath ? 'online' : 'offline']"></span>
-          {{ localModelPath ? 'READY' : 'OFFLINE' }}
-        </div>
-        <div class="hud-item"><span class="label">SPEED:</span> {{ aiStats?.decodeTokensPerSec.toFixed(1) || '0.0' }} t/s</div>
-        <div class="hud-item"><span class="label">STATUS:</span> {{ isAiInitialized ? 'NEURAL_ACTIVE' : 'IDLE' }}</div>
-        <div class="hud-wire"></div>
-      </div>
+      <div v-for="(log, i) in backendLogs" :key="i" class="cyber-log-line">{{ log }}</div>
     </div>
 
-    <!-- Master Password Setup -->
     <div v-if="!isMasterPasswordSet" class="unlock-overlay">
       <div class="unlock-card">
-        <div class="icon-header">🔒</div>
         <h2>Unlock Ter</h2>
-        <p>Access your secure server vault</p>
-        <div class="form-item">
-          <label>Master Password</label>
-          <input v-model="masterPassword" type="password" placeholder="••••••••" @keyup.enter="setMasterPass" :disabled="isProcessing" />
-        </div>
-        <button class="primary-btn" @click="setMasterPass" :disabled="isProcessing">
-          <span v-if="!isProcessing">Unlock Vault</span>
-          <span v-else class="loader"></span>
-        </button>
-        <p v-if="errorMsg" class="error-text">{{ errorMsg }}</p>
+        <input v-model="masterPassword" type="password" placeholder="Master Password" @keyup.enter="setMasterPass" />
+        <button class="primary-btn" @click="setMasterPass" :disabled="isProcessing">Unlock</button>
       </div>
     </div>
 
-    <!-- Login/Server List Panel -->
     <div v-else-if="!isConnected" class="login-panel">
       <div class="server-mgmt" v-if="!showAddServer">
-        <div class="mgmt-header">
-          <h2>Server Vault</h2>
-          <button class="add-btn" @click="showAddServer = true">+ Add</button>
-        </div>
+        <div class="mgmt-header"><h2>Server Vault</h2><button @click="showAddServer = true">+</button></div>
         <div class="server-grid">
-          <div v-for="s in savedServers" :key="s.id" class="server-card" @click="connectWithId(s.id)" :class="{ disabled: isProcessing }">
-            <div class="s-info">
-              <span class="s-label">{{ s.label }}</span>
-              <span class="s-host">{{ s.user }}@{{ s.host }}</span>
-            </div>
-            <button class="del-btn" @click.stop="deleteServer(s.id)">✕</button>
+          <div v-for="s in savedServers" :key="s.id" class="server-card" @click="connectWithId(s.id)">
+            <span>{{ s.label }} ({{ s.user }}@{{ s.host }})</span>
+            <button @click.stop="deleteServer(s.id)">✕</button>
           </div>
         </div>
-        <div v-if="errorMsg" class="error-toast">{{ errorMsg }}</div>
       </div>
-
       <div v-else class="add-form">
-        <h3>New Server</h3>
-        <div class="form-grid">
-          <div class="form-item">
-            <label>Server Name</label>
-            <input v-model="label" placeholder="e.g. Home Server" :disabled="isProcessing" />
-          </div>
-          <div class="form-item">
-            <label>Host / IP Address</label>
-            <input v-model="host" placeholder="192.168.1.x" :disabled="isProcessing" />
-          </div>
-          <div class="form-item">
-            <label>Username</label>
-            <input v-model="user" placeholder="root" :disabled="isProcessing" />
-          </div>
-          <div class="form-item">
-            <label>Password</label>
-            <input v-model="password" type="password" placeholder="••••••••" :disabled="isProcessing" />
-          </div>
-        </div>
-        <div class="form-ops">
-          <button @click="saveServer" class="primary-btn" :disabled="isProcessing">
-            <span v-if="!isProcessing">Save & Exit</span>
-            <span v-else class="loader"></span>
-          </button>
-          <button @click="connect" class="ghost-btn" :disabled="isProcessing">
-            <span v-if="!isProcessing">Connect Now</span>
-            <span v-else class="loader"></span>
-          </button>
-          <button @click="showAddServer = false" class="cancel-btn" :disabled="isProcessing">Cancel</button>
-        </div>
-        <div v-if="errorMsg" class="error-text">{{ errorMsg }}</div>
+        <input v-model="label" placeholder="Label" /><input v-model="host" placeholder="Host" />
+        <input v-model="user" placeholder="User" /><input v-model="password" type="password" placeholder="Pass" />
+        <button @click="saveServer" class="primary-btn">Save</button>
+        <button @click="showAddServer = false">Cancel</button>
       </div>
     </div>
 
-    <!-- Main Interface -->
-    <div v-else class="main-layout">
+    <div v-else class="main-layout" :style="{ '--sidebar-width': sidebarWidth + 'px' }">
       <aside :class="['sidebar', { collapsed: !showDashboard }]">
         <div class="sidebar-header">
-          <span v-if="showDashboard" class="brand">⚡ System</span>
-          <button class="toggle-btn" @click="toggleDashboard">{{ showDashboard ? '«' : '»' }}</button>
+          <span v-if="showDashboard">⚡ System</span>
+          <button @click="toggleDashboard">{{ showDashboard ? '«' : '»' }}</button>
         </div>
         <div v-if="showDashboard" class="sidebar-scroll">
-          <div v-if="stats" class="widget">
-            <div class="widget-header">
-              <label>Resource Usage</label>
-              <small>{{ formatBytes(stats.mem_used) }}</small>
-            </div>
+          <div class="widget">
             <div class="chart-box" ref="cpuChartRef"></div>
             <div class="chart-box" ref="memChartRef"></div>
           </div>
           <div class="widget">
-            <div class="widget-header">
-              <label>Files</label>
-              <div class="file-ops">
-                <button v-if="currentPath !== '.' && currentPath !== '/'" @click="goBack" class="mini-btn">⤴ Back</button>
-                <button @click="uploadFile" class="mini-btn">Upload</button>
-              </div>
-            </div>
-            <div class="current-path">{{ currentPath }}</div>
+            <div class="widget-header"><label>Files</label><button @click="goBack">⤴</button></div>
             <ul class="file-list">
               <li v-for="f in fileList" :key="f.name" @click="handleFileClick(f)">
-                <span class="f-item">
-                  <span class="f-icon">{{ f.is_dir ? '📁' : '📄' }}</span>
-                  <span class="f-name">{{ f.name }}</span>
-                </span>
-                <span class="f-size">{{ f.is_dir ? '' : formatBytes(f.size) }}</span>
+                {{ f.is_dir ? '📁' : '📄' }} {{ f.name }}
               </li>
             </ul>
           </div>
           <div class="widget">
             <div class="widget-header"><label>Tasks</label><button @click="showAddTask = !showAddTask">+</button></div>
-            <input v-if="showAddTask" v-model="newTaskCmd" placeholder="Cmd..." @keyup.enter="startTask" class="mini-input" />
+            <input v-if="showAddTask" v-model="newTaskCmd" placeholder="Cmd..." @keyup.enter="startTask" />
             <ul class="task-list">
               <li v-for="t in managedTasks" :key="t.id">
-                <span class="t-name">{{ t.command }}</span>
-                <div class="t-ops">
-                  <button @click="viewLogs(t.id)">📜</button>
-                  <button v-if="t.status === 'running'" @click="stopTask(t.id)">🛑</button>
-                </div>
+                <span>{{ t.command }}</span>
+                <button @click="viewLogs(t.id)">📜</button>
+                <button v-if="t.status === 'running'" @click="stopTask(t.id)">🛑</button>
               </li>
             </ul>
           </div>
@@ -607,26 +553,25 @@ const toggleDashboard = () => {
               </li>
             </ul>
           </div>
-          <div class="ai-card" @click="showAiPanel = true">
-            <span>✨ AI Sidekick</span>
-            <small>{{ isAiInitialized ? 'Ready' : 'Initialize' }}</small>
-          </div>
         </div>
       </aside>
 
+      <div v-if="showDashboard" class="resizer" @mousedown="startResizing"></div>
+
       <main class="content">
         <header class="top-bar">
-          <div class="status"><span class="led"></span> {{ user }}@{{ host }}</div>
+          <div class="status">{{ user }}@{{ host }}</div>
           <div class="ops">
-            <button @click="cyberMode = !cyberMode" :class="['cyber-toggle', { active: cyberMode }]">
-              {{ cyberMode ? '📡 Cyber: ON' : '📡 Cyber' }}
-            </button>
-            <button @click="explainTerminalError" class="ai-btn">✨ Explain Error</button>
-            <button @click="showGui = !showGui" class="gui-btn">🖥️ GUI</button>
+            <button @click="cyberMode = !cyberMode" :class="{ active: cyberMode }">Cyber</button>
+            <button @click="explainTerminalError" class="ai-btn">✨ AI Sidekick</button>
           </div>
         </header>
         <div class="terminal-container-main">
-          <div class="term-wrapper" ref="terminalRef"></div>
+          <div class="term-wrapper" ref="terminalRef" @wheel="handleWheel" @contextmenu="onTerminalContextMenu"></div>
+          <div v-if="showContextMenu" class="context-menu" :style="{ left: menuPos.x + 'px', top: menuPos.y + 'px' }">
+            <button @click="runAsTask">🚀 Run as Background Task</button>
+            <button @click="showContextMenu = false">Cancel</button>
+          </div>
         </div>
       </main>
 
@@ -635,15 +580,25 @@ const toggleDashboard = () => {
           <div class="panel-header">
             <h3>AI Sidekick</h3>
             <div class="header-ops">
-              <button @click="selectModelFolder" class="mini-btn" title="Set Model Folder">📂</button>
+              <button @click="selectModelFolder" class="mini-btn">📂</button>
               <button @click="showAiPanel = false">✕</button>
             </div>
           </div>
           <div v-if="!isAiInitialized" class="ai-init">
+            <div class="guide-card">
+              <h4>🤖 Neural Engine</h4>
+              <p>On-device AI. Private & Secure.</p>
+              <ul class="guide-list">
+                <li>Click 📂 to select model folder</li>
+                <li>Ensure <b>SmolLM2</b> weights are inside</li>
+                <li>Click <b>Start Core</b></li>
+              </ul>
+            </div>
             <p v-if="localModelPath" class="path-info">📁 {{ localModelPath }}</p>
             <p v-else class="path-warn">⚠️ No model folder selected</p>
-            <p>{{ aiProgress }}</p>
-            <button v-if="!aiLoading" @click="initAi" :disabled="!localModelPath">Start Engine</button>
+            <button v-if="!aiLoading" @click="initAi" :disabled="!localModelPath" class="primary-btn">Start Core</button>
+            <div v-else class="loader"></div>
+            <p class="progress-text">{{ aiProgress }}</p>
           </div>
           <div v-else class="chat">
             <div class="messages" ref="chatRef">
@@ -653,231 +608,55 @@ const toggleDashboard = () => {
           </div>
         </div>
       </Transition>
+    </div>
 
-      <div v-if="showLogModal" class="modal">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h3>Logs</h3>
-            <div class="modal-ops"><button @click="explainLogs">✨ Explain</button><button @click="showLogModal = false">✕</button></div>
-          </div>
-          <pre>{{ selectedTaskLog }}</pre>
-        </div>
-      </div>
-
-      <div v-if="showGui" class="gui-overlay">
-        <div class="gui-header"><h3>Remote Desktop</h3><button @click="showGui = false">✕</button></div>
-        <div class="gui-body">
-          <div v-if="!guiStatus.running" class="gui-off">
-            <p>Environment not running.</p>
-            <button @click="initGui">Launch Fluxbox</button>
-          </div>
-          <div v-else class="gui-on">
-            <p>VNC Active on <code>localhost:55901</code></p>
-          </div>
-        </div>
+    <div v-if="showLogModal" class="modal" @click.self="showLogModal = false">
+      <div class="modal-content">
+        <div class="modal-header"><h3>Logs</h3><button @click="showLogModal = false">✕</button></div>
+        <pre>{{ selectedTaskLog }}</pre>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.app-container { height: 100vh; background: #09090b; color: #fafafa; font-family: 'Inter', system-ui, sans-serif; overflow: hidden; position: relative; transition: background 0.5s ease; }
-.app-container.cyber-mode { background: transparent !important; }
-
-/* Cyber Transparency Layer */
-.cyber-logs-layer {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  padding: 20px;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  pointer-events: none;
-  background: #050505; /* Deep black base for contrast */
-}
-
-.cyber-log-line {
-  font-family: 'JetBrains Mono', 'Fira Code', monospace;
-  font-size: 11px;
-  color: rgba(34, 197, 94, 0.3); /* Dim green */
-  white-space: pre-wrap;
-  line-height: 1.4;
-  animation: fadeUp 0.3s ease-out;
-}
-
-.cyber-log-line.neural {
-  color: #00f2fe; /* Electric Blue */
-  text-shadow: 0 0 8px rgba(0, 242, 254, 0.4);
-  font-weight: 600;
-}
-
-/* Performance HUD */
-.stats-hud {
-  position: absolute;
-  bottom: 20px;
-  right: 20px;
-  padding: 12px;
-  background: rgba(0, 0, 0, 0.8);
-  border-left: 1px solid #00f2fe;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  pointer-events: none;
-  z-index: 1000;
-}
-
-.hud-item { color: #fafafa; display: flex; gap: 8px; align-items: center; }
-.hud-item .label { color: rgba(250, 250, 250, 0.4); }
-
-.status-dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
-.status-dot.online { background: #22c55e; box-shadow: 0 0 5px #22c55e; }
-.status-dot.offline { background: #ef4444; box-shadow: 0 0 5px #ef4444; }
-
-.hud-wire {
-  position: absolute;
-  inset: -2px;
-  border: 1px solid rgba(0, 242, 254, 0.1);
-  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 80%, 20% 80%, 20% 20%, 0 20%);
-}
-
-@keyframes fadeUp {
-  from { opacity: 0; transform: translateY(5px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-/* Glass Effect for Cyber Mode */
-.cyber-mode .sidebar,
-.cyber-mode .top-bar,
-.cyber-mode .widget,
-.cyber-mode .term-wrapper,
-.cyber-mode .ai-panel {
-  backdrop-filter: blur(12px) saturate(180%);
-  background: rgba(18, 18, 21, 0.7) !important;
-  border-color: rgba(63, 63, 70, 0.4) !important;
-}
-
-.cyber-mode .terminal-container-main {
-  background: transparent;
-}
-
-.cyber-toggle {
-  background: #1e1e2e;
-  color: #a1a1aa;
-  font-size: 11px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  margin-right: 10px;
-  border: 1px solid #313244;
-}
-
-.cyber-toggle.active {
-  background: rgba(34, 197, 94, 0.15);
-  color: #22c55e;
-  border-color: #22c55e;
-  box-shadow: 0 0 10px rgba(34, 197, 94, 0.2);
-}
-
-/* Shared UI Components */
-label { display: block; font-size: 11px; font-weight: 600; color: #71717a; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.02em; }
-input { background: #09090b; border: 1px solid #27272a; padding: 12px; color: white; border-radius: 8px; font-size: 14px; transition: all 0.2s; width: 100%; box-sizing: border-box; }
-input:focus { outline: none; border-color: #6366f1; box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2); }
-input:disabled { opacity: 0.5; cursor: not-allowed; }
-
-button { cursor: pointer; transition: all 0.2s; border: none; font-weight: 600; display: flex; align-items: center; justify-content: center; }
-button:active { transform: scale(0.96); }
-button:disabled { opacity: 0.6; cursor: not-allowed; transform: none !important; }
-
-.primary-btn { background: #6366f1; color: white; padding: 12px 20px; border-radius: 8px; font-size: 14px; }
-.primary-btn:hover:not(:disabled) { background: #4f46e5; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3); }
-
-.ghost-btn { background: #1e1e2e; color: #a1a1aa; border: 1px solid #313244; padding: 12px 20px; border-radius: 8px; }
-.ghost-btn:hover:not(:disabled) { border-color: #6366f1; color: white; }
-
-.cancel-btn { background: transparent; color: #71717a; padding: 12px 20px; border-radius: 8px; }
-.cancel-btn:hover:not(:disabled) { color: #fafafa; }
-
-/* Unlock & Login Panels */
-.unlock-overlay, .login-panel { display: flex; align-items: center; justify-content: center; height: 100%; flex-direction: column; background: radial-gradient(circle at center, #121215 0%, #09090b 100%); }
-
-.unlock-card { background: #18181b; padding: 40px; border-radius: 20px; border: 1px solid #27272a; width: 380px; text-align: center; box-shadow: 0 20px 40px rgba(0,0,0,0.4); }
-.icon-header { font-size: 40px; margin-bottom: 15px; }
-.unlock-card h2 { margin: 0 0 8px 0; font-size: 24px; }
-.unlock-card p { color: #71717a; font-size: 14px; margin-bottom: 30px; }
-
-.server-mgmt { width: 500px; display: flex; flex-direction: column; gap: 24px; }
-.mgmt-header { display: flex; justify-content: space-between; align-items: center; }
-.add-btn { background: #27272a; padding: 6px 14px; border-radius: 6px; font-size: 13px; color: #a1a1aa; }
-.add-btn:hover { background: #3f3f46; color: white; }
-
-.server-grid { display: flex; flex-direction: column; gap: 12px; max-height: 400px; overflow-y: auto; padding-right: 5px; }
-.server-card { background: #18181b; border: 1px solid #27272a; padding: 16px; border-radius: 12px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
-.server-card:hover:not(.disabled) { border-color: #6366f1; background: #1e1e2e; }
-.s-info { display: flex; flex-direction: column; gap: 4px; }
-.s-label { font-weight: 700; font-size: 15px; }
-.s-host { font-size: 12px; color: #71717a; font-family: monospace; }
-.del-btn { background: transparent; color: #52525b; font-size: 16px; width: 32px; height: 32px; border-radius: 50%; }
-.del-btn:hover { background: #ef4444; color: white; }
-
-.add-form { background: #18181b; padding: 32px; border-radius: 16px; border: 1px solid #27272a; width: 420px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
-.add-form h3 { margin: 0 0 24px 0; font-size: 20px; }
-.form-grid { display: grid; grid-template-columns: 1fr; gap: 16px; margin-bottom: 32px; }
-.form-ops { display: flex; flex-direction: column; gap: 10px; }
-
-/* Feedback */
-.error-text { color: #ef4444; font-size: 13px; margin-top: 15px; text-align: center; }
-.error-toast { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.2); color: #ef4444; padding: 12px; border-radius: 8px; font-size: 13px; text-align: center; }
-
-/* Loader Animation */
-.loader { width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.3); border-radius: 50%; border-top-color: #fff; animation: spin 0.8s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
-
-/* Main UI (Retained & Integrated) */
+.app-container { height: 100vh; background: #09090b; color: #fafafa; overflow: hidden; position: relative; }
 .main-layout { display: flex; height: 100%; }
-.sidebar { width: 260px; background: #121215; border-right: 1px solid #27272a; display: flex; flex-direction: column; transition: 0.2s; }
+.sidebar { width: var(--sidebar-width, 260px); background: #121215; border-right: 1px solid #27272a; display: flex; flex-direction: column; flex-shrink: 0; }
 .sidebar.collapsed { width: 50px; }
-.sidebar-header { padding: 15px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #27272a; }
-.sidebar-scroll { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 15px; }
-.widget { background: #18181b; border: 1px solid #27272a; padding: 10px; border-radius: 8px; }
-.widget-header { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #71717a; text-transform: uppercase; margin-bottom: 8px; }
-.file-ops { display: flex; gap: 5px; }
-.mini-btn { font-size: 10px; padding: 2px 8px; background: #27272a; border-radius: 4px; color: #a1a1aa; }
-.mini-btn:hover { background: #3f3f46; color: white; }
-.current-path { font-size: 10px; color: #71717a; margin-bottom: 5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: monospace; border-bottom: 1px solid #27272a; padding-bottom: 2px; }
-
-.chart-box { height: 60px; }
-.file-list, .task-list, .proc-list { list-style: none; padding: 0; font-size: 12px; max-height: 180px; overflow-y: auto; }
-.file-list li, .task-list li, .proc-list li { padding: 6px 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-radius: 6px; transition: 0.2s; }
-.file-list li:hover, .task-list li:hover, .proc-list li:hover { background: #1e1e2e; }
-
-.f-item { display: flex; align-items: center; gap: 8px; overflow: hidden; }
-.f-icon { font-size: 14px; flex-shrink: 0; }
-.f-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.f-size { font-size: 10px; color: #52525b; flex-shrink: 0; }
-.ai-card { background: #1e1e2e; padding: 12px; border-radius: 8px; cursor: pointer; display: flex; flex-direction: column; }
-.content { flex: 1; display: flex; flex-direction: column; }
+.resizer { width: 4px; cursor: col-resize; transition: background 0.2s; z-index: 10; flex-shrink: 0; }
+.resizer:hover { background: #6366f1; }
+.content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .top-bar { height: 50px; background: #121215; border-bottom: 1px solid #27272a; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; }
-.led { width: 8px; height: 8px; background: #22c55e; border-radius: 50%; display: inline-block; margin-right: 10px; }
-.terminal-container-main { flex: 1; padding: 20px; background: #09090b; }
-.term-wrapper { height: 100%; background: black; border-radius: 8px; border: 1px solid #27272a; padding: 10px; }
+.terminal-container-main { flex: 1; padding: 24px; background: #09090b; position: relative; overflow: hidden; }
+.term-wrapper { height: 100%; background: black; border-radius: 12px; border: 1px solid #27272a; padding: 16px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
 .ai-panel { position: absolute; right: 0; top: 0; bottom: 0; width: 350px; background: #121215; border-left: 1px solid #27272a; z-index: 100; display: flex; flex-direction: column; }
 .panel-header { padding: 15px; border-bottom: 1px solid #27272a; display: flex; justify-content: space-between; align-items: center; }
-.header-ops { display: flex; gap: 10px; align-items: center; }
-.ai-init { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 15px; padding: 20px; text-align: center; }
+.ai-init { flex: 1; padding: 20px; display: flex; flex-direction: column; gap: 20px; align-items: center; justify-content: center; }
+.guide-card { background: #18181b; border: 1px solid #27272a; padding: 16px; border-radius: 12px; font-size: 13px; width: 100%; }
+.guide-list { margin: 10px 0 0 18px; padding: 0; color: #a1a1aa; }
 .path-info { font-size: 11px; color: #6366f1; background: rgba(99, 102, 241, 0.1); padding: 8px; border-radius: 6px; width: 100%; word-break: break-all; }
-.path-warn { font-size: 11px; color: #f59e0b; background: rgba(245, 158, 11, 0.1); padding: 8px; border-radius: 6px; width: 100%; }
-.chat { flex: 1; display: flex; flex-direction: column; padding: 15px; gap: 10px; }
-.messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
-.bubble { padding: 8px; border-radius: 6px; font-size: 13px; max-width: 90%; }
-.bubble.user { background: #6366f1; align-self: flex-end; }
-.bubble.assistant { background: #27272a; align-self: flex-start; }
-.modal { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 200; }
-.modal-content { background: #18181b; width: 80%; height: 80%; border-radius: 12px; display: flex; flex-direction: column; }
-pre { flex: 1; padding: 20px; overflow: auto; background: #09090b; margin: 0; font-family: monospace; font-size: 12px; }
-.gui-overlay { position: fixed; inset: 50px 0 0 260px; background: #000; z-index: 50; }
-.gui-header { padding: 10px; background: #121215; display: flex; justify-content: space-between; }
-.gui-body { display: flex; align-items: center; justify-content: center; height: calc(100% - 40px); }
+.chat { flex: 1; display: flex; flex-direction: column; padding: 15px; overflow: hidden; }
+.messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
+.bubble { padding: 10px; border-radius: 8px; font-size: 13px; max-width: 85%; }
+.bubble.user { align-self: flex-end; background: #6366f1; }
+.bubble.assistant { align-self: flex-start; background: #27272a; }
+.progress-text { font-size: 11px; color: #71717a; }
+.context-menu { position: fixed; background: #18181b; border: 1px solid #3f3f46; border-radius: 8px; padding: 4px; z-index: 1000; box-shadow: 0 10px 20px rgba(0,0,0,0.4); }
+.context-menu button { width: 100%; padding: 8px 12px; text-align: left; background: transparent; color: #fafafa; font-size: 13px; border-radius: 4px; border: none; cursor: pointer; }
+.context-menu button:hover { background: #6366f1; }
+.widget { background: #18181b; border: 1px solid #27272a; padding: 10px; border-radius: 8px; margin-bottom: 10px; }
+.chart-box { height: 60px; }
+.file-list, .task-list, .proc-list { list-style: none; padding: 0; font-size: 12px; max-height: 200px; overflow-y: auto; }
+.file-list li, .task-list li, .proc-list li { padding: 6px; cursor: pointer; border-radius: 4px; display: flex; justify-content: space-between; align-items: center; }
+.file-list li:hover, .task-list li:hover, .proc-list li:hover { background: #27272a; }
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 2000; }
+.modal-content { background: #18181b; width: 80%; height: 80%; border-radius: 12px; display: flex; flex-direction: column; padding: 20px; }
+pre { flex: 1; overflow: auto; background: #000; padding: 10px; font-family: monospace; font-size: 12px; }
+.cyber-logs-layer { position: absolute; inset: 0; z-index: -1; padding: 20px; display: flex; flex-direction: column; justify-content: flex-end; background: #050505; }
+.cyber-log-line { font-family: monospace; font-size: 10px; color: rgba(34, 197, 94, 0.4); }
+input { background: #09090b; border: 1px solid #27272a; color: white; padding: 8px; border-radius: 4px; width: 100%; margin-bottom: 10px; }
+.primary-btn { background: #6366f1; color: white; padding: 8px 16px; border-radius: 4px; width: 100%; cursor: pointer; border: none; }
+.loader { width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.3); border-radius: 50%; border-top-color: #fff; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>

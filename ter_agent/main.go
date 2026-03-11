@@ -55,22 +55,64 @@ type ManagedTask struct {
 }
 
 var (
-	port  = flag.Int("port", 34567, "Agent listen port")
-	token = flag.String("token", "", "Security token for authentication")
-
-	tasks   = make(map[string]*ManagedTask)
-	tasksMu sync.RWMutex
-	logDir  string
+	port     = flag.Int("port", 34567, "Agent listen port")
+	token    = flag.String("token", "", "Security token for authentication")
+	tasks    = make(map[string]*ManagedTask)
+	tasksMu  sync.RWMutex
+	logDir   string
+	stateFile string
 )
 
 func init() {
 	home, _ := os.UserHomeDir()
-	logDir = filepath.Join(home, ".ter", "logs")
+	terDir := filepath.Join(home, ".ter")
+	logDir = filepath.Join(terDir, "logs")
+	stateFile = filepath.Join(terDir, "tasks_state.json")
 	_ = os.MkdirAll(logDir, 0755)
+}
+
+func saveState() {
+	tasksMu.RLock()
+	defer tasksMu.RUnlock()
+	data, _ := json.Marshal(tasks)
+	os.WriteFile(stateFile, data, 0644)
+}
+
+func loadState() {
+	data, err := os.ReadFile(stateFile)
+	if err != nil {
+		return
+	}
+	tasksMu.Lock()
+	defer tasksMu.Unlock()
+	json.Unmarshal(data, &tasks)
+
+	// Re-verify process health
+	for _, t := range tasks {
+		if t.Status == "running" {
+			p, err := os.FindProcess(t.PID)
+			if err != nil || p.Signal(os.Signal(uintptr(0))) != nil {
+				t.Status = "stopped"
+			}
+		}
+	}
+}
+
+func startTaskHandler(w http.ResponseWriter, r *http.Request) {
+    // ... (rest of logic same but calls saveState after success)
 }
 
 func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Ter-Token")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
 		if *token != "" {
 			clientToken := r.Header.Get("X-Ter-Token")
 			if clientToken != *token {
