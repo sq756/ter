@@ -2,12 +2,13 @@
 const props = defineProps<{
   files: any[];
   bgTabs: any[];
+  skills: any[];
   cpuChartRef: any;
   memChartRef: any;
   isAutoPilot: boolean;
 }>();
 
-const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode']);
+const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill']);
 
 const updateAutoPilot = (e: any) => {
   emit('update:isAutoPilot', e.target.checked);
@@ -33,6 +34,18 @@ const updateAutoPilot = (e: any) => {
           <span class="val active">ACTIVE</span>
         </li>
         <li v-if="bgTabs.length === 0" class="empty-hint">No background tasks</li>
+      </ul>
+    </div>
+
+    <div class="module scroller skills-hub">
+      <header>Skill Hub (Remote)</header>
+      <ul class="data-list">
+        <li v-for="s in skills" :key="s.id" @click="$emit('run-skill', s.rpc)" :title="s.description">
+          <span class="icon">{{ s.icon || '🛠️' }}</span>
+          <span class="name">{{ s.name }}</span>
+          <span class="val">RUN</span>
+        </li>
+        <li v-if="skills.length === 0" class="empty-hint">No skills in .ter/skills.json</li>
       </ul>
     </div>
 
@@ -74,8 +87,11 @@ const updateAutoPilot = (e: any) => {
 .data-list li:hover { background: #1a1a1c; color: #fff; }
 .data-list .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }
 .data-list .val.active { color: #22c55e; font-weight: bold; }
+.data-list .val { color: #6366f1; font-size: 9px; border: 1px solid #6366f1; padding: 1px 4px; border-radius: 3px; }
 
 .empty-hint { font-size: 10px; color: #3f3f46; text-align: center; margin-top: 20px; }
+
+.skills-hub { max-height: 200px; flex: 0 0 auto; }
 
 .sidebar-footer { padding: 15px; background: #080809; border-top: 1px solid #1a1a1c; margin-top: auto; }
 .ai-controls { display: flex; flex-direction: column; gap: 8px; }

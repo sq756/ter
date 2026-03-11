@@ -371,6 +371,42 @@ async fn connect_to_ssh(host: String, port: u16, user: String, pass: String, app
     Ok(())
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+struct Skill {
+    id: String,
+    name: String,
+    icon: String,
+    description: String,
+    rpc: String,
+}
+
+#[tauri::command]
+async fn load_remote_skills(state: State<'_, AppState>) -> Result<Vec<Skill>, String> {
+    let session_guard = state.session.lock().await;
+    let session = session_guard.as_ref().ok_or("No active SSH session")?;
+
+    let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
+    channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
+    let sftp = SftpSession::new(channel.into_stream()).await.map_err(|e| e.to_string())?;
+
+    let skills_path = ".ter/skills.json";
+    
+    // Check if file exists by attempting to open it
+    match sftp.open(skills_path).await {
+        Ok(mut remote_file) => {
+            let mut content = Vec::new();
+            tokio::io::AsyncReadExt::read_to_end(&mut remote_file, &mut content).await.map_err(|e| e.to_string())?;
+            let skills: Vec<Skill> = serde_json::from_slice(&content).map_err(|e| format!("Failed to parse skills.json: {}", e))?;
+            Ok(skills)
+        }
+        Err(_) => {
+            // File doesn't exist or other error, return empty list gracefully
+            log::info!("No skills.json found at {}", skills_path);
+            Ok(Vec::new())
+        }
+    }
+}
+
 #[tauri::command]
 async fn write_pty(data: String, state: State<'_, AppState>) -> Result<(), String> {
     if let Some(tx) = state.pty_tx.lock().await.as_ref() {
@@ -805,6 +841,7 @@ pub fn run() {
             list_plugins,
             run_plugin,
             get_skill_manifest,
+            load_remote_skills,
             upload_ui_snapshot
         ])
         .run(tauri::generate_context!())

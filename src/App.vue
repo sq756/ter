@@ -41,6 +41,7 @@ const backgroundTabs = computed(() => terminalTabs.value.filter(t => t.isBackgro
 
 // SFTP / Data State
 const realFiles = ref<any[]>([]);
+const skills = ref<any[]>([]);
 const webviewRef = ref<any>(null);
 
 // Watch for tab switch to fit terminal
@@ -124,6 +125,12 @@ const connectWithId = async (id: string) => {
   } catch (e) { alert("Connection Failed: " + e); } finally { isConnecting.value = false; }
 };
 
+const runSkill = (rpc: string) => {
+  if (isConnected.value) {
+    invoke('write_pty', { data: rpc + "\r" });
+  }
+};
+
 const onConnected = async () => {
   isConnected.value = true;
   agentToken.value = await invoke('get_agent_token');
@@ -167,6 +174,7 @@ const onConnected = async () => {
   setTimeout(() => {
     fetchStats();
     invoke('ls_remote', { path: '/' }).then((files: any) => realFiles.value = files).catch(e => console.error(e));
+    invoke('load_remote_skills').then((s: any) => skills.value = s).catch(e => console.error(e));
   }, 1000);
 
   setInterval(() => { fetchStats(); }, 3000);
@@ -265,11 +273,13 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
       <SidebarPanel 
         :files="realFiles" 
         :bgTabs="backgroundTabs"
+        :skills="skills"
         :cpuChartRef="(el: any) => cpuChartRef = el"
         :memChartRef="(el: any) => memChartRef = el"
         v-model:isAutoPilot="isAutoPilot"
         @switch-tab="(id: string) => activeTabId = id"
         @switch-mode="(mode: number) => cyberMode = mode"
+        @run-skill="runSkill"
         @audit-ui="captureAndUpload(false)"
       />
 
