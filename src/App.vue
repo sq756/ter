@@ -2,19 +2,18 @@
 import { ref, onMounted, onUnmounted, nextTick, computed, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { Terminal } from '@xterm/xterm';
-import { FitAddon } from '@xterm/addon-fit';
 import * as echarts from 'echarts';
 import html2canvas from 'html2canvas';
 
-// Import New Sub-components
+// Import Manager and Sub-components
+import { terminalManager } from './TerminalManager';
 import MatrixScreen from './components/MatrixScreen.vue';
 import SidebarPanel from './components/SidebarPanel.vue';
 import TerminalTabs from './components/TerminalTabs.vue';
 import CyberWebview from './components/CyberWebview.vue';
 
 // ==========================================
-// --- GLOBAL STATE: The Heart of Ter ---
+// --- GLOBAL STATE ---
 // ==========================================
 const isConnected = ref(false);
 const isConnecting = ref(false); 
@@ -34,7 +33,9 @@ const showContextMenu = ref(false);
 const menuX = ref(0);
 const menuY = ref(0);
 
-// Tabs State
+/**
+ * Tabs State: Only store metadata in Vue's reactive system.
+ */
 const terminalTabs = ref<any[]>([]);
 const activeTabId = ref<string | null>(null);
 const activeTab = computed(() => terminalTabs.value.find(t => t.id === activeTabId.value));
@@ -45,15 +46,21 @@ const realFiles = ref<any[]>([]);
 const skills = ref<any[]>([]);
 const webviewRef = ref<any>(null);
 
-// Watch for tab switch to fit and focus terminal
+// Initialize Manager Callback
+terminalManager.setOnDataCallback((_id, data) => {
+  if (isConnected.value) {
+    invoke('write_pty', { data });
+  }
+});
+
+// Watch for tab switch: Auto-focus via Manager
 watch(activeTabId, async (newId) => {
   if (newId) {
     await nextTick();
-    const tab = terminalTabs.value.find(t => t.id === newId);
-    if (tab) {
-      // ResizeObserver in TerminalTabs.vue will handle fit()
-      tab.instance?.focus();
-    }
+    setTimeout(() => {
+      terminalManager.fit(newId);
+      terminalManager.focus(newId);
+    }, 50);
   }
 });
 
@@ -62,44 +69,28 @@ watch(activeTabId, async (newId) => {
 // ==========================================
 const createNewTab = (title = "Shell") => {
   const id = 'tab-' + Math.random().toString(36).substr(2, 9);
-  
-  const term = new Terminal({ 
-    cursorBlink: true, 
-    fontSize: 14, 
-    fontFamily: "'JetBrains Mono', monospace",
-    theme: { background: '#000', foreground: '#fafafa' }, 
-    allowTransparency: true 
-  });
-  const fit = new FitAddon();
-  term.loadAddon(fit);
-
-  // Bind data input
-  term.onData(data => {
-    if (isConnected.value) invoke('write_pty', { data });
-  });
-
-  terminalTabs.value.push({ 
-    id, 
-    title, 
-    instance: term, 
-    fitAddon: fit, 
-    isBackground: false 
-  });
-  
+  terminalManager.getOrCreate(id);
+  terminalTabs.value.push({ id, title, isBackground: false });
   activeTabId.value = id;
-  console.log(`[CORE] New tab created: ${id}`);
-  
-  // Auto-focus new tab
-  nextTick(() => term.focus());
-  
+  nextTick(() => { setTimeout(() => terminalManager.focus(id), 50); });
   return id;
+};
+
+const closeTab = (id: string) => {
+  const index = terminalTabs.value.findIndex(t => t.id === id);
+  if (index !== -1) {
+    terminalTabs.value.splice(index, 1);
+    terminalManager.remove(id);
+    if (activeTabId.value === id) {
+      activeTabId.value = terminalTabs.value[0]?.id || null;
+    }
+  }
 };
 
 const sendToBackground = () => {
   if (activeTab.value) {
-    const selection = activeTab.value.instance?.getSelection();
     activeTab.value.isBackground = true;
-    activeTab.value.title = selection ? (selection.length > 15 ? selection.substr(0,12) + "..." : selection) : "Task: " + activeTab.value.id.substr(0,5);
+    activeTab.value.title = "Task: " + activeTab.value.id.substr(0,5);
     activeTabId.value = null;
     createNewTab("New Shell");
   }
@@ -112,11 +103,6 @@ const onTerminalContextMenu = (e: MouseEvent) => {
   showContextMenu.value = true;
 };
 
-// Close context menu on click elsewhere
-onMounted(() => {
-  window.addEventListener('click', () => { showContextMenu.value = false; });
-});
-
 // ==========================================
 // --- CORE LOGIC: SSH Foundation ---
 // ==========================================
@@ -128,13 +114,12 @@ const connectWithId = async (id: string) => {
     if (s) host.value = s.label || s.host;
     await invoke('connect_with_id', { id }); 
     await onConnected();
-    backendLogs.value.push('[INFO] 已建立新会话，历史后台任务仅在当前会话生命周期内有效。');
+    backendLogs.value.push('[INFO] 已建立新会话。');
   } catch (e) { alert("Connection Failed: " + e); } finally { isConnecting.value = false; }
 };
 
 const runSkill = (rpc: string) => {
   if (isConnected.value) {
-    // If command involves audit or gemini, auto-enable autopilot
     if (rpc.includes('audit') || rpc.toLowerCase().includes('gemini') || rpc.includes('ter')) {
       isAutoPilot.value = true;
     }
@@ -146,9 +131,7 @@ const refreshExplorer = async () => {
   if (!isConnected.value) return;
   try {
     realFiles.value = await invoke('ls_remote', { path: currentPath.value });
-  } catch (e) {
-    console.error("SFTP refresh failed:", e);
-  }
+  } catch (e) { console.error("SFTP refresh failed:", e); }
 };
 
 const changeDir = (path: string) => {
@@ -165,49 +148,31 @@ const changeDir = (path: string) => {
 const onConnected = async () => {
   isConnected.value = true;
   agentToken.value = await invoke('get_agent_token');
-  
   createNewTab("Main Shell");
 
   if (unlistenPty) unlistenPty();
   unlistenPty = await listen<number[]>('pty-data', (event) => {
     const data = new Uint8Array(event.payload);
     const text = new TextDecoder().decode(data);
-
-    // --- RPC INTERCEPTOR ---
     if (isAutoPilot.value && text.includes('[TER_RPC]')) {
       try {
         const rpcMatch = text.match(/\[TER_RPC\]\s*({.*})/);
         if (rpcMatch && rpcMatch[1]) {
           const rpc = JSON.parse(rpcMatch[1]);
-          if (rpc.action === 'screenshot') {
-            captureAndUpload(true);
-            return;
-          }
-          if (rpc.action === 'refresh_preview') {
-            webviewRef.value?.reload();
-            return;
-          }
+          if (rpc.action === 'screenshot') { captureAndUpload(true); return; }
+          if (rpc.action === 'refresh_preview') { webviewRef.value?.reload(); return; }
         }
       } catch (e) {}
     }
-
-    if (activeTab.value?.instance) {
-      activeTab.value.instance.write(data);
-    } else {
-      // Fallback: log if data is dropped due to no active tab
-      console.warn("[PTY] Data received but no active terminal instance found.");
-    }
+    terminalManager.broadcast(data);
   });
 
   initCharts();
-  
-  // Staggered trigger for data fetch to ensure connection stability
   setTimeout(() => {
     fetchStats();
     refreshExplorer();
     invoke('load_remote_skills').then((s: any) => skills.value = s).catch(e => console.error(e));
   }, 1000);
-
   setInterval(() => { fetchStats(); }, 3000);
 };
 
@@ -217,7 +182,6 @@ const onConnected = async () => {
 const workspaceRef = ref<HTMLElement | null>(null);
 const captureAndUpload = async (auto = false) => {
   if (!workspaceRef.value) return;
-  console.log("📸 [RPC] Visual Audit Triggered...");
   isAutoPilot.value = true;
   try {
     const canvas = await html2canvas(workspaceRef.value, { backgroundColor: '#000', useCORS: true, scale: 1.5 });
@@ -262,11 +226,7 @@ let unlistenLog: any, unlistenPty: any;
 onMounted(async () => {
   unlistenLog = await listen<string>('backend-log', (e) => { backendLogs.value.push(e.payload); if (backendLogs.value.length > 100) backendLogs.value.shift(); });
   window.addEventListener('keydown', (e) => { if (e.altKey && e.key.toLowerCase() === 'l') isLocked.value = !isLocked.value; });
-  
-  // Re-focus terminal when window gets focus
-  window.addEventListener('focus', () => {
-    activeTab.value?.instance?.focus();
-  });
+  window.addEventListener('focus', () => { if (activeTabId.value) terminalManager.focus(activeTabId.value); });
 });
 onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty(); });
 </script>
@@ -321,11 +281,8 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
         @audit-ui="captureAndUpload(false)"
       />
 
-      <main class="workspace" ref="workspaceRef" @click="activeTab?.instance?.focus()">
-        <!-- Context Menu -->
-        <div v-if="showContextMenu" 
-             class="context-menu" 
-             :style="{ top: menuY + 'px', left: menuX + 'px' }">
+      <main class="workspace" ref="workspaceRef" @click="activeTabId && terminalManager.focus(activeTabId)">
+        <div v-if="showContextMenu" class="context-menu" :style="{ top: menuY + 'px', left: menuX + 'px' }">
           <div class="menu-item" @click="sendToBackground">🚀 Background Task</div>
           <div class="menu-divider"></div>
           <div class="menu-item disabled">📋 Copy (Coming)</div>
@@ -348,6 +305,7 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
               :tabs="terminalTabs" 
               :activeTabId="activeTabId"
               @switch-tab="(id: string) => activeTabId = id"
+              @close-tab="closeTab"
               @new-tab="createNewTab()"
               @terminal-context="onTerminalContextMenu"
             />
@@ -377,7 +335,7 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
 .workspace { flex: 1; display: flex; flex-direction: column; background: #000; overflow: hidden; position: relative; }
 .tool-bar { height: 45px; background: #0c0c0e; border-bottom: 1px solid #1a1a1c; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; }
 .workspace-body { flex: 1; display: flex; overflow: hidden; }
-.terminal-pane { height: 100%; display: flex; flex-direction: column; transition: flex 0.3s ease; }
+.terminal-pane { height: 100%; display: flex; flex-direction: column; transition: flex 0.3s ease; position: relative; }
 .cyber-pane { height: 100%; border-left: 1px solid #1a1a1c; overflow: hidden; }
 .cyber-logs-view { height: 100%; display: flex; flex-direction: column; background: #0a0a0a; }
 .cyber-logs-view header { padding: 10px 15px; font-size: 11px; color: #6366f1; font-weight: bold; border-bottom: 1px solid #1a1a1c; }
