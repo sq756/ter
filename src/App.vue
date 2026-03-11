@@ -15,7 +15,7 @@ import html2canvas from 'html2canvas';
 const isConnected = ref(false);
 const isConnecting = ref(false); 
 const isMasterPasswordSet = ref(false);
-const isAutoPilot = ref(false); // [NEW] The Auto-Pilot Toggle
+const isAutoPilot = ref(false); 
 const agentToken = ref('');
 const backendLogs = ref<string[]>([]);
 const savedServers = ref<any[]>([]);
@@ -52,7 +52,6 @@ const captureAndUpload = async (autoTriggered = false) => {
   console.log("📸 Starting visual audit capture...");
   
   try {
-    // 1. Capture the workspace (or specifically the preview area)
     const canvas = await html2canvas(workspaceRef.value, {
       backgroundColor: '#000',
       logging: false,
@@ -60,17 +59,14 @@ const captureAndUpload = async (autoTriggered = false) => {
     });
     const base64 = canvas.toDataURL('image/png');
 
-    // 2. Upload to Remote via SFTP (Rust Command)
-    const remotePath = await invoke('upload_ui_snapshot', { base64Data: base64 });
+    const remotePath = await invoke<string>('upload_ui_snapshot', { base64Data: base64 });
     
-    // 3. Inject message into Terminal
     const triggerMsg = autoTriggered 
       ? `[SYSTEM] 自动快照已就绪: ${remotePath}` 
       : `请读取 ${remotePath}，我刚才按下了审计键，你看看现在的 UI 哪里不对劲？`;
     
     await invoke('write_pty', { data: triggerMsg + "\r" });
     
-    // Show a small toast
     pluginToasts.value.push({
       type: 'text',
       title: 'Visual Audit',
@@ -135,15 +131,14 @@ const onConnected = async () => {
     const data = new Uint8Array(event.payload);
     const text = new TextDecoder().decode(data);
 
-    // [RPC INTERCEPTOR]
     if (isAutoPilot.value && text.includes('[TER_RPC]')) {
       try {
         const rpcMatch = text.match(/\[TER_RPC\]\s*({.*})/);
-        if (rpcMatch) {
+        if (rpcMatch && rpcMatch[1]) {
           const rpc = JSON.parse(rpcMatch[1]);
           if (rpc.action === 'screenshot') {
             captureAndUpload(true);
-            return; // Block this line from terminal display
+            return; 
           }
         }
       } catch (e) {}
@@ -164,19 +159,50 @@ const onConnected = async () => {
 
 const terminalRef = ref<HTMLElement | null>(null);
 
-const handleCopy = async () => { const text = term.getSelection(); if (text) { await navigator.clipboard.writeText(text); showContextMenu.value = false; } };
-const handlePaste = async () => { try { const text = await navigator.clipboard.readText(); if (text && isConnected.value) { await invoke('write_pty', { data: text }); } } catch (e) {} showContextMenu.value = false; };
-const onTerminalContextMenu = (e: MouseEvent) => { e.preventDefault(); selectedText.value = term.getSelection(); menuPos.value = { x: e.clientX, y: e.clientY }; showContextMenu.value = true; };
+const handleCopy = async () => { 
+  const text = term.getSelection(); 
+  if (text) { 
+    await navigator.clipboard.writeText(text); 
+    showContextMenu.value = false; 
+  } 
+};
 
-// [Existing Resizing & Data logics preserved...]
+const handlePaste = async () => { 
+  try { 
+    const text = await navigator.clipboard.readText(); 
+    if (text && isConnected.value) { 
+      await invoke('write_pty', { data: text }); 
+    } 
+  } catch (e) {} 
+  showContextMenu.value = false; 
+};
+
+const onTerminalContextMenu = (e: MouseEvent) => { 
+  e.preventDefault(); 
+  selectedText.value = term.getSelection(); 
+  menuPos.value = { x: e.clientX, y: e.clientY }; 
+  showContextMenu.value = true; 
+};
+
 const startSidebarResize = () => { isResizingSidebar.value = true; document.addEventListener('mousemove', handleGlobalMove); document.addEventListener('mouseup', stopResizing); };
 const startCyberResize = () => { isResizingCyber.value = true; document.addEventListener('mousemove', handleGlobalMove); document.addEventListener('mouseup', stopResizing); };
+
 const handleGlobalMove = (e: MouseEvent) => {
   if (isResizingSidebar.value) sidebarWidth.value = Math.max(180, Math.min(500, e.clientX));
-  if (isResizingCyber.value) { const containerWidth = window.innerWidth - (showDashboard.value ? sidebarWidth.value : 0); const mouseOffset = window.innerWidth - e.clientX; cyberRatio.value = Math.max(10, Math.min(50, (mouseOffset / containerWidth) * 100)); }
+  if (isResizingCyber.value) { 
+    const containerWidth = window.innerWidth - (showDashboard.value ? sidebarWidth.value : 0); 
+    const mouseOffset = window.innerWidth - e.clientX; 
+    cyberRatio.value = Math.max(10, Math.min(50, (mouseOffset / containerWidth) * 100)); 
+  }
   nextTick(() => { fitAddon?.fit(); cpuChart?.resize(); memChart?.resize(); });
 };
-const stopResizing = () => { isResizingSidebar.value = false; isResizingCyber.value = false; document.removeEventListener('mousemove', handleGlobalMove); document.removeEventListener('mouseup', stopResizing); };
+
+const stopResizing = () => { 
+  isResizingSidebar.value = false; 
+  isResizingCyber.value = false; 
+  document.removeEventListener('mousemove', handleGlobalMove); 
+  document.removeEventListener('mouseup', stopResizing); 
+};
 
 const connectWithId = async (id: string) => { 
   if (isConnecting.value) return; 
@@ -196,14 +222,23 @@ const runAsTask = async (e: MouseEvent) => {
   flyingTasks.value.push({ id, x: e.clientX, y: e.clientY });
   setTimeout(() => { flyingTasks.value = flyingTasks.value.filter(t => t.id !== id); }, 800);
   const parts = text.trim().split(/\s+/);
-  try { await agentFetch('/task/start', { method: 'POST', body: JSON.stringify({ id: 'task-' + id, command: parts[0], args: parts.slice(1) }) }); showContextMenu.value = false; fetchTasks(); } catch (e) {}
+  try { 
+    await agentFetch('/task/start', { method: 'POST', body: JSON.stringify({ id: 'task-' + id, command: parts[0], args: parts.slice(1) }) }); 
+    showContextMenu.value = false; 
+    fetchTasks(); 
+  } catch (e) {}
 };
 
 const stats = ref<any>(null);
 const managedTasks = ref<any[]>([]);
 const mockFiles = ref([{ name: 'bin', is_dir: true }, { name: 'etc', is_dir: true }, { name: 'home', is_dir: true }]);
 const mockProcesses = ref([{ pid: 1, name: 'systemd', cpu_usage: 0.1, mem_usage: 0.2 }]);
-const agentFetch = async (endpoint: string, options: any = {}) => { const url = `http://localhost:54321${endpoint}`; return fetch(url, { ...options, headers: { 'X-Ter-Token': agentToken.value, 'Content-Type': 'application/json', ...options.headers } }); };
+
+const agentFetch = async (endpoint: string, options: any = {}) => { 
+  const url = `http://localhost:54321${endpoint}`; 
+  return fetch(url, { ...options, headers: { 'X-Ter-Token': agentToken.value, 'Content-Type': 'application/json', ...options.headers } }); 
+};
+
 const fetchTasks = async () => { try { const res = await agentFetch('/task/list'); managedTasks.value = await res.json(); } catch(e){} };
 const fetchStats = async () => { try { const res = await agentFetch('/stats'); stats.value = await res.json(); updateCharts(stats.value); } catch(e){} };
 
@@ -211,27 +246,88 @@ const cpuChartRef = ref<HTMLElement | null>(null);
 const memChartRef = ref<HTMLElement | null>(null);
 let cpuChart: any, memChart: any;
 const cpuHistory = ref<number[]>([]), memHistory = ref<number[]>([]);
-const initCharts = () => { if (cpuChartRef.value) cpuChart = echarts.init(cpuChartRef.value); if (memChartRef.value) memChart = echarts.init(memChartRef.value); };
-const updateCharts = (s: any) => { cpuHistory.value.push(s.cpu_usage); memHistory.value.push((s.mem_used / s.mem_total) * 100); if (cpuHistory.value.length > 30) { cpuHistory.value.shift(); memHistory.value.shift(); } cpuChart?.setOption(getChartOpt('CPU', cpuHistory.value, '#6366f1')); memChart?.setOption(getChartOpt('MEM', memHistory.value, '#a855f7')); };
-const getChartOpt = (_l: string, d: any[], c: string) => ({ grid: { top: 5, bottom: 0, left: 0, right: 0 }, xAxis: { type: 'category', show: false }, yAxis: { type: 'value', min: 0, max: 100, show: false }, series: [{ data: d, type: 'line', smooth: true, areaStyle: { color: c }, itemStyle: { color: c }, showSymbol: false }], animation: false });
+
+const initCharts = () => { 
+  if (cpuChartRef.value) cpuChart = echarts.init(cpuChartRef.value); 
+  if (memChartRef.value) memChart = echarts.init(memChartRef.value); 
+};
+
+const updateCharts = (s: any) => { 
+  cpuHistory.value.push(s.cpu_usage); 
+  memHistory.value.push((s.mem_used / s.mem_total) * 100); 
+  if (cpuHistory.value.length > 30) { cpuHistory.value.shift(); memHistory.value.shift(); } 
+  cpuChart?.setOption(getChartOpt('CPU', cpuHistory.value, '#6366f1')); 
+  memChart?.setOption(getChartOpt('MEM', memHistory.value, '#a855f7')); 
+};
+
+const getChartOpt = (_l: string, d: any[], c: string) => ({ 
+  grid: { top: 5, bottom: 0, left: 0, right: 0 }, 
+  xAxis: { type: 'category', show: false }, 
+  yAxis: { type: 'value', min: 0, max: 100, show: false }, 
+  series: [{ data: d, type: 'line', smooth: true, areaStyle: { color: c }, itemStyle: { color: c }, showSymbol: false }], 
+  animation: false 
+});
 
 const masterPasswordStr = ref('');
 const setMasterPass = async () => { await invoke('set_master_password', { password: masterPasswordStr.value }); isMasterPasswordSet.value = true; loadServers(); };
 const loadServers = async () => { savedServers.value = await invoke('list_server_configs'); };
 const deleteServer = async (id: string) => { await invoke('delete_server_config', { id }); loadServers(); };
+
 const newServer = ref({ label: '', host: '', user: '', pass: '', port: 22 });
-const addServer = async () => { await invoke('save_server_config', { config: { id: Date.now().toString(), ...newServer.value, password_enc: newServer.value.pass, key_path: null } }); showAddServer.value = false; loadServers(); };
+const addServer = async () => { 
+  await invoke('save_server_config', { 
+    config: { id: Date.now().toString(), ...newServer.value, password_enc: newServer.value.pass, key_path: null } 
+  }); 
+  showAddServer.value = false; 
+  loadServers(); 
+};
+
+const onProcessContext = (e: MouseEvent, p: any) => {
+  e.preventDefault();
+  selectedProcess.value = p;
+  menuPos.value = { x: e.clientX, y: e.clientY };
+  showProcessMenu.value = true;
+};
+
+const killProcess = async () => {
+  if (!selectedProcess.value) return;
+  try {
+    await agentFetch(`/proc/kill?pid=${selectedProcess.value.pid}`);
+    showProcessMenu.value = false;
+    fetchStats();
+  } catch (e) { alert("Failed to kill process"); }
+};
 
 let unlistenLog: any, unlistenPty: any, unlistenPlugin: any;
 onMounted(async () => {
-  unlistenLog = await listen<string>('backend-log', (e) => { backendLogs.value.push(e.payload); if (backendLogs.value.length > 100) backendLogs.value.shift(); });
-  unlistenPlugin = await listen<any>('plugin-ui-event', (e) => { pluginToasts.value.push(e.payload); setTimeout(() => { pluginToasts.value = pluginToasts.value.filter(t => t.timestamp !== e.payload.timestamp); }, 5000); });
-  term = new Terminal({ cursorBlink: true, fontSize: 14, fontFamily: "'JetBrains Mono', monospace", theme: { background: '#000', foreground: '#fafafa' }, allowTransparency: true });
-  fitAddon = new FitAddon(); term.loadAddon(fitAddon);
+  unlistenLog = await listen<string>('backend-log', (e) => { 
+    backendLogs.value.push(e.payload); 
+    if (backendLogs.value.length > 100) backendLogs.value.shift(); 
+  });
+  
+  unlistenPlugin = await listen<any>('plugin-ui-event', (e) => { 
+    pluginToasts.value.push(e.payload); 
+    setTimeout(() => { pluginToasts.value = pluginToasts.value.filter(t => t.timestamp !== e.payload.timestamp); }, 5000); 
+  });
+  
+  term = new Terminal({ 
+    cursorBlink: true, 
+    fontSize: 14, 
+    fontFamily: "'JetBrains Mono', monospace", 
+    theme: { background: '#000', foreground: '#fafafa' }, 
+    allowTransparency: true 
+  });
+  fitAddon = new FitAddon(); 
+  term.loadAddon(fitAddon);
   term.onData(data => { if (isConnected.value) invoke('write_pty', { data }); });
   window.addEventListener('resize', () => { fitAddon.fit(); cpuChart?.resize(); memChart?.resize(); });
 });
-onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty(); if (unlistenPlugin) unlistenPlugin(); });
+
+onUnmounted(() => { 
+  if (unlistenLog) unlistenLog(); 
+  if (unlistenPty) unlistenPty(); 
+  if (unlistenPlugin) unlistenPlugin(); 
+});
 </script>
 
 <template>
@@ -299,6 +395,15 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
             <li v-for="p in (stats?.processes || mockProcesses)" :key="p.pid" @contextmenu.prevent="onProcessContext($event, p)"><span class="name">{{ p.name }}</span><span class="val">{{ Math.round(p.cpu_usage) }}%</span></li>
           </ul>
         </div>
+        <div class="module scroller files">
+          <header>Explorer</header>
+          <ul class="data-list">
+            <li v-for="f in mockFiles" :key="f.name">
+              <span class="icon">{{ f.is_dir ? '📁' : '📄' }}</span>
+              <span class="name">{{ f.name }}</span>
+            </li>
+          </ul>
+        </div>
         <div class="sidebar-footer">
           <header>AI Control</header>
           <div class="ai-controls">
@@ -338,6 +443,12 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
       <!-- Context Menus -->
       <div v-if="showContextMenu" class="floating-menu" :style="{ left: menuPos.x+'px', top: menuPos.y+'px' }">
         <button @click="handleCopy">📋 Copy</button><button @click="handlePaste">📥 Paste</button><hr/><button @click="runAsTask($event)" class="special">🚀 Background Task</button>
+      </div>
+
+      <div v-if="showProcessMenu" class="floating-menu" :style="{ left: menuPos.x+'px', top: menuPos.y+'px' }">
+        <div class="menu-header">PID: {{ selectedProcess?.pid }}</div>
+        <button @click="killProcess" class="danger">🛑 Terminate</button>
+        <button>🔍 Inspect</button>
       </div>
     </div>
   </div>
