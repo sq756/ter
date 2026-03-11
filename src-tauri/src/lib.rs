@@ -185,21 +185,19 @@ async fn deploy_agent(session: &client::Handle<Client>, token: &str, app_handle:
         return Err("Failed to determine remote home directory".to_string());
     }
 
-    // 3. Prepare remote directory and remove old file to avoid ETXTBSY
+    // 3. Prepare remote directory (Ensure .ter exists)
     let remote_path = format!("{}/.ter/agent_linux_amd64", home_dir);
-    let prep_cmd = format!("mkdir -p {}/.ter && rm -f {}", home_dir, remote_path);
-    let mut prep_channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
-    prep_channel.exec(true, prep_cmd.as_str()).await.map_err(|e| e.to_string())?;
-    while let Some(_) = prep_channel.wait().await {}
+    let mkdir_cmd = format!("mkdir -p {}/.ter", home_dir);
+    let mut mkdir_channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
+    mkdir_channel.exec(true, mkdir_cmd.as_str()).await.map_err(|e| e.to_string())?;
+    while let Some(_) = mkdir_channel.wait().await {}
 
-    // 4. Upload Agent binary via SFTP
+    // 4. Upload Agent binary via SFTP (with Zero-Upload optimization)
     let sftp_channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
     sftp_channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
-    
     let sftp = SftpSession::new(sftp_channel.into_stream()).await.map_err(|e| format!("SFTP init error: {}", e))?;
 
     let res_dir = app_handle.path().resource_dir().map_err(|e| e.to_string())?;
-    
     let possible_paths = [
         res_dir.join("agent_linux_amd64"),
         res_dir.join("_up_/ter_agent/agent_linux_amd64"),
@@ -220,7 +218,6 @@ async fn deploy_agent(session: &client::Handle<Client>, token: &str, app_handle:
         format!("Local agent not found in any of the search paths. Resource dir was: {:?}", res_dir)
     })?;
 
-    // 1. Incremental Check: If exists and size matches, skip upload
     let local_metadata = tokio::fs::metadata(&local_path).await.map_err(|e| e.to_string())?;
     let local_size = local_metadata.len();
     
@@ -236,13 +233,15 @@ async fn deploy_agent(session: &client::Handle<Client>, token: &str, app_handle:
 
     if should_upload {
         log::info!("Uploading agent ({} bytes)...", local_size);
+        // Remove existing file first to avoid "Text file busy" (ETXTBSY) if it was running
+        let _ = sftp.remove_file(&remote_path).await;
+
         let mut local_file = tokio::fs::File::open(&local_path).await.map_err(|e| format!("Failed to open agent at {:?}: {}", local_path, e))?;
-        
         let mut remote_file = sftp.create(&remote_path).await.map_err(|e| {
             format!("Failed to create remote file at {}. SFTP Error: {}", remote_path, e)
         })?;
         
-        let mut buf = vec![0; 65536]; // Larger buffer for faster upload
+        let mut buf = vec![0; 65536]; 
         while let Ok(n) = local_file.read(&mut buf).await {
             if n == 0 { break; }
             tokio::io::AsyncWriteExt::write_all(&mut remote_file, &buf[..n]).await.map_err(|e| format!("Write error: {}", e))?;

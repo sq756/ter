@@ -74,9 +74,11 @@ const sendToBackground = () => {
   if (tab) {
     const selection = terminalManager.getSelection(tab.id).trim();
     tab.isBackground = true;
+    // Semantic Naming: Use selection as process name if available
     tab.title = selection 
-      ? `Proc: ${selection.substring(0, 20)}...` 
+      ? `Proc: ${selection.substring(0, 30)}${selection.length > 30 ? '...' : ''}` 
       : `Task: ${tab.id.substr(0, 5)}`;
+    
     if (activeTabId.value === targetId) {
       activeTabId.value = terminalTabs.value.find(t => !t.isBackground)?.id || null;
       if (!activeTabId.value) createNewTab("New Shell");
@@ -160,10 +162,68 @@ const changeDir = (path: string) => {
   refreshExplorer();
 };
 
+// ==========================================
+// --- CORE LOGIC: Visual Audit Loop ---
+// ==========================================
+const workspaceRef = ref<HTMLElement | null>(null);
+const cyberPaneRef = ref<HTMLElement | null>(null);
+
+const captureAndUpload = async (auto = false) => {
+  const target = (cyberPaneRef.value && cyberPaneRef.value.offsetParent !== null)
+      ? cyberPaneRef.value
+      : workspaceRef.value;
+    
+  if (!target) return;
+  
+  isAutoPilot.value = true;
+  try {
+    const html2canvas = (await import('html2canvas')).default;
+    const canvas = await html2canvas(target, { 
+      backgroundColor: '#000000', 
+      useCORS: true, 
+      scale: 2.0,
+      logging: false,
+      allowTaint: true,
+      ignoreElements: (element) => element.classList.contains('terminal-pane') && target !== workspaceRef.value
+    });
+    
+    const base64Data = canvas.toDataURL('image/png');
+    const remotePath = await invoke<string>('upload_ui_snapshot', { base64Data });
+    const lastLogs = backendLogs.value.slice(-10).join('\n');
+    await invoke('write_remote_text', { text: lastLogs, remotePath: '/tmp/current_logs.json' });
+
+    const msg = auto 
+      ? `[SYSTEM] Audit Done: ${remotePath} + Logs Sync` 
+      : `Manual audit completed. Snapshot: ${remotePath}, Logs: /tmp/current_logs.json`;
+    
+    await invoke('write_pty', { data: msg + "\n" });
+  } catch (e) { 
+    console.error("Capture Failed:", e); 
+    backendLogs.value.push(`[ERROR] Visual Audit failed: ${e}`);
+  }
+};
+
 const runSkill = async (skill: any) => {
   if (!isConnected.value) return;
+
+  // 1. Vision-Loop: Capture & Upload if required by Skill
+  if (skill.context_requirement?.require_screenshot) {
+    backendLogs.value.push(`[SYSTEM] Skill "${skill.name}" requires UI context. Synchronizing...`);
+    try {
+      await captureAndUpload(true);
+    } catch (e) {
+      console.error("Vision-Loop sync failed:", e);
+    }
+  }
+
+  // 2. Execute RPC
   const rpc = skill.rpc || skill.trigger;
-  if (rpc) invoke('write_pty', { data: rpc.endsWith('\n') ? rpc : rpc + "\r\n" });
+  if (rpc) {
+    if (rpc.includes('audit') || rpc.toLowerCase().includes('gemini') || rpc.includes('ter')) {
+      isAutoPilot.value = true;
+    }
+    invoke('write_pty', { data: rpc.endsWith('\n') ? rpc : rpc + "\r\n" });
+  }
 };
 
 // ==========================================
@@ -263,7 +323,7 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
         @change-dir="changeDir"
       />
 
-      <main class="workspace" @click="activeTabId && terminalManager.focus(activeTabId)">
+      <main class="workspace" ref="workspaceRef" @click="activeTabId && terminalManager.focus(activeTabId)">
         <div v-if="showContextMenu" class="context-menu" :style="{ top: menuY + 'px', left: menuX + 'px' }">
           <div class="menu-item" @click="sendToBackground">🚀 Background Task</div>
           <div class="menu-divider"></div>
@@ -293,7 +353,7 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
             />
           </section>
 
-          <section class="cyber-pane" v-if="cyberMode !== 0">
+          <section class="cyber-pane" v-if="cyberMode !== 0" ref="cyberPaneRef">
             <div class="cyber-container">
               <div class="cyber-logs-view">
                 <header><span class="title">Cyber Logs</span></header>
