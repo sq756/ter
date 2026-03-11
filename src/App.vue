@@ -29,6 +29,18 @@ const showAddServer = ref(false);
 const host = ref('Remote Server');
 const currentPath = ref('/');
 
+// Layout State
+const sidebarWidth = ref(260);
+const cyberWidth = ref(400); // fixed pixels for initial
+const isResizingSidebar = ref(false);
+const isResizingCyber = ref(false);
+
+const layoutStyles = computed(() => ({
+  '--sidebar-width': `${sidebarWidth.value}px`,
+  '--cyber-width': `${cyberWidth.value}px`,
+  '--resize-cursor': isResizingSidebar.value || isResizingCyber.value ? 'col-resize' : 'default'
+}));
+
 // Context Menu State
 const showContextMenu = ref(false);
 const menuX = ref(0);
@@ -44,6 +56,36 @@ const backgroundTabs = computed(() => terminalTabs.value.filter(t => t.isBackgro
 const realFiles = ref<any[]>([]);
 const skills = ref<any[]>([]);
 const webviewRef = ref<any>(null);
+
+// ==========================================
+// --- LAYOUT ENGINE ---
+// ==========================================
+const startResizingSidebar = (e: MouseEvent) => {
+  e.preventDefault();
+  isResizingSidebar.value = true;
+};
+
+const startResizingCyber = (e: MouseEvent) => {
+  e.preventDefault();
+  isResizingCyber.value = true;
+};
+
+const handleGlobalMouseMove = (e: MouseEvent) => {
+  if (isResizingSidebar.value) {
+    sidebarWidth.value = Math.max(200, Math.min(600, e.clientX));
+  } else if (isResizingCyber.value) {
+    const delta = window.innerWidth - e.clientX;
+    cyberWidth.value = Math.max(300, Math.min(window.innerWidth * 0.7, delta));
+  }
+};
+
+const stopResizing = () => {
+  if (isResizingSidebar.value || isResizingCyber.value) {
+    isResizingSidebar.value = false;
+    isResizingCyber.value = false;
+    nextTick(() => terminalManager.fitAll());
+  }
+};
 
 // Watch for tab switch: Auto-focus via Manager
 watch(activeTabId, async (newId) => {
@@ -95,7 +137,6 @@ const sendToBackground = () => {
   if (tab) {
     const selection = terminalManager.getSelection(tab.id).trim();
     tab.isBackground = true;
-    // Use selection as semantic process name, fallback to task ID
     tab.title = selection 
       ? `Proc: ${selection.length > 20 ? selection.substring(0, 20) + '...' : selection}` 
       : `Task: ${tab.id.substr(0, 5)}`;
@@ -139,13 +180,10 @@ const connectWithId = async (id: string) => {
     const s = savedServers.value.find(s => s.id === id);
     if (s) host.value = s.label || s.host;
     
-    // ASYNC DECOUPLE: Don't wait for full initialization before hiding loader
     invoke('connect_with_id', { id }).then(async () => {
-      isConnecting.value = false; // Fast UI response
+      isConnecting.value = false;
       await onConnected();
       backendLogs.value.push('[INFO] 已建立新会话。');
-      // Immediate stats flow
-      setTimeout(() => fetchStats(), 500);
     }).catch(e => {
       isConnecting.value = false;
       alert("Connection Failed: " + e);
@@ -159,13 +197,9 @@ const connectWithId = async (id: string) => {
 
 const runSkill = async (skill: any) => {
   if (!isConnected.value) return;
-
-  // Handle Context Requirement: Auto-screenshot for Manifest V2
   if (skill.context_requirement?.require_screenshot) {
-    console.log("[SYSTEM] Skill requires UI context. Capturing...");
     await captureAndUpload(true);
   }
-
   const rpc = skill.rpc || skill.trigger;
   if (rpc) {
     if (rpc.includes('audit') || rpc.toLowerCase().includes('gemini') || rpc.includes('ter')) {
@@ -215,22 +249,28 @@ const onConnected = async () => {
     terminalManager.broadcast(data);
   });
 
-  // Backend Sync Fallback: Check if ports were already assigned
   const ports: any = await invoke('get_active_ports');
   if (ports.agent) {
     currentAgentPort.value = ports.agent;
     backendLogs.value.push(`[SYSTEM] Recovered agent port: ${ports.agent}`);
-    nextTick(() => fetchStats());
   }
 
-  initCharts();
   setTimeout(() => {
-    fetchStats();
     refreshExplorer();
     invoke('load_remote_skills').then((s: any) => skills.value = s).catch(e => console.error(e));
   }, 1000);
-  setInterval(() => { fetchStats(); }, 3000);
 };
+
+// Watch connection to start data pulse
+watch(isConnected, (connected) => {
+  if (connected) {
+    nextTick(() => {
+      initCharts();
+      fetchStats();
+      setInterval(fetchStats, 3000);
+    });
+  }
+});
 
 // ==========================================
 // --- CORE LOGIC: Visual Audit Loop ---
@@ -240,8 +280,6 @@ const cyberPaneRef = ref<HTMLElement | null>(null);
 const cyberWebviewRef = ref<HTMLElement | null>(null);
 
 const captureAndUpload = async (auto = false) => {
-  // 1. Smart Capture: Prioritize the webview viewport only
-  // This ensures the AI sees only the relevant UI context (the web view)
   const target = (cyberWebviewRef.value && cyberWebviewRef.value.offsetParent !== null)
     ? cyberWebviewRef.value
     : (cyberPaneRef.value && cyberPaneRef.value.offsetParent !== null)
@@ -252,11 +290,10 @@ const captureAndUpload = async (auto = false) => {
   
   isAutoPilot.value = true;
   try {
-    // 2. Capture Snapshot
     const canvas = await html2canvas(target, { 
       backgroundColor: '#000000', 
       useCORS: true, 
-      scale: 2.0, // High resolution for AI vision
+      scale: 2.0,
       logging: false,
       allowTaint: true,
       ignoreElements: (element) => element.classList.contains('terminal-pane') && target !== workspaceRef.value
@@ -264,8 +301,6 @@ const captureAndUpload = async (auto = false) => {
     
     const base64Data = canvas.toDataURL('image/png');
     const remotePath = await invoke<string>('upload_ui_snapshot', { base64Data });
-    
-    // 3. Dual-Sync Logs: Save last 10 JSON logs for transparency
     const lastLogs = backendLogs.value.slice(-10).join('\n');
     await invoke('write_remote_text', { text: lastLogs, remotePath: '/tmp/current_logs.json' });
 
@@ -289,22 +324,26 @@ let cpuChart: any, memChart: any;
 const cpuHistory = ref<number[]>([]), memHistory = ref<number[]>([]);
 const currentCpuUsage = computed(() => cpuHistory.value.length > 0 ? cpuHistory.value[cpuHistory.value.length - 1] : 0);
 
-const initCharts = () => { if (cpuChartRef.value) cpuChart = echarts.init(cpuChartRef.value); if (memChartRef.value) memChart = echarts.init(memChartRef.value); };
+const initCharts = () => { 
+  if (cpuChartRef.value) cpuChart = echarts.init(cpuChartRef.value); 
+  if (memChartRef.value) memChart = echarts.init(memChartRef.value); 
+};
+
 const fetchStats = async () => {
   if (!currentAgentPort.value) return;
   try {
     const r = await fetch(`http://localhost:${currentAgentPort.value}/stats`, { 
       headers: { 'X-Ter-Token': agentToken.value },
-      signal: AbortSignal.timeout(2000) // Safety timeout
+      signal: AbortSignal.timeout(2000)
     });
-    if (!r.ok) throw new Error("Stats fetch failed");
+    if (!r.ok) throw new Error("Stats failed");
     const d = await r.json();
     cpuHistory.value.push(d.cpu_usage); memHistory.value.push((d.mem_used / d.mem_total) * 100);
     if (cpuHistory.value.length > 30) { cpuHistory.value.shift(); memHistory.value.shift(); }
     cpuChart?.setOption(getChartOpt(cpuHistory.value, '#6366f1'));
     memChart?.setOption(getChartOpt(memHistory.value, '#a855f7'));
   } catch (e) {
-    console.warn("Cyber metrics sync waiting for agent...");
+    console.warn("Syncing metrics...");
   }
 };
 const getChartOpt = (d: any[], c: string) => ({ grid: { top: 5, bottom: 0, left: 0, right: 0 }, xAxis: { type: 'category', show: false }, yAxis: { type: 'value', min: 0, max: 100, show: false }, series: [{ data: d, type: 'line', smooth: true, areaStyle: { color: c }, itemStyle: { color: c }, showSymbol: false }], animation: false });
@@ -322,26 +361,40 @@ const addServer = async () => {
 let unlistenLog: any, unlistenPty: any, unlistenPort: any;
 onMounted(async () => {
   unlistenLog = await listen<string>('backend-log', (e) => { backendLogs.value.push(e.payload); if (backendLogs.value.length > 100) backendLogs.value.shift(); });
-  
-  // Pre-emptive Listening: Capture ports as early as possible
   unlistenPort = await listen<number>('agent-tunnel-opened', (event) => {
     currentAgentPort.value = event.payload;
     backendLogs.value.push(`[SYSTEM] Agent tunnel established on port ${event.payload}`);
-    nextTick(() => {
-      initCharts();
-      fetchStats();
-    });
   });
 
-  window.addEventListener('keydown', (e) => { if (e.altKey && e.key.toLowerCase() === 'l') isLocked.value = !isLocked.value; });
+  window.addEventListener('keydown', (e) => { 
+    if (e.altKey && e.key.toLowerCase() === 'l') {
+      isLocked.value = !isLocked.value;
+      if (!isLocked.value) {
+        nextTick(() => {
+          initCharts();
+          terminalManager.fitAll();
+        });
+      }
+    }
+  });
+  window.addEventListener('mousemove', handleGlobalMouseMove);
+  window.addEventListener('mouseup', stopResizing);
   window.addEventListener('focus', () => { if (activeTabId.value) terminalManager.focus(activeTabId.value); });
-  window.addEventListener('mouseup', () => { terminalManager.fitAll(); });
 });
-onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty(); if (unlistenPort) unlistenPort(); });
+onUnmounted(() => { 
+  if (unlistenLog) unlistenLog(); 
+  if (unlistenPty) unlistenPty(); 
+  if (unlistenPort) unlistenPort(); 
+  window.removeEventListener('mousemove', handleGlobalMouseMove);
+  window.removeEventListener('mouseup', stopResizing);
+});
 </script>
 
 <template>
-  <div class="app-shell">
+  <div class="app-shell" :style="layoutStyles">
+    <!-- Resize Mask: Blocks interaction during drag, ensures smooth movement -->
+    <div v-if="isResizingSidebar || isResizingCyber" class="resize-mask"></div>
+
     <div v-if="!isMasterPasswordSet" class="modal-overlay">
       <div class="auth-card">
         <h2>🔒 Unlock Vault</h2>
@@ -373,7 +426,7 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
       </div>
     </div>
 
-    <div v-else class="main-view">
+    <div v-else class="main-view grid-layout">
       <SidebarPanel 
         :files="realFiles" 
         :bgTabs="backgroundTabs"
@@ -387,6 +440,9 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
         @change-dir="changeDir"
         @audit-ui="captureAndUpload(false)"
       />
+
+      <!-- Physical Resizers -->
+      <div class="resizer sidebar-resizer" @mousedown="startResizingSidebar"></div>
 
       <main class="workspace" ref="workspaceRef" @click="activeTabId && terminalManager.focus(activeTabId)">
         <div v-if="showContextMenu" class="context-menu" :style="{ top: menuY + 'px', left: menuX + 'px' }">
@@ -406,8 +462,8 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
           </div>
         </nav>
 
-        <div class="workspace-body">
-          <section class="terminal-pane" :style="{ flex: cyberMode === 1 ? '0 0 50%' : '1' }">
+        <div class="workspace-body" :class="{ 'with-cyber': cyberMode !== 0 }">
+          <section class="terminal-pane">
             <TerminalTabs 
               :tabs="terminalTabs" 
               :activeTabId="activeTabId"
@@ -418,30 +474,25 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
             />
           </section>
 
-          <section class="cyber-pane" v-if="cyberMode !== 0" :style="{ flex: '1' }" ref="cyberPaneRef">
+          <div v-if="cyberMode !== 0" class="resizer cyber-resizer" @mousedown="startResizingCyber"></div>
+
+          <section class="cyber-pane" v-if="cyberMode !== 0" ref="cyberPaneRef">
             <div class="cyber-container">
-              <!-- Logs View (Top 40%) -->
               <div class="cyber-logs-view">
                 <header>
                   <span class="title">Cyber Transparency</span>
                   <span v-if="currentAgentPort" class="port-tag">PORT: {{ currentAgentPort }}</span>
                 </header>
-                <div class="logs-container" ref="logsScrollRef">
+                <div class="logs-container">
                   <div v-for="(log, i) in backendLogs" :key="i" class="log-line">
                     <span class="line-num">{{ i + 1 }}</span> {{ log }}
                   </div>
                   <div v-if="backendLogs.length === 0" class="empty-log">Waiting for agent JSON stream...</div>
                 </div>
               </div>
-              
               <div class="cyber-divider"></div>
-
-              <!-- Webview (Bottom 60%) -->
               <div class="cyber-webview-wrapper" ref="cyberWebviewRef">
-                <CyberWebview 
-                  ref="webviewRef" 
-                  :url="`http://localhost:${currentAgentPort || 5173}`" 
-                />
+                <CyberWebview ref="webviewRef" :url="`http://localhost:${currentAgentPort || 5173}`" />
               </div>
             </div>
           </section>
@@ -449,7 +500,6 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
       </main>
     </div>
 
-    <!-- GLOBAL OVERLAYS -->
     <MatrixScreen 
       :isLocked="isLocked" 
       :logs="backendLogs" 
@@ -460,96 +510,85 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
 </template>
 
 <style scoped>
-.cyber-container {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background: #000;
+.app-shell {
+  height: 100vh;
+  background: #050505;
+  color: #e4e4e7;
+  font-family: 'Inter', system-ui;
+  overflow: hidden;
+  position: relative;
+  cursor: var(--resize-cursor);
 }
 
-.cyber-logs-view {
-  flex: 0 0 40%;
+.grid-layout {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) 4px 1fr;
+  height: 100%;
+  width: 100%;
+}
+
+.resizer {
+  position: relative;
+  width: 4px;
+  background: transparent;
+  cursor: col-resize;
+  transition: background 0.2s;
+  z-index: 100;
+  pointer-events: auto; /* Required for drag handle */
+}
+.resizer:hover { background: #6366f1; }
+
+.resize-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 999999;
+  cursor: col-resize;
+  background: transparent;
+}
+
+.workspace {
   display: flex;
   flex-direction: column;
-  background: #0a0a0a;
-  border-bottom: 1px solid #1a1a1c;
+  background: #000;
+  overflow: hidden;
+  position: relative;
+  min-width: 0;
+}
+
+.tool-bar { height: 45px; background: #0c0c0e; border-bottom: 1px solid #1a1a1c; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; }
+
+.workspace-body {
+  flex: 1;
+  display: flex;
   overflow: hidden;
 }
 
-.cyber-logs-view header {
-  padding: 8px 12px;
-  background: #0c0c0e;
-  border-bottom: 1px solid #1a1a1c;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+.workspace-body.with-cyber {
+  display: grid;
+  grid-template-columns: 1fr 4px var(--cyber-width);
 }
 
-.cyber-logs-view .title {
-  font-size: 10px;
-  color: #6366f1;
-  font-weight: bold;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
+.terminal-pane { min-width: 0; height: 100%; }
+.cyber-pane { min-width: 0; height: 100%; border-left: 1px solid #1a1a1c; overflow: hidden; background: #000; }
 
-.port-tag {
-  font-size: 9px;
-  color: #22c55e;
-  background: rgba(34, 197, 94, 0.1);
-  padding: 1px 6px;
-  border-radius: 4px;
-  font-family: 'JetBrains Mono', monospace;
-}
-
-.logs-container {
-  flex: 1;
-  padding: 10px;
-  overflow-y: auto;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  color: #a1a1aa;
-}
-
-.log-line {
-  margin-bottom: 2px;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
+.cyber-container { display: flex; flex-direction: column; height: 100%; background: #000; }
+.cyber-logs-view { flex: 0 0 40%; display: flex; flex-direction: column; background: #0a0a0a; border-bottom: 1px solid #1a1a1c; overflow: hidden; }
+.cyber-logs-view header { padding: 8px 12px; background: #0c0c0e; border-bottom: 1px solid #1a1a1c; display: flex; justify-content: space-between; align-items: center; }
+.cyber-logs-view .title { font-size: 10px; color: #6366f1; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
+.port-tag { font-size: 9px; color: #22c55e; background: rgba(34, 197, 94, 0.1); padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; }
+.logs-container { flex: 1; padding: 10px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #a1a1aa; }
+.log-line { margin-bottom: 2px; white-space: pre-wrap; word-break: break-all; }
 .line-num { color: #3f3f46; margin-right: 8px; user-select: none; }
+.empty-log { color: #3f3f46; text-align: center; margin-top: 20px; font-style: italic; }
+.cyber-divider { height: 1px; background: #1a1a1c; box-shadow: 0 0 10px rgba(0,0,0,0.5); }
+.cyber-webview-wrapper { flex: 1; background: #000; position: relative; }
 
-.empty-log {
-  color: #3f3f46;
-  text-align: center;
-  margin-top: 20px;
-  font-style: italic;
-}
-
-.cyber-divider {
-  height: 1px;
-  background: #1a1a1c;
-  box-shadow: 0 0 10px rgba(0,0,0,0.5);
-}
-
-.cyber-webview-wrapper {
-  flex: 1;
-  background: #000;
-  position: relative;
-}
-
-.context-menu { position: fixed; z-index: 99999; background: #18181b; border: 1px solid #3f3f46; border-radius: 6px; padding: 4px; min-width: 150px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+.context-menu { position: fixed; z-index: 100000; background: #18181b; border: 1px solid #3f3f46; border-radius: 6px; padding: 4px; min-width: 150px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
 .menu-item { padding: 8px 12px; font-size: 11px; color: #d4d4d8; cursor: pointer; border-radius: 4px; transition: 0.2s; }
 .menu-item:hover { background: #3f3f46; color: #fff; }
 .menu-item.disabled { color: #52525b; cursor: not-allowed; }
 .menu-divider { height: 1px; background: #27272a; margin: 4px 0; }
-.app-shell { height: 100vh; background: #050505; color: #e4e4e7; font-family: 'Inter', system-ui; overflow: hidden; position: relative; }
-.main-view { display: flex; height: 100%; width: 100%; }
-.workspace { flex: 1; display: flex; flex-direction: column; background: #000; overflow: hidden; position: relative; }
-.tool-bar { height: 45px; background: #0c0c0e; border-bottom: 1px solid #1a1a1c; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; }
-.workspace-body { flex: 1; display: flex; overflow: hidden; }
-.terminal-pane { height: 100%; display: flex; flex-direction: column; transition: flex 0.3s ease; position: relative; min-width: 0; min-height: 0; }
-.cyber-pane { height: 100%; border-left: 1px solid #1a1a1c; overflow: hidden; background: #000; }
+
 .workspace-setup { height: 100%; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle at center, #111 0%, #000 100%); }
 .vault-container { width: 450px; background: #111; border: 1px solid #333; border-radius: 12px; padding: 25px; box-shadow: 0 20px 50px rgba(0,0,0,0.8); position: relative; overflow: hidden; }
 .server-card { background: #1a1a1a; border: 1px solid #333; padding: 12px; border-radius: 8px; display: flex; align-items: center; cursor: pointer; transition: 0.2s; margin-bottom: 10px; }

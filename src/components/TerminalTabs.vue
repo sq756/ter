@@ -16,12 +16,14 @@ const vAttachTerm = {
   mounted: (el: HTMLElement, binding: any) => {
     const tabId = binding.value;
     if (tabId) {
-      console.log(`[UI] v-attach-term: Attaching terminal ${tabId}`);
+      console.log(`[UI] v-attach-term: FORCING mount for ${tabId} into container-${tabId}`);
       
       terminalManager.getOrCreate(tabId);
+      // Force mount directly to this element (the container)
       terminalManager.mount(tabId, el);
 
-      // The Golden Delay: Ensure layout is settled before fitting
+      // Trigger immediate fit
+      terminalManager.fit(tabId);
       requestAnimationFrame(() => {
         setTimeout(() => terminalManager.fit(tabId), 50);
         setTimeout(() => terminalManager.fit(tabId), 150);
@@ -78,6 +80,7 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
       <section class="terminal-pane">
         <!-- Persistent Terminal Containers: Preserve physical size with visibility: hidden -->
         <div v-for="t in tabs" :key="t.id" 
+             :id="'container-' + t.id"
              :class="['terminal-container', { 'inactive-tab': t.id !== activeTabId }]"
              v-attach-term="t.id"
              @contextmenu.prevent="$emit('terminal-context', { e: $event, id: t.id })">
@@ -88,7 +91,16 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
 </template>
 
 <style scoped>
-.terminal-workspace { flex: 1; display: flex; flex-direction: column; height: 100%; overflow: hidden; background: #000; position: relative; }
+.terminal-workspace { 
+  flex: 1; 
+  display: flex; 
+  flex-direction: column; 
+  height: 100%; 
+  overflow: hidden; 
+  background: #000; 
+  position: relative; 
+  z-index: 50; /* Higher than sidebar handles */
+}
 
 .tab-bar { background: #0c0c0e; border-bottom: 1px solid #1a1a1c; display: flex; align-items: center; padding: 0 10px; height: 32px; flex-shrink: 0; z-index: 10; }
 .tab-item { padding: 0 15px; height: 100%; display: flex; align-items: center; font-size: 11px; color: #71717a; border-right: 1px solid #1a1a1c; cursor: pointer; position: relative; min-width: 80px; }
@@ -97,8 +109,13 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
 .tab-item:hover .btn-close { visibility: visible; }
 .btn-new-tab { background: transparent; border: none; color: #52525b; padding: 0 10px; cursor: pointer; font-size: 18px; line-height: 1; }
 
-.workspace-body { flex: 1; position: relative; overflow: hidden; }
-.terminal-pane { height: 100%; width: 100%; position: relative; background: #000; }
+.workspace-body { flex: 1; position: relative; overflow: hidden; display: flex; }
+.terminal-pane { 
+  height: 100%; 
+  flex: 1 0 300px !important; /* flex-grow: 1, flex-shrink: 0, min-width: 300px */
+  position: relative; 
+  background: #000; 
+}
 
 /* 
  * PHYSICAL-INSET: Absolute positioning ensures zero jitter from Flexbox 
