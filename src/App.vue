@@ -63,6 +63,30 @@ const stats = ref<any>(null);
 const managedTasks = ref<any[]>([]);
 const showAddTask = ref(false);
 
+const mockFiles = ref([
+  { name: 'src', is_dir: true, size: 0 },
+  { name: 'package.json', is_dir: false, size: 1240 },
+  { name: 'README.md', is_dir: false, size: 5600 },
+]);
+
+const mockProcesses = ref([
+  { pid: 1024, name: 'nginx', cpu_usage: 1.2, mem_usage: 0.5 },
+  { pid: 2048, name: 'node', cpu_usage: 15.4, mem_usage: 4.2 },
+  { pid: 4096, name: 'python3', cpu_usage: 0.5, mem_usage: 1.1 },
+]);
+
+// Server Management
+const newServer = ref({ label: '', host: '', user: '', pass: '', port: 22 });
+const addServer = async () => {
+  const id = Date.now().toString();
+  await invoke('save_server_config', { 
+    config: { id, label: newServer.value.label, host: newServer.value.host, user: newServer.value.user, port: newServer.value.port, password_enc: newServer.value.pass, key_path: null }
+  });
+  showAddServer.value = false;
+  loadServers();
+  newServer.value = { label: '', host: '', user: '', pass: '', port: 22 };
+};
+
 // ==========================================
 // --- MODULE: Terminal & Context Menu ---
 // ==========================================
@@ -337,6 +361,22 @@ const deleteServer = async (id: string) => { await invoke('delete_server_config'
           </div>
         </div>
       </div>
+
+      <!-- Add Server Modal -->
+      <div v-if="showAddServer" class="modal-overlay">
+        <div class="auth-card add-server">
+          <h2>Add Remote Server</h2>
+          <input v-model="newServer.label" placeholder="Label (e.g. My Server)" />
+          <input v-model="newServer.host" placeholder="Host (IP or Domain)" />
+          <input v-model="newServer.user" placeholder="Username" />
+          <input v-model="newServer.pass" type="password" placeholder="Password" />
+          <input v-model.number="newServer.port" type="number" placeholder="Port (Default 22)" />
+          <div class="modal-btns">
+            <button @click="showAddServer = false" class="btn-ghost">Cancel</button>
+            <button @click="addServer" class="btn-primary">Save Server</button>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Phase 3: Main UI (MODULAR) -->
@@ -345,20 +385,48 @@ const deleteServer = async (id: string) => { await invoke('delete_server_config'
       <!-- Modular Sidebar -->
       <aside class="side-bar" :style="{ width: sidebarWidth + 'px' }" v-if="showDashboard && cyberMode !== 1">
         <div class="module widget-resources">
+          <header>System Health</header>
           <div class="chart-container">
             <div ref="cpuChartRef" class="mini-chart"></div>
             <div ref="memChartRef" class="mini-chart"></div>
           </div>
         </div>
 
+        <div class="module widget-processes">
+          <header>Top Processes</header>
+          <ul class="data-list">
+            <li v-for="p in (stats?.processes || mockProcesses)" :key="p.pid">
+              <span class="name">{{ p.name }}</span>
+              <span class="val">{{ Math.round(p.cpu_usage) }}%</span>
+            </li>
+          </ul>
+        </div>
+
+        <div class="module widget-files">
+          <header>Remote Files</header>
+          <ul class="data-list">
+            <li v-for="f in mockFiles" :key="f.name">
+              <span class="icon">{{ f.is_dir ? '📁' : '📄' }}</span>
+              <span class="name">{{ f.name }}</span>
+            </li>
+          </ul>
+        </div>
+
         <div class="module widget-tasks">
-          <header>Tasks <button @click="showAddTask = !showAddTask">+</button></header>
+          <header>Managed Tasks <button @click="showAddTask = !showAddTask">+</button></header>
           <ul class="task-items">
             <li v-for="t in managedTasks" :key="t.id">
               <span class="name">{{ t.command }}</span>
               <span class="status" :class="t.status">{{ t.status }}</span>
             </li>
           </ul>
+        </div>
+
+        <div class="sidebar-footer">
+          <header>Task Monitor</header>
+          <div class="monitor-output">
+            <div v-for="(log, i) in backendLogs.slice(-3)" :key="i" class="monitor-line">{{ log }}</div>
+          </div>
         </div>
       </aside>
 
@@ -475,24 +543,43 @@ const deleteServer = async (id: string) => { await invoke('delete_server_config'
 .cyber-layout-3 .workspace-body { flex-direction: column; }
 
 .cyber-logs-panel {
-  flex: 1;
-  background: rgba(5, 5, 5, 0.4);
+  flex: 0 0 20%;
+  background: #1a1a1a;
   padding: 15px;
   overflow-y: auto;
-  border-left: 1px solid rgba(63, 63, 70, 0.4);
+  border-left: 1px solid #333;
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
-  color: rgba(34, 197, 94, 0.6);
+  color: rgba(34, 197, 94, 0.8);
   z-index: 10;
 }
 
+.terminal-view { flex: 0 0 80%; padding: 20px; position: relative; }
+
 .cyber-layout-3 .cyber-logs-panel {
+  flex: 0 0 25%;
   border-left: none;
-  border-top: 1px solid rgba(63, 63, 70, 0.4);
+  border-top: 1px solid #333;
 }
 
-.terminal-view { flex: 1; padding: 20px; position: relative; }
 .terminal-inner { height: 100%; background: #000; border-radius: 8px; border: 1px solid #27272a; padding: 10px; }
+
+/* Data Lists (Processes/Files) */
+.data-list { list-style: none; padding: 0; margin: 0; font-size: 12px; }
+.data-list li { display: flex; justify-content: space-between; padding: 4px 0; color: #a1a1aa; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.data-list .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
+.data-list .val { color: #6366f1; font-weight: bold; }
+.data-list .icon { margin-right: 8px; font-size: 10px; }
+
+/* Task Monitor Sidebar Footer */
+.sidebar-footer { margin-top: auto; padding: 15px; background: #09090b; border-top: 1px solid #27272a; }
+.sidebar-footer header { font-size: 10px; text-transform: uppercase; color: #71717a; margin-bottom: 8px; display: block; }
+.monitor-output { background: #000; padding: 8px; border-radius: 4px; border: 1px solid #27272a; height: 60px; overflow: hidden; display: flex; flex-direction: column; gap: 2px; }
+.monitor-line { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: #22c55e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.8; }
+
+/* Modal Helpers */
+.modal-btns { display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px; }
+.add-server input { margin-bottom: 12px; }
 
 /* Floating Context Menu (Elegant) */
 .floating-menu { position: fixed; background: #1c1c1f; border: 1px solid #3f3f46; border-radius: 8px; padding: 5px; z-index: 9999; box-shadow: 0 10px 25px rgba(0,0,0,0.5); min-width: 180px; }
