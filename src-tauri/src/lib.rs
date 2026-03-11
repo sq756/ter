@@ -451,6 +451,169 @@ struct RemoteFile {
     size: u64,
 }
 
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+struct PluginParameter {
+    name: String,
+    #[serde(rename = "type")]
+    param_type: String,
+    description: String,
+    default: Option<serde_json::Value>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+struct PluginManifest {
+    name: String,
+    description: String,
+    command: String,
+    parameters: Vec<PluginParameter>,
+}
+
+#[tauri::command]
+async fn get_skill_manifest() -> Result<serde_json::Value, String> {
+    let project_root = std::env::current_dir().unwrap_or_default();
+    let manifest_path = project_root.join(".ter/skills.json");
+    
+    if !manifest_path.exists() {
+        return Err("Skill manifest not found".to_string());
+    }
+
+    let content = std::fs::read_to_string(manifest_path).map_err(|e| e.to_string())?;
+    let json: serde_json::Value = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+    Ok(json)
+}
+
+#[tauri::command]
+async fn run_plugin(name: String, app: AppHandle) -> Result<String, String> {
+    use std::process::Command;
+    let home = std::env::var("HOME").map_err(|_| "Could not find HOME dir".to_string())?;
+    let plugin_path = std::path::Path::new(&home).join(".ter/plugins").join(&name).join("manifest.yaml");
+    
+    if !plugin_path.exists() {
+        return Err(format!("Plugin {} not found", name));
+    }
+
+    let content = std::fs::read_to_string(&plugin_path).map_err(|e| e.to_string())?;
+    let manifest: PluginManifest = serde_yaml::from_str(&content).map_err(|e| e.to_string())?;
+
+    log::info!("Executing plugin: {}", manifest.name);
+    
+    // Execute the command (Simple version for Dummy)
+    let output = if cfg!(target_os = "windows") {
+        Command::new("cmd").args(["/C", &manifest.command]).output()
+    } else {
+        Command::new("sh").args(["-c", &manifest.command]).output()
+    }.map_err(|e| e.to_string())?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    
+    // Attempt to parse stdout as JSON to support Flow B (Complex UI injection)
+    let payload = serde_json::from_str::<serde_json::Value>(&stdout).unwrap_or(serde_json::json!(stdout));
+    
+    // Determine type from payload if it's an object, else default to 'text'
+    let ui_type = payload.get("type").and_then(|t| t.as_str()).unwrap_or("text");
+    let ui_message = payload.get("message").unwrap_or(&payload);
+
+    let ui_payload = serde_json::json!({
+        "type": ui_type,
+        "title": manifest.name,
+        "message": ui_message,
+        "timestamp": std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()
+    });
+
+    app.emit("plugin-ui-event", ui_payload).map_err(|e| e.to_string())?;
+
+    Ok(stdout)
+}
+
+#[tauri::command]
+async fn list_plugins() -> Result<Vec<PluginManifest>, String> {
+    use std::fs;
+    let home = std::env::var("HOME").map_err(|_| "Could not find HOME dir".to_string())?;
+    let plugin_dir = std::path::Path::new(&home).join(".ter/plugins");
+    
+    if !plugin_dir.exists() {
+        fs::create_dir_all(&plugin_dir).map_err(|e| e.to_string())?;
+    }
+
+    log::info!("Scanning for plugins in: {:?}", plugin_dir);
+    let mut plugins = Vec::new();
+
+    for entry in fs::read_dir(plugin_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        if path.is_dir() {
+            let manifest_path = path.join("manifest.yaml");
+            if manifest_path.exists() {
+                let content = fs::read_to_string(&manifest_path).map_err(|e| e.to_string())?;
+                match serde_yaml::from_str::<PluginManifest>(&content) {
+                    Ok(manifest) => {
+                        log::info!("Loaded plugin: {} - {}", manifest.name, manifest.description);
+                        plugins.push(manifest);
+                    }
+                    Err(e) => log::error!("Failed to parse manifest at {:?}: {}", manifest_path, e),
+                }
+            }
+        }
+    }
+
+    Ok(plugins)
+}
+
+async fn perform_ui_audit() -> Result<String, String> {
+    use headless_chrome::{Browser, LaunchOptions};
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    log::info!("Initiating Visual Audit (Sandbox Disabled)...");
+    
+    // 1. Force absolute path to snap directory in project root
+    let project_root = std::env::current_dir().unwrap_or_default();
+    let snap_dir = project_root.join("snap");
+    if !snap_dir.exists() {
+        fs::create_dir_all(&snap_dir).map_err(|e| format!("Failed to create snap dir: {}", e))?;
+    }
+
+    // 2. Launch Browser with Sandbox disabled (Crucial for Linux/CI/Xvfb)
+    let options = LaunchOptions::default_builder()
+        .sandbox(false)
+        .build()
+        .map_err(|e| format!("Launch options error: {}", e))?;
+
+    let browser = Browser::new(options).map_err(|e| format!("Chrome launch failed: {}", e))?;
+    let tab = browser.new_tab().map_err(|e| e.to_string())?;
+
+    // 3. Navigate to Dev Server
+    tab.navigate_to("http://localhost:5173").map_err(|e| e.to_string())?;
+    tab.wait_until_navigated().map_err(|e| e.to_string())?;
+
+    // Wait for rendering (UI Toasts, Charts)
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
+    // 4. Capture
+    let png_data = tab.capture_screenshot(
+        headless_chrome::protocol::cdp::Page::CaptureScreenshotFormatOption::Png,
+        None,
+        None,
+        true
+    ).map_err(|e| e.to_string())?;
+
+    // 5. Save with timestamp to absolute path
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let filename = format!("ter_audit_{}.png", now);
+    let path = snap_dir.join(&filename);
+    
+    fs::write(&path, png_data).map_err(|e| format!("Save failed to {:?}: {}", path, e))?;
+
+    let path_str = path.to_string_lossy().into_owned();
+    log::info!("UI Audit SUCCESS. Snapshot saved: {}", path_str);
+    Ok(path_str)
+}
+
+#[tauri::command]
+async fn ai_audit_ui() -> Result<String, String> {
+    perform_ui_audit().await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize our custom logger
@@ -530,6 +693,30 @@ pub fn run() {
             // Store AppHandle for logger
             let _ = APP_HANDLE.set(app.handle().clone());
 
+            // --- AI TRIGGER API (Port 1414) ---
+            tauri::async_runtime::spawn(async move {
+                match tiny_http::Server::http("127.0.0.1:1414") {
+                    Ok(server) => {
+                        log::info!("AI Trigger API listening on http://127.0.0.1:1414");
+                        for request in server.incoming_requests() {
+                            log::info!("AI Audit requested via Local API...");
+                            // Run the async audit
+                            let res = tauri::async_runtime::block_on(perform_ui_audit());
+                            match res {
+                                Ok(path) => {
+                                    let _ = request.respond(tiny_http::Response::from_string(format!("OK: {}", path)));
+                                }
+                                Err(e) => {
+                                    let _ = request.respond(tiny_http::Response::from_string(format!("ERR: {}", e)).with_status_code(500));
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => log::error!("Failed to start AI Trigger API: {}", e),
+                }
+            });
+            // ----------------------------------
+
             log::info!("Starting Ter application setup...");
             let app_handle = app.handle().clone();
             let app_dir = match app.path().app_data_dir() {
@@ -588,7 +775,11 @@ pub fn run() {
             delete_server_config,
             connect_with_id,
             get_model_path,
-            set_model_path
+            set_model_path,
+            ai_audit_ui,
+            list_plugins,
+            run_plugin,
+            get_skill_manifest
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -7,14 +7,13 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
 import * as echarts from 'echarts';
-import * as webllm from '@mlc-ai/web-llm';
 
 // ==========================================
 // --- MODULE: State Management ---
 // ==========================================
 const isConnected = ref(false);
+const isConnecting = ref(false); 
 const isMasterPasswordSet = ref(false);
-const isProcessing = ref(false);
 const agentToken = ref('');
 const backendLogs = ref<string[]>([]);
 const savedServers = ref<any[]>([]);
@@ -23,79 +22,85 @@ const host = ref('Remote Server');
 
 // Layout Control
 const sidebarWidth = ref(260);
-const isResizing = ref(false);
+const cyberRatio = ref(20); 
+const isResizingSidebar = ref(false);
+const isResizingCyber = ref(false);
 const showDashboard = ref(true);
 const showAiPanel = ref(false);
-const cyberMode = ref(0); // 0: Normal, 1: Full, 2: Split-H, 3: Split-V
+const cyberMode = ref(0); 
 
-const toggleCyber = () => {
-  cyberMode.value = (cyberMode.value + 1) % 4;
-  setTimeout(() => {
-    if (fitAddon) fitAddon.fit();
-    cpuChart?.resize();
-    memChart?.resize();
-  }, 50);
+// Context Menus
+const showContextMenu = ref(false);
+const showProcessMenu = ref(false);
+const menuPos = ref({ x: 0, y: 0 });
+const selectedText = ref('');
+const selectedProcess = ref<any>(null);
+
+// Animations
+const flyingTasks = ref<{id: number, x: number, y: number}[]>([]);
+const pluginToasts = ref<any[]>([]);
+
+// ==========================================
+// --- MODULE: Plugin Renderer (Flow B) ---
+// ==========================================
+const PluginText = {
+  props: ['payload'],
+  template: `<div class="content">{{ payload }}</div>`
 };
 
-// Sidebar Resizing
-const startResizing = () => {
-  isResizing.value = true;
-  document.addEventListener('mousemove', handleMouseMove);
-  document.addEventListener('mouseup', stopResizing);
-};
-
-const handleMouseMove = (e: MouseEvent) => {
-  if (isResizing.value) {
-    sidebarWidth.value = Math.max(150, Math.min(600, e.clientX));
-    cpuChart?.resize();
-    memChart?.resize();
+const PluginChart = {
+  props: ['payload'],
+  template: `<div class="plugin-mini-chart" ref="pChartRef" style="height:80px; margin-top:5px;"></div>`,
+  setup(props: any) {
+    const pChartRef = ref<HTMLElement | null>(null);
+    onMounted(() => {
+      if (pChartRef.value) {
+        const myChart = echarts.init(pChartRef.value);
+        const data = Array.isArray(props.payload) ? props.payload : [10, 52, 200, 334, 390, 330, 220];
+        myChart.setOption({
+          grid: { top: 5, bottom: 5, left: 5, right: 5 },
+          xAxis: { type: 'category', show: false },
+          yAxis: { type: 'value', show: false },
+          series: [{ data, type: 'bar', itemStyle: { color: '#6366f1' } }],
+          animation: true
+        });
+      }
+    });
+    return { pChartRef };
   }
 };
 
-const stopResizing = () => {
-  isResizing.value = false;
-  document.removeEventListener('mousemove', handleMouseMove);
-  document.removeEventListener('mouseup', stopResizing);
-};
-
-// Widgets Data
-const stats = ref<any>(null);
-const managedTasks = ref<any[]>([]);
-const showAddTask = ref(false);
-
-const mockFiles = ref([
-  { name: 'src', is_dir: true, size: 0 },
-  { name: 'package.json', is_dir: false, size: 1240 },
-  { name: 'README.md', is_dir: false, size: 5600 },
-]);
-
-const mockProcesses = ref([
-  { pid: 1024, name: 'nginx', cpu_usage: 1.2, mem_usage: 0.5 },
-  { pid: 2048, name: 'node', cpu_usage: 15.4, mem_usage: 4.2 },
-  { pid: 4096, name: 'python3', cpu_usage: 0.5, mem_usage: 1.1 },
-]);
-
-// Server Management
-const newServer = ref({ label: '', host: '', user: '', pass: '', port: 22 });
-const addServer = async () => {
-  const id = Date.now().toString();
-  await invoke('save_server_config', { 
-    config: { id, label: newServer.value.label, host: newServer.value.host, user: newServer.value.user, port: newServer.value.port, password_enc: newServer.value.pass, key_path: null }
-  });
-  showAddServer.value = false;
-  loadServers();
-  newServer.value = { label: '', host: '', user: '', pass: '', port: 22 };
+const getComponentByType = (type: string) => {
+  switch(type) {
+    case 'chart': return PluginChart;
+    case 'text':
+    default: return PluginText;
+  }
 };
 
 // ==========================================
-// --- MODULE: Terminal & Context Menu ---
+// --- MODULE: Resizing Logic ---
 // ==========================================
-const terminalRef = ref<HTMLElement | null>(null);
-const fontSize = ref(14);
-const showContextMenu = ref(false);
-const menuPos = ref({ x: 0, y: 0 });
-const selectedText = ref('');
+const startSidebarResize = () => { isResizingSidebar.value = true; document.addEventListener('mousemove', handleGlobalMove); document.addEventListener('mouseup', stopResizing); };
+const startCyberResize = () => { isResizingCyber.value = true; document.addEventListener('mousemove', handleGlobalMove); document.addEventListener('mouseup', stopResizing); };
 
+const handleGlobalMove = (e: MouseEvent) => {
+  if (isResizingSidebar.value) {
+    sidebarWidth.value = Math.max(180, Math.min(500, e.clientX));
+  }
+  if (isResizingCyber.value) {
+    const containerWidth = window.innerWidth - (showDashboard.value ? sidebarWidth.value : 0);
+    const mouseOffset = window.innerWidth - e.clientX;
+    cyberRatio.value = Math.max(10, Math.min(50, (mouseOffset / containerWidth) * 100));
+  }
+  nextTick(() => { fitAddon?.fit(); cpuChart?.resize(); memChart?.resize(); });
+};
+
+const stopResizing = () => { isResizingSidebar.value = false; isResizingCyber.value = false; document.removeEventListener('mousemove', handleGlobalMove); document.removeEventListener('mouseup', stopResizing); };
+
+// ==========================================
+// --- MODULE: SSH & Interactions ---
+// ==========================================
 let term: Terminal;
 let fitAddon: FitAddon;
 
@@ -124,220 +129,164 @@ const onTerminalContextMenu = (e: MouseEvent) => {
   showContextMenu.value = true;
 };
 
-const handleWheel = (e: WheelEvent) => {
-  if (e.ctrlKey) {
-    e.preventDefault();
-    const newSize = Math.min(Math.max(fontSize.value + (e.deltaY > 0 ? -1 : 1), 8), 40);
-    if (newSize !== fontSize.value) {
-      fontSize.value = newSize;
-      term.options.fontSize = fontSize.value;
-      nextTick(() => fitAddon.fit());
-    }
-  }
-};
-
-// ==========================================
-// --- MODULE: Agent API (The "Failed to Fetch" Fixer) ---
-// ==========================================
-const agentFetch = async (endpoint: string, options: any = {}) => {
-  if (!agentToken.value) throw new Error('Agent token missing');
-  const url = `http://localhost:54321${endpoint}`;
-  const headers = { 
-    'X-Ter-Token': agentToken.value, 
-    'Content-Type': 'application/json',
-    ...options.headers 
-  };
-  
+const connectWithId = async (id: string) => { 
+  if (isConnecting.value) return; 
+  isConnecting.value = true;
   try {
-    const res = await fetch(url, { ...options, headers });
-    if (!res.ok) throw new Error(`Agent error: ${res.status}`);
-    return res;
+    const s = savedServers.value.find(s => s.id === id);
+    if (s) host.value = s.label || s.host;
+    await invoke('connect_with_id', { id }); 
+    await onConnected();
   } catch (e) {
-    console.warn(`Fetch to ${endpoint} failed. Agent might be restarting...`);
-    throw e;
+    alert("Connection Failed: " + e);
+  } finally {
+    isConnecting.value = false;
   }
 };
-
-const runAsTask = async () => {
-  const text = selectedText.value || term.getSelection();
-  if (!text) return;
-  const parts = text.trim().split(/\s+/);
-  try {
-    await agentFetch('/task/start', {
-      method: 'POST',
-      body: JSON.stringify({ id: 'task-' + Date.now(), command: parts[0], args: parts.slice(1) })
-    });
-    showContextMenu.value = false;
-    fetchTasks();
-  } catch (e) { alert('Failed to start task. Is Agent running?'); }
-};
-
-// ==========================================
-// --- MODULE: AI Sidekick ---
-// ==========================================
-const MODEL_ID = "SmolLM2-135M-Instruct-v0.1-q4f16_1-MLC";
-const aiEngine = ref<any>(null);
-const aiLoading = ref(false);
-const aiProgress = ref('');
-const aiChatHistory = ref<{ role: string, content: string }[]>([]);
-const userMessage = ref('');
-const isAiInitialized = ref(false);
-const chatRef = ref<HTMLElement | null>(null);
-
-const initAi = async () => {
-  if (isAiInitialized.value) return;
-  aiLoading.value = true;
-  try {
-    const appConfig = { model_list: [{
-      model_id: MODEL_ID, model: MODEL_ID,
-      model_lib: `${webllm.modelLibURLPrefix}SmolLM2-135M-Instruct-v0.1-q4f16_1-MLC-webgpu.wasm`,
-      model_url: `ter-model://localhost/`,
-      low_resource_required: true,
-    }]};
-    aiEngine.value = await webllm.CreateMLCEngine(MODEL_ID, { 
-      appConfig, initProgressCallback: (p) => { aiProgress.value = `Loading: ${Math.round(p.progress * 100)}%`; } 
-    });
-    isAiInitialized.value = true;
-    aiProgress.value = 'AI Ready';
-  } catch (e) { aiProgress.value = 'Error: ' + e; } finally { aiLoading.value = false; }
-};
-
-const sendToAi = async () => {
-  if (!userMessage.value || !aiEngine.value) return;
-  aiChatHistory.value.push({ role: 'user', content: userMessage.value });
-  userMessage.value = ''; 
-  aiLoading.value = true;
-  const assistantIdx = aiChatHistory.value.push({ role: 'assistant', content: '' }) - 1;
-  try {
-    const chunks = await aiEngine.value.chat.completions.create({ messages: aiChatHistory.value.slice(0, -1) as any, stream: true });
-    let reply = "";
-    for await (const chunk of chunks) {
-      reply += chunk.choices[0]?.delta?.content || "";
-      if (aiChatHistory.value[assistantIdx]) {
-        aiChatHistory.value[assistantIdx].content = reply;
-      }
-      nextTick(() => chatRef.value && (chatRef.value.scrollTop = chatRef.value.scrollHeight));
-    }
-  } catch (e) { 
-    if (aiChatHistory.value[assistantIdx]) {
-      aiChatHistory.value[assistantIdx].content = 'Error: ' + e; 
-    }
-  } finally { aiLoading.value = false; }
-};
-
-// ==========================================
-// --- MODULE: Charts & Stats ---
-// ==========================================
-const cpuChartRef = ref<HTMLElement | null>(null);
-const memChartRef = ref<HTMLElement | null>(null);
-let cpuChart: echarts.ECharts | null = null;
-let memChart: echarts.ECharts | null = null;
-const cpuHistory = ref<number[]>([]);
-const memHistory = ref<number[]>([]);
-
-const initCharts = () => {
-  if (cpuChartRef.value) cpuChart = echarts.init(cpuChartRef.value);
-  if (memChartRef.value) memChart = echarts.init(memChartRef.value);
-};
-
-const updateCharts = (s: any) => {
-  cpuHistory.value.push(s.cpu_usage);
-  memHistory.value.push((s.mem_used / s.mem_total) * 100);
-  if (cpuHistory.value.length > 30) { cpuHistory.value.shift(); memHistory.value.shift(); }
-  cpuChart?.setOption(getChartOpt('CPU', cpuHistory.value, '#6366f1'));
-  memChart?.setOption(getChartOpt('MEM', memHistory.value, '#a855f7'));
-};
-
-const getChartOpt = (_label: string, data: any[], color: string) => ({
-  grid: { top: 10, bottom: 0, left: 0, right: 0 },
-  xAxis: { type: 'category', show: false },
-  yAxis: { type: 'value', min: 0, max: 100, show: false },
-  series: [{ data, type: 'line', smooth: true, areaStyle: { color }, itemStyle: { color }, showSymbol: false }],
-  animation: false
-});
-
-// ==========================================
-// --- CORE: Lifecycle & Connection ---
-// ==========================================
-const fetchTasks = async () => { try { const res = await agentFetch('/task/list'); managedTasks.value = await res.json(); } catch(e){} };
-const fetchStats = async () => { try { const res = await agentFetch('/stats'); stats.value = await res.json(); updateCharts(stats.value); } catch(e){} };
-
-let unlistenLog: (() => void) | null = null;
-let unlistenPty: (() => void) | null = null;
 
 const onConnected = async () => {
   isConnected.value = true;
   agentToken.value = await invoke('get_agent_token');
-
-  // Clean up existing listener to prevent "sticky keys" due to multiple triggers
-  if (unlistenPty) { unlistenPty(); unlistenPty = null; }
-  unlistenPty = await listen<number[]>('pty-data', (event) => {
-    term.write(new Uint8Array(event.payload));
-  });
+  
+  if (unlistenPty) unlistenPty();
+  unlistenPty = await listen<number[]>('pty-data', (event) => term.write(new Uint8Array(event.payload)));
 
   await nextTick();
   if (terminalRef.value) {
     term.open(terminalRef.value);
-    try { term.loadAddon(new WebglAddon()); } catch (e) { }
-    setTimeout(() => { fitAddon.fit(); term.focus(); }, 150);
+    try { term.loadAddon(new WebglAddon()); } catch (e) {}
+    setTimeout(() => { fitAddon.fit(); term.focus(); }, 200);
   }
   initCharts();
   setInterval(() => { fetchStats(); fetchTasks(); }, 2000);
 };
 
+const terminalRef = ref<HTMLElement | null>(null);
+
+const runAsTask = async (e: MouseEvent) => {
+  const text = selectedText.value || term.getSelection();
+  if (!text) return;
+  
+  const id = Date.now();
+  flyingTasks.value.push({ id, x: e.clientX, y: e.clientY });
+  setTimeout(() => { flyingTasks.value = flyingTasks.value.filter(t => t.id !== id); }, 800);
+
+  const parts = text.trim().split(/\s+/);
+  try {
+    await agentFetch('/task/start', {
+      method: 'POST',
+      body: JSON.stringify({ id: 'task-' + id, command: parts[0], args: parts.slice(1) })
+    });
+    showContextMenu.value = false;
+    fetchTasks();
+  } catch (e) { console.error(e); }
+};
+
+const onProcessContext = (e: MouseEvent, p: any) => {
+  e.preventDefault();
+  selectedProcess.value = p;
+  menuPos.value = { x: e.clientX, y: e.clientY };
+  showProcessMenu.value = true;
+};
+
+const killProcess = async () => {
+  if (!selectedProcess.value) return;
+  try {
+    await agentFetch(`/proc/kill?pid=${selectedProcess.value.pid}`);
+    showProcessMenu.value = false;
+    fetchStats();
+  } catch (e) { alert("Failed to kill process"); }
+};
+
+// ==========================================
+// --- CORE: Stats & Data ---
+// ==========================================
+const stats = ref<any>(null);
+const managedTasks = ref<any[]>([]);
+const mockFiles = ref([{ name: 'bin', is_dir: true }, { name: 'etc', is_dir: true }, { name: 'home', is_dir: true }, { name: 'vmlinuz', is_dir: false }]);
+const mockProcesses = ref([{ pid: 1, name: 'systemd', cpu_usage: 0.1, mem_usage: 0.2 }]);
+
+const agentFetch = async (endpoint: string, options: any = {}) => {
+  const url = `http://localhost:54321${endpoint}`;
+  return fetch(url, { ...options, headers: { 'X-Ter-Token': agentToken.value, 'Content-Type': 'application/json', ...options.headers } });
+};
+
+const fetchTasks = async () => { try { const res = await agentFetch('/task/list'); managedTasks.value = await res.json(); } catch(e){} };
+const fetchStats = async () => { try { const res = await agentFetch('/stats'); stats.value = await res.json(); updateCharts(stats.value); } catch(e){} };
+
+// ==========================================
+// --- Charts & Lifecycle ---
+// ==========================================
+const cpuChartRef = ref<HTMLElement | null>(null);
+const memChartRef = ref<HTMLElement | null>(null);
+let cpuChart: any, memChart: any;
+const cpuHistory = ref<number[]>([]), memHistory = ref<number[]>([]);
+
+const initCharts = () => { if (cpuChartRef.value) cpuChart = echarts.init(cpuChartRef.value); if (memChartRef.value) memChart = echarts.init(memChartRef.value); };
+const updateCharts = (s: any) => {
+  cpuHistory.value.push(s.cpu_usage); memHistory.value.push((s.mem_used / s.mem_total) * 100);
+  if (cpuHistory.value.length > 30) { cpuHistory.value.shift(); memHistory.value.shift(); }
+  cpuChart?.setOption(getChartOpt('CPU', cpuHistory.value, '#6366f1'));
+  memChart?.setOption(getChartOpt('MEM', memHistory.value, '#a855f7'));
+};
+const getChartOpt = (_l: string, d: any[], c: string) => ({ grid: { top: 5, bottom: 0, left: 0, right: 0 }, xAxis: { type: 'category', show: false }, yAxis: { type: 'value', min: 0, max: 100, show: false }, series: [{ data: d, type: 'line', smooth: true, areaStyle: { color: c }, itemStyle: { color: c }, showSymbol: false }], animation: false });
+
+const masterPasswordStr = ref('');
+const setMasterPass = async () => { await invoke('set_master_password', { password: masterPasswordStr.value }); isMasterPasswordSet.value = true; loadServers(); };
+const loadServers = async () => { savedServers.value = await invoke('list_server_configs'); };
+const deleteServer = async (id: string) => { await invoke('delete_server_config', { id }); loadServers(); };
+
+const newServer = ref({ label: '', host: '', user: '', pass: '', port: 22 });
+const addServer = async () => {
+  await invoke('save_server_config', { config: { id: Date.now().toString(), ...newServer.value, password_enc: newServer.value.pass, key_path: null } });
+  showAddServer.value = false; loadServers();
+};
+
+let unlistenLog: any, unlistenPty: any, unlistenPlugin: any;
 onMounted(async () => {
-  // Listen for backend logs
-  unlistenLog = await listen<string>('backend-log', (event) => {
-    backendLogs.value.push(event.payload);
-    if (backendLogs.value.length > 100) backendLogs.value.shift();
+  unlistenLog = await listen<string>('backend-log', (e) => { backendLogs.value.push(e.payload); if (backendLogs.value.length > 100) backendLogs.value.shift(); });
+  
+  unlistenPlugin = await listen<any>('plugin-ui-event', (e) => {
+    pluginToasts.value.push(e.payload);
+    setTimeout(() => { 
+      pluginToasts.value = pluginToasts.value.filter(t => t.timestamp !== e.payload.timestamp); 
+    }, 5000);
   });
 
-  term = new Terminal({
-    cursorBlink: true, fontSize: fontSize.value,
-    fontFamily: "'JetBrains Mono', monospace",
-    theme: { background: '#000', foreground: '#fafafa' },
-    allowTransparency: true
-  });
+  term = new Terminal({ cursorBlink: true, fontSize: 14, fontFamily: "'JetBrains Mono', monospace", theme: { background: '#000', foreground: '#fafafa' }, allowTransparency: true });
   fitAddon = new FitAddon(); term.loadAddon(fitAddon);
-  term.onData(data => {
-    if (isConnected.value && !isProcessing.value) {
-      invoke('write_pty', { data });
-    }
-  });
+  term.onData(data => { if (isConnected.value) invoke('write_pty', { data }); });
   window.addEventListener('resize', () => { fitAddon.fit(); cpuChart?.resize(); memChart?.resize(); });
 });
 
 onUnmounted(() => {
   if (unlistenLog) unlistenLog();
   if (unlistenPty) unlistenPty();
+  if (unlistenPlugin) unlistenPlugin();
 });
-
-
-// Helper: Master Pass & Connect
-const masterPasswordStr = ref('');
-const setMasterPass = async () => {
-  await invoke('set_master_password', { password: masterPasswordStr.value });
-  isMasterPasswordSet.value = true;
-  loadServers();
-};
-const loadServers = async () => { savedServers.value = await invoke('list_server_configs'); };
-const connectWithId = async (id: string) => { 
-  const s = savedServers.value.find(s => s.id === id);
-  if (s) host.value = s.label || s.host;
-  await invoke('connect_with_id', { id }); 
-  onConnected(); 
-};
-const deleteServer = async (id: string) => { await invoke('delete_server_config', { id }); loadServers(); };
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'cyber': cyberMode }" @contextmenu.prevent @click="showContextMenu = false">
+  <div class="app-shell" :class="{ 'cyber': cyberMode }" @click="showContextMenu = false; showProcessMenu = false">
     
-    <!-- Cyber Background Layer (Digital Rain Effect) -->
-    <div v-if="cyberMode > 0" class="cyber-logs-layer">
-      <div v-for="(log, i) in backendLogs" :key="i" class="cyber-log-line">{{ log }}</div>
+    <!-- Task Sink Animation Layer -->
+    <div class="animation-layer">
+      <div v-for="t in flyingTasks" :key="t.id" class="flying-node" :style="{ left: t.x+'px', top: t.y+'px' }">🚀</div>
     </div>
-    
+
+    <!-- Plugin UI Injection Layer (Flow B) -->
+    <div class="plugin-layer">
+      <TransitionGroup name="toast">
+        <div v-for="t in pluginToasts" :key="t.timestamp" class="plugin-toast">
+          <header>🧩 {{ t.title }}</header>
+          <component 
+            :is="getComponentByType(t.type)" 
+            :payload="t.message" 
+          />
+        </div>
+      </TransitionGroup>
+    </div>
+
     <!-- Phase 1: Unlock -->
     <div v-if="!isMasterPasswordSet" class="modal-overlay">
       <div class="auth-card">
@@ -347,63 +296,64 @@ const deleteServer = async (id: string) => { await invoke('delete_server_config'
       </div>
     </div>
 
-    <!-- Phase 2: Server Selection -->
+    <!-- Phase 2: Server Selection (UI FIXED) -->
     <div v-else-if="!isConnected" class="workspace-setup">
-      <div class="vault-container">
+      <div class="vault-container" :class="{ 'connecting': isConnecting }">
         <header>
-          <h3>Server Vault</h3>
-          <button @click="showAddServer = true" class="btn-ghost">+</button>
+          <h3><span class="pulse"></span> Server Vault</h3>
+          <button @click="showAddServer = true" class="btn-add">+</button>
         </header>
         <div class="server-list">
-          <div v-for="s in savedServers" :key="s.id" class="server-item" @click="connectWithId(s.id)">
-            <div class="info"><b>{{ s.label }}</b><br/><small>{{ s.user }}@{{ s.host }}</small></div>
+          <div v-for="s in savedServers" :key="s.id" class="server-card" @click="connectWithId(s.id)">
+            <div class="icon-box">SSH</div>
+            <div class="info">
+              <div class="label">{{ s.label }}</div>
+              <div class="addr">{{ s.user }}@{{ s.host }}</div>
+            </div>
             <button @click.stop="deleteServer(s.id)" class="btn-del">✕</button>
           </div>
+          <div v-if="savedServers.length === 0" class="empty-state">No servers found. Add your first one!</div>
+        </div>
+        <!-- Connecting Overlay -->
+        <div v-if="isConnecting" class="connecting-mask">
+          <div class="spinner"></div>
+          <p>Establishing SSH Tunnel...</p>
         </div>
       </div>
 
-      <!-- Add Server Modal -->
       <div v-if="showAddServer" class="modal-overlay">
-        <div class="auth-card add-server">
-          <h2>Add Remote Server</h2>
-          <input v-model="newServer.label" placeholder="Label (e.g. My Server)" />
-          <input v-model="newServer.host" placeholder="Host (IP or Domain)" />
-          <input v-model="newServer.user" placeholder="Username" />
+        <div class="auth-card glass">
+          <h2>New Server</h2>
+          <input v-model="newServer.label" placeholder="Label" />
+          <input v-model="newServer.host" placeholder="Host" />
+          <input v-model="newServer.user" placeholder="User" />
           <input v-model="newServer.pass" type="password" placeholder="Password" />
-          <input v-model.number="newServer.port" type="number" placeholder="Port (Default 22)" />
           <div class="modal-btns">
             <button @click="showAddServer = false" class="btn-ghost">Cancel</button>
-            <button @click="addServer" class="btn-primary">Save Server</button>
+            <button @click="addServer" class="btn-primary">Save</button>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Phase 3: Main UI (MODULAR) -->
+    <!-- Phase 3: Main UI -->
     <div v-else class="main-view">
-      
-      <!-- Modular Sidebar -->
-      <aside class="side-bar" :style="{ width: sidebarWidth + 'px' }" v-if="showDashboard && cyberMode !== 1">
-        <div class="module widget-resources">
+      <aside class="side-bar" :style="{ width: sidebarWidth + 'px' }">
+        <div class="module sys-health">
           <header>System Health</header>
-          <div class="chart-container">
-            <div ref="cpuChartRef" class="mini-chart"></div>
-            <div ref="memChartRef" class="mini-chart"></div>
-          </div>
+          <div class="chart-box"><div ref="cpuChartRef" class="mini-chart"></div><div ref="memChartRef" class="mini-chart"></div></div>
         </div>
-
-        <div class="module widget-processes">
-          <header>Top Processes</header>
+        <div class="module scroller processes">
+          <header>Processes</header>
           <ul class="data-list">
-            <li v-for="p in (stats?.processes || mockProcesses)" :key="p.pid">
+            <li v-for="p in (stats?.processes || mockProcesses)" :key="p.pid" @contextmenu.prevent="onProcessContext($event, p)">
               <span class="name">{{ p.name }}</span>
               <span class="val">{{ Math.round(p.cpu_usage) }}%</span>
             </li>
           </ul>
         </div>
-
-        <div class="module widget-files">
-          <header>Remote Files</header>
+        <div class="module scroller files">
+          <header>Explorer</header>
           <ul class="data-list">
             <li v-for="f in mockFiles" :key="f.name">
               <span class="icon">{{ f.is_dir ? '📁' : '📄' }}</span>
@@ -411,202 +361,152 @@ const deleteServer = async (id: string) => { await invoke('delete_server_config'
             </li>
           </ul>
         </div>
-
-        <div class="module widget-tasks">
-          <header>Managed Tasks <button @click="showAddTask = !showAddTask">+</button></header>
-          <ul class="task-items">
-            <li v-for="t in managedTasks" :key="t.id">
-              <span class="name">{{ t.command }}</span>
-              <span class="status" :class="t.status">{{ t.status }}</span>
-            </li>
-          </ul>
-        </div>
-
         <div class="sidebar-footer">
           <header>Task Monitor</header>
-          <div class="monitor-output">
-            <div v-for="(log, i) in backendLogs.slice(-3)" :key="i" class="monitor-line">{{ log }}</div>
+          <div class="monitor-box">
+            <div v-for="(log, i) in backendLogs.slice(-5)" :key="i" class="log-line">{{ log }}</div>
           </div>
         </div>
       </aside>
 
-      <!-- Sidebar Handle -->
-      <div class="resizer-handle" @mousedown="startResizing" v-if="showDashboard"></div>
+      <div class="resizer-h" @mousedown="startSidebarResize"></div>
 
-      <!-- Center Workspace -->
-      <main class="workspace" :class="'cyber-layout-' + cyberMode">
+      <main class="workspace">
         <nav class="tool-bar">
-          <div class="active-session">🟢 {{ host }}</div>
+          <div class="status-chip"><span class="pulse purple"></span> {{ host }}</div>
           <div class="actions">
-            <button @click="toggleCyber" :class="{ active: cyberMode > 0 }">
-              Cyber <span v-if="cyberMode > 0">[{{ cyberMode === 1 ? 'Full' : cyberMode === 2 ? 'Split-H' : 'Split-V' }}]</span>
-            </button>
-            <button @click="showAiPanel = !showAiPanel">AI Sidekick</button>
+            <button @click="cyberMode = (cyberMode + 1) % 4" class="btn-tool">Cyber</button>
+            <button @click="showAiPanel = !showAiPanel" class="btn-tool">AI</button>
           </div>
         </nav>
 
         <div class="workspace-body">
-          <div class="terminal-view" v-show="cyberMode !== 1">
-            <div class="terminal-inner" ref="terminalRef" @wheel="handleWheel" @contextmenu="onTerminalContextMenu"></div>
-            
-            <!-- MODULAR CONTEXT MENU -->
-            <div v-if="showContextMenu" class="floating-menu" :style="{ left: menuPos.x + 'px', top: menuPos.y + 'px' }">
-              <button @click="handleCopy">📋 Copy Selection</button>
-              <button @click="handlePaste">📥 Paste to Terminal</button>
-              <hr/>
-              <button @click="runAsTask" class="special">🚀 Run as Background Task</button>
-            </div>
-          </div>
+          <section class="terminal-pane" :style="{ flex: cyberMode > 1 ? (100 - cyberRatio) : 100 + '%' }">
+            <div class="terminal-container" ref="terminalRef" @contextmenu.prevent="onTerminalContextMenu"></div>
+          </section>
 
-          <div v-if="cyberMode > 1" class="cyber-logs-panel">
-            <div v-for="(log, i) in backendLogs" :key="i" class="cyber-log-line">{{ log }}</div>
-          </div>
+          <div v-if="cyberMode > 1" class="resizer-v" @mousedown="startCyberResize"></div>
+
+          <section v-if="cyberMode > 1" class="cyber-pane" :style="{ flex: cyberRatio + '%' }">
+            <header>Cyber Transparency</header>
+            <div class="cyber-logs">
+              <div v-for="(log, i) in backendLogs" :key="i" class="log-line">{{ log }}</div>
+            </div>
+          </section>
         </div>
       </main>
 
-      <!-- AI Sidekick Panel -->
-      <Transition name="slide">
-        <div v-if="showAiPanel && cyberMode !== 1" class="ai-drawer">
-          <header>AI Sidekick <button @click="showAiPanel = false">✕</button></header>
-          <div v-if="!isAiInitialized" class="ai-setup">
-            <p>On-device LLM (WebGPU)</p>
-            <button @click="initAi">Initialize Core</button>
-            <small>{{ aiProgress }}</small>
-          </div>
-          <div v-else class="ai-chat">
-            <div class="messages" ref="chatRef">
-              <div v-for="(m, i) in aiChatHistory" :key="i" :class="['bubble', m.role]">{{ m.content }}</div>
-            </div>
-            <input v-model="userMessage" @keyup.enter="sendToAi" placeholder="Ask AI..." />
-          </div>
-        </div>
-      </Transition>
+      <!-- Context Menus -->
+      <div v-if="showContextMenu" class="floating-menu" :style="{ left: menuPos.x+'px', top: menuPos.y+'px' }">
+        <button @click="handleCopy">📋 Copy</button>
+        <button @click="handlePaste">📥 Paste</button>
+        <hr/>
+        <button @click="runAsTask($event)" class="special">🚀 Background Task</button>
+      </div>
 
+      <div v-if="showProcessMenu" class="floating-menu" :style="{ left: menuPos.x+'px', top: menuPos.y+'px' }">
+        <div class="menu-header">PID: {{ selectedProcess?.pid }}</div>
+        <button @click="killProcess" class="danger">🛑 Terminate</button>
+        <button>🔍 Inspect</button>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* ==========================================
-   Modular Layout Styles
-   ========================================== */
-.app-shell { height: 100vh; background: #09090b; color: #eee; font-family: 'Inter', sans-serif; overflow: hidden; position: relative; transition: background 0.5s ease; }
-.app-shell.cyber { background: transparent; }
+/* Base Shell */
+.app-shell { height: 100vh; background: #050505; color: #e4e4e7; font-family: 'Inter', system-ui; overflow: hidden; position: relative; }
 
-/* Cyber Mode Glass Effects */
-.cyber .side-bar, 
-.cyber .tool-bar, 
-.cyber .module, 
-.cyber .terminal-inner,
-.cyber .ai-drawer {
-  background: rgba(18, 18, 21, 0.7) !important;
-  backdrop-filter: blur(12px) saturate(180%);
-  border-color: rgba(63, 63, 70, 0.4) !important;
-}
+/* Vault UI FIX */
+.workspace-setup { height: 100%; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle at center, #111 0%, #000 100%); }
+.vault-container { width: 450px; background: #111; border: 1px solid #333; border-radius: 12px; padding: 25px; box-shadow: 0 20px 50px rgba(0,0,0,0.8); position: relative; overflow: hidden; }
+.vault-container header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+.vault-container h3 { margin: 0; font-size: 18px; color: #6366f1; letter-spacing: 1px; }
+.btn-add { background: #6366f1; border: none; color: white; width: 30px; height: 30px; border-radius: 6px; cursor: pointer; transition: 0.2s; }
+.btn-add:hover { background: #818cf8; transform: scale(1.1); }
 
-.cyber-logs-layer {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  padding: 20px;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  background: #050505;
-}
+.server-list { display: flex; flex-direction: column; gap: 12px; max-height: 400px; overflow-y: auto; }
+.server-card { background: #1a1a1a; border: 1px solid #333; padding: 12px; border-radius: 8px; display: flex; align-items: center; cursor: pointer; transition: 0.2s; position: relative; }
+.server-card:hover { border-color: #6366f1; background: #222; }
+.icon-box { background: #333; color: #6366f1; font-size: 10px; font-weight: bold; padding: 4px 8px; border-radius: 4px; margin-right: 15px; }
+.server-card .label { font-weight: 600; font-size: 14px; }
+.server-card .addr { font-size: 12px; color: #71717a; }
+.btn-del { margin-left: auto; background: transparent; border: none; color: #444; cursor: pointer; }
+.btn-del:hover { color: #f43f5e; }
 
-.cyber-log-line {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  color: rgba(34, 197, 94, 0.3);
-  line-height: 1.4;
-  white-space: pre-wrap;
-}
+/* Connecting Mask */
+.connecting-mask { position: absolute; inset: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(4px); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10; }
+.spinner { width: 30px; height: 30px; border: 3px solid #333; border-top-color: #6366f1; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 15px; }
 
-/* Dashboard/Sidebar */
+/* Main Workspace */
 .main-view { display: flex; height: 100%; width: 100%; }
-.side-bar { background: #121215; border-right: 1px solid #27272a; display: flex; flex-direction: column; overflow-y: auto; flex-shrink: 0; }
-.module { padding: 15px; border-bottom: 1px solid #27272a; }
-.module header { font-size: 11px; text-transform: uppercase; color: #71717a; margin-bottom: 10px; display: flex; justify-content: space-between; }
+.side-bar { background: #0a192f; border-right: none; display: flex; flex-direction: column; flex-shrink: 0; }
+.resizer-h { width: 4px; cursor: col-resize; transition: 0.2s; z-index: 100; }
+.resizer-h:hover { background: #6366f1; }
 
-/* Charts */
-.mini-chart { height: 60px; margin-bottom: 10px; border-radius: 4px; overflow: hidden; }
+.module { padding: 15px; border-bottom: 1px solid #1a1a1c; }
+.module header { font-size: 10px; text-transform: uppercase; color: #52525b; margin-bottom: 12px; font-weight: bold; }
+.scroller { flex: 1; overflow-y: auto; }
+
+.chart-box { display: flex; gap: 10px; height: 50px; }
+.mini-chart { flex: 1; height: 100%; background: #161618; border-radius: 4px; }
+
+.data-list { list-style: none; padding: 0; margin: 0; }
+.data-list li { display: flex; justify-content: space-between; padding: 6px 8px; font-size: 12px; border-radius: 4px; color: #a1a1aa; cursor: pointer; }
+.data-list li:hover { background: #1a1a1c; color: #fff; }
+
+.sidebar-footer { padding: 15px; background: #080809; border-top: 1px solid #1a1a1c; }
+.monitor-box { background: #000; padding: 8px; border-radius: 4px; height: 80px; overflow: hidden; font-family: monospace; border: 1px solid #1a1a1c; }
+.log-line { font-size: 9px; color: #22c55e; white-space: nowrap; margin-bottom: 2px; opacity: 0.7; }
 
 /* Workspace */
 .workspace { flex: 1; display: flex; flex-direction: column; background: #000; overflow: hidden; }
-.workspace-body { flex: 1; display: flex; overflow: hidden; position: relative; }
-.tool-bar { height: 45px; background: #121215; border-bottom: 1px solid #27272a; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; }
+.tool-bar { height: 45px; background: #0c0c0e; border-bottom: 1px solid #1a1a1c; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; }
+.status-chip { font-size: 12px; font-weight: bold; }
 
-/* Cyber Layouts */
-.cyber-layout-2 .workspace-body { flex-direction: row; }
-.cyber-layout-3 .workspace-body { flex-direction: column; }
+.workspace-body { flex: 1; display: flex; overflow: hidden; }
+.terminal-pane { padding: 15px; overflow: hidden; background: #000; }
+.terminal-container { height: 100%; width: 100%; }
 
-.cyber-logs-panel {
-  flex: 0 0 20%;
-  background: #1a1a1a;
-  padding: 15px;
-  overflow-y: auto;
-  border-left: 1px solid #333;
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 10px;
-  color: rgba(34, 197, 94, 0.8);
-  z-index: 10;
-}
+.resizer-v { width: 6px; cursor: col-resize; background: #111; border-left: 1px solid #222; border-right: 1px solid #222; }
+.resizer-v:hover { background: #6366f1; }
 
-.terminal-view { flex: 0 0 80%; padding: 20px; position: relative; }
+.cyber-pane { background: #0a0a0a; display: flex; flex-direction: column; border-left: 1px solid #1a1a1c; }
+.cyber-pane header { padding: 10px 15px; font-size: 11px; color: #6366f1; font-weight: bold; border-bottom: 1px solid #1a1a1c; }
+.cyber-logs { flex: 1; padding: 15px; overflow-y: auto; background: #050505; }
 
-.cyber-layout-3 .cyber-logs-panel {
-  flex: 0 0 25%;
-  border-left: none;
-  border-top: 1px solid #333;
-}
-
-.terminal-inner { height: 100%; background: #000; border-radius: 8px; border: 1px solid #27272a; padding: 10px; }
-
-/* Data Lists (Processes/Files) */
-.data-list { list-style: none; padding: 0; margin: 0; font-size: 12px; }
-.data-list li { display: flex; justify-content: space-between; padding: 4px 0; color: #a1a1aa; border-bottom: 1px solid rgba(255,255,255,0.05); }
-.data-list .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
-.data-list .val { color: #6366f1; font-weight: bold; }
-.data-list .icon { margin-right: 8px; font-size: 10px; }
-
-/* Task Monitor Sidebar Footer */
-.sidebar-footer { margin-top: auto; padding: 15px; background: #09090b; border-top: 1px solid #27272a; }
-.sidebar-footer header { font-size: 10px; text-transform: uppercase; color: #71717a; margin-bottom: 8px; display: block; }
-.monitor-output { background: #000; padding: 8px; border-radius: 4px; border: 1px solid #27272a; height: 60px; overflow: hidden; display: flex; flex-direction: column; gap: 2px; }
-.monitor-line { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: #22c55e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.8; }
-
-/* Modal Helpers */
-.modal-btns { display: flex; gap: 10px; justify-content: flex-end; margin-top: 10px; }
-.add-server input { margin-bottom: 12px; }
-
-/* Floating Context Menu (Elegant) */
-.floating-menu { position: fixed; background: #1c1c1f; border: 1px solid #3f3f46; border-radius: 8px; padding: 5px; z-index: 9999; box-shadow: 0 10px 25px rgba(0,0,0,0.5); min-width: 180px; }
-.floating-menu button { width: 100%; padding: 10px 15px; text-align: left; background: transparent; border: none; color: #eee; font-size: 13px; cursor: pointer; border-radius: 4px; }
+/* Context Menu */
+.floating-menu { position: fixed; background: #18181b; border: 1px solid #3f3f46; border-radius: 8px; padding: 6px; z-index: 9999; min-width: 160px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+.floating-menu button { width: 100%; padding: 8px 12px; text-align: left; background: transparent; border: none; color: #e4e4e7; font-size: 13px; cursor: pointer; border-radius: 4px; }
 .floating-menu button:hover { background: #6366f1; }
-.floating-menu .special { color: #818cf8; font-weight: bold; }
-.floating-menu hr { border: 0; border-top: 1px solid #3f3f46; margin: 5px 0; }
+.floating-menu .danger:hover { background: #f43f5e; }
+.menu-header { font-size: 10px; color: #71717a; padding: 4px 12px; border-bottom: 1px solid #333; margin-bottom: 4px; }
 
-/* Resizer Handle */
-.resizer-handle { width: 4px; cursor: col-resize; transition: background 0.2s; }
-.resizer-handle:hover { background: #6366f1; }
+/* Animation: Fly to Sidebar */
+.flying-node { position: fixed; font-size: 20px; z-index: 10000; pointer-events: none; animation: flyToSidebar 0.8s cubic-bezier(0.19, 1, 0.22, 1) forwards; }
+@keyframes flyToSidebar {
+  0% { transform: scale(1); opacity: 1; }
+  100% { transform: translate(-100vw, -50vh) scale(0); opacity: 0; }
+}
 
-/* AI Drawer */
-.ai-drawer { width: 350px; background: #121215; border-left: 1px solid #27272a; display: flex; flex-direction: column; }
-.ai-chat { flex: 1; display: flex; flex-direction: column; padding: 15px; overflow: hidden; }
-.messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; margin-bottom: 10px; }
-.bubble { padding: 10px; border-radius: 8px; font-size: 13px; max-width: 85%; }
-.bubble.user { align-self: flex-end; background: #6366f1; }
-.bubble.assistant { align-self: flex-start; background: #27272a; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.pulse { display: inline-block; width: 8px; height: 8px; background: #6366f1; border-radius: 50%; margin-right: 8px; box-shadow: 0 0 10px #6366f1; animation: pulse-anim 2s infinite; }
+.pulse.purple { background: #d946ef; box-shadow: 0 0 12px #d946ef; }
+@keyframes pulse-anim { 0% { opacity: 0.4; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.1); } 100% { opacity: 0.4; transform: scale(0.8); } }
 
-/* Utils */
-.modal-overlay { position: fixed; inset: 0; background: #09090b; display: flex; align-items: center; justify-content: center; z-index: 10000; }
-.auth-card { background: #18181b; padding: 40px; border-radius: 20px; border: 1px solid #27272a; width: 350px; text-align: center; }
-input { background: #000; border: 1px solid #27272a; color: #fff; padding: 12px; border-radius: 8px; width: 100%; margin-bottom: 20px; }
-.btn-primary { background: #6366f1; color: #fff; padding: 12px; border-radius: 8px; width: 100%; border: none; cursor: pointer; font-weight: bold; }
-.btn-ghost { background: transparent; color: #71717a; border: none; cursor: pointer; }
-.task-items { list-style: none; padding: 0; font-size: 12px; }
-.task-items li { display: flex; justify-content: space-between; padding: 5px 0; }
-.status.running { color: #22c55e; }
+.glass { backdrop-filter: blur(10px); background: rgba(20,20,25,0.8); }
+
+/* Plugin Toasts (Flow B) */
+.plugin-layer { position: fixed; top: 20px; right: 20px; z-index: 11000; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+.plugin-toast { 
+  pointer-events: auto; width: 260px; background: rgba(30, 30, 35, 0.9); backdrop-filter: blur(12px);
+  border: 1px solid rgba(99, 102, 241, 0.5); border-radius: 10px; padding: 12px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.5); border-left: 4px solid #6366f1;
+}
+.plugin-toast header { font-size: 11px; font-weight: bold; color: #6366f1; margin-bottom: 5px; text-transform: uppercase; }
+.plugin-toast .content { font-size: 13px; color: #e4e4e7; line-height: 1.4; }
+
+.toast-enter-active, .toast-leave-active { transition: all 0.4s ease; }
+.toast-enter-from { opacity: 0; transform: translateX(30px); }
+.toast-leave-to { opacity: 0; transform: scale(0.9); }
 </style>
