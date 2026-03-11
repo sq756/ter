@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue';
-import { terminalManager, WebglAddon } from '../TerminalManager';
+import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { terminalManager } from '../TerminalManager';
 
 const props = defineProps<{
   id: string;
@@ -10,42 +10,48 @@ const props = defineProps<{
 const terminalRef = ref<HTMLElement | null>(null);
 let resizeObserver: ResizeObserver | null = null;
 
-const initTerminal = () => {
+const initTerminal = async () => {
   if (!terminalRef.value) return;
   
   const instance = terminalManager.getOrCreate(props.id);
   const { term, fit } = instance;
 
-  // Clear container to prevent duplicate canvas
-  terminalRef.value.innerHTML = '';
-  
-  // Re-open/mount to current element
-  term.open(terminalRef.value);
+  // Ensure DOM is ready and element is visible
+  await nextTick();
 
-  // Load WebGL only if needed and term is mounted
-  if (!(instance as any).webgl) {
-    try {
-      const webgl = new WebglAddon();
-      term.loadAddon(webgl);
-      (instance as any).webgl = webgl;
-    } catch (e) {
-      console.warn("WebGL failed for terminal", props.id, e);
+  // If already opened elsewhere, xterm handles it, but we should clear local DOM
+  if (term.element && term.element !== terminalRef.value) {
+    console.log(`[TerminalView] Terminal ${props.id} moving to new element`);
+    if (term.element.parentElement) {
+      term.element.parentElement.innerHTML = '';
     }
   }
+  
+  terminalRef.value.innerHTML = '';
+  term.open(terminalRef.value);
 
-  // Setup Observer
-  resizeObserver = new ResizeObserver(() => {
-    if (props.active) {
+  // Resize Handling
+  const performFit = () => {
+    if (props.active && terminalRef.value && terminalRef.value.offsetWidth > 0) {
+      console.log(`[TerminalView] Fitting terminal ${props.id}`);
       fit.fit();
     }
+  };
+
+  resizeObserver = new ResizeObserver(() => {
+    performFit();
   });
   resizeObserver.observe(terminalRef.value);
 
-  // Initial fit
-  requestAnimationFrame(() => {
-    fit.fit();
-    if (props.active) term.focus();
-  });
+  // Immediate Fit
+  performFit();
+  if (props.active) {
+    term.focus();
+  }
+
+  // Layout stabilization retries
+  setTimeout(performFit, 100);
+  setTimeout(performFit, 500);
 };
 
 onMounted(() => {
@@ -60,10 +66,13 @@ onUnmounted(() => {
 
 watch(() => props.active, (isActive) => {
   if (isActive) {
+    console.log(`[TerminalView] Terminal ${props.id} became active`);
     const { term, fit } = terminalManager.getOrCreate(props.id);
-    requestAnimationFrame(() => {
-      fit.fit();
-      term.focus();
+    nextTick(() => {
+      if (terminalRef.value && terminalRef.value.offsetWidth > 0) {
+        fit.fit();
+        term.focus();
+      }
     });
   }
 });
@@ -77,9 +86,11 @@ watch(() => props.active, (isActive) => {
 .terminal-view-container {
   width: 100%;
   height: 100%;
-  position: relative;
+  min-height: 100px;
+  min-width: 100px;
   background: #000;
   overflow: hidden;
+  position: relative;
 }
 
 /* 
@@ -87,19 +98,18 @@ watch(() => props.active, (isActive) => {
  * This prevents the 'left-corner white box' from showing up.
  */
 .xterm-helper-textarea {
-  position: fixed !important;
-  left: -9999px !important;
-  top: -9999px !important;
+  position: absolute !important;
   opacity: 0 !important;
+  left: -9999px !important;
+  pointer-events: none !important;
 }
 
-/* Force xterm internal elements to fill container */
-.terminal-view-container .xterm, 
-.terminal-view-container .xterm-viewport, 
-.terminal-view-container .xterm-screen,
-.terminal-view-container canvas {
-  display: block !important;
-  width: 100% !important;
-  height: 100% !important;
+.terminal-view-container .xterm {
+  padding: 10px;
+  height: 100%;
+}
+
+.terminal-view-container .xterm-viewport {
+  background-color: #000 !important;
 }
 </style>
