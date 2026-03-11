@@ -18,21 +18,28 @@ const vAttachTerm = {
     if (tabId) {
       console.log(`[UI] v-attach-term: Attaching terminal ${tabId}`);
       
-      // Request instance and mount it to the provided DOM element
       terminalManager.getOrCreate(tabId);
       terminalManager.mount(tabId, el);
 
-      // Create a persistent observer for this specific container
+      // The Golden Delay: Ensure layout is settled before fitting
+      requestAnimationFrame(() => {
+        setTimeout(() => terminalManager.fit(tabId), 50);
+        setTimeout(() => terminalManager.fit(tabId), 150);
+      });
+
+      // Simple debounce for ResizeObserver
+      let resizeTimeout: any = null;
       const ro = new ResizeObserver((entries) => {
         for (let entry of entries) {
           if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
-            terminalManager.fit(tabId);
+            if (resizeTimeout) clearTimeout(resizeTimeout);
+            resizeTimeout = setTimeout(() => {
+              terminalManager.fit(tabId);
+            }, 100);
           }
         }
       });
       ro.observe(el);
-      
-      // Store observer on the element for cleanup
       (el as any)._ro = ro;
     }
   },
@@ -96,7 +103,15 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
   position: absolute;
   inset: 0;
   overflow: hidden; 
-  min-width: 200px; 
-  min-height: 100px;
+}
+
+/* Force xterm internal elements to fill container */
+:deep(.xterm), 
+:deep(.xterm-viewport), 
+:deep(.xterm-screen),
+:deep(canvas) {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
 }
 </style>

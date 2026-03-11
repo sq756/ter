@@ -22,6 +22,7 @@ const isAutoPilot = ref(false);
 const isLocked = ref(false);
 const cyberMode = ref(0); 
 const agentToken = ref('');
+const currentAgentPort = ref<number | null>(null);
 const backendLogs = ref<string[]>([]);
 const savedServers = ref<any[]>([]);
 const showAddServer = ref(false);
@@ -33,9 +34,7 @@ const showContextMenu = ref(false);
 const menuX = ref(0);
 const menuY = ref(0);
 
-/**
- * Tabs State: Only store metadata in Vue's reactive system.
- */
+// Tabs State: Only store metadata in Vue's reactive system.
 const terminalTabs = ref<any[]>([]);
 const activeTabId = ref<string | null>(null);
 const activeTab = computed(() => terminalTabs.value.find(t => t.id === activeTabId.value));
@@ -45,13 +44,6 @@ const backgroundTabs = computed(() => terminalTabs.value.filter(t => t.isBackgro
 const realFiles = ref<any[]>([]);
 const skills = ref<any[]>([]);
 const webviewRef = ref<any>(null);
-
-// Initialize Manager Callback
-terminalManager.setOnDataCallback((_id, data) => {
-  if (isConnected.value) {
-    invoke('write_pty', { data });
-  }
-});
 
 // Watch for tab switch: Auto-focus via Manager
 watch(activeTabId, async (newId) => {
@@ -69,6 +61,14 @@ watch(activeTabId, async (newId) => {
 // ==========================================
 const createNewTab = (title = "Shell") => {
   const id = 'tab-' + Math.random().toString(36).substr(2, 9);
+  
+  // Register per-terminal callback for isolation
+  terminalManager.setOnDataCallback(id, (data) => {
+    if (isConnected.value) {
+      invoke('write_pty', { data });
+    }
+  });
+
   terminalManager.getOrCreate(id);
   terminalTabs.value.push({ id, title, isBackground: false });
   activeTabId.value = id;
@@ -167,6 +167,13 @@ const onConnected = async () => {
     terminalManager.broadcast(data);
   });
 
+  // Listen for dynamic port assignment from backend
+  if (unlistenPort) unlistenPort();
+  unlistenPort = await listen<number>('agent-tunnel-opened', (event) => {
+    currentAgentPort.value = event.payload;
+    backendLogs.value.push(`[SYSTEM] Agent tunnel established on port ${event.payload}`);
+  });
+
   initCharts();
   setTimeout(() => {
     fetchStats();
@@ -201,8 +208,9 @@ const cpuHistory = ref<number[]>([]), memHistory = ref<number[]>([]);
 
 const initCharts = () => { if (cpuChartRef.value) cpuChart = echarts.init(cpuChartRef.value); if (memChartRef.value) memChart = echarts.init(memChartRef.value); };
 const fetchStats = async () => {
+  if (!currentAgentPort.value) return;
   try {
-    const r = await fetch(`http://localhost:54321/stats`, { headers: { 'X-Ter-Token': agentToken.value } });
+    const r = await fetch(`http://localhost:${currentAgentPort.value}/stats`, { headers: { 'X-Ter-Token': agentToken.value } });
     const d = await r.json();
     cpuHistory.value.push(d.cpu_usage); memHistory.value.push((d.mem_used / d.mem_total) * 100);
     if (cpuHistory.value.length > 30) { cpuHistory.value.shift(); memHistory.value.shift(); }
@@ -222,13 +230,13 @@ const addServer = async () => {
   showAddServer.value = false; loadServers();
 };
 
-let unlistenLog: any, unlistenPty: any;
+let unlistenLog: any, unlistenPty: any, unlistenPort: any;
 onMounted(async () => {
   unlistenLog = await listen<string>('backend-log', (e) => { backendLogs.value.push(e.payload); if (backendLogs.value.length > 100) backendLogs.value.shift(); });
   window.addEventListener('keydown', (e) => { if (e.altKey && e.key.toLowerCase() === 'l') isLocked.value = !isLocked.value; });
   window.addEventListener('focus', () => { if (activeTabId.value) terminalManager.focus(activeTabId.value); });
 });
-onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty(); });
+onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty(); if (unlistenPort) unlistenPort(); });
 </script>
 
 <template>
@@ -335,7 +343,7 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
 .workspace { flex: 1; display: flex; flex-direction: column; background: #000; overflow: hidden; position: relative; }
 .tool-bar { height: 45px; background: #0c0c0e; border-bottom: 1px solid #1a1a1c; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; }
 .workspace-body { flex: 1; display: flex; overflow: hidden; }
-.terminal-pane { height: 100%; display: flex; flex-direction: column; transition: flex 0.3s ease; position: relative; }
+.terminal-pane { height: 100%; display: flex; flex-direction: column; transition: flex 0.3s ease; position: relative; min-width: 0; min-height: 0; }
 .cyber-pane { height: 100%; border-left: 1px solid #1a1a1c; overflow: hidden; }
 .cyber-logs-view { height: 100%; display: flex; flex-direction: column; background: #0a0a0a; }
 .cyber-logs-view header { padding: 10px 15px; font-size: 11px; color: #6366f1; font-weight: bold; border-bottom: 1px solid #1a1a1c; }

@@ -313,14 +313,18 @@ async fn connect_to_ssh(host: String, port: u16, user: String, pass: String, app
     let session_guard = state.session.lock().await;
     if let Some(session_arc) = session_guard.as_ref() {
         let session_clone = session_arc.clone();
+        let app_handle_agent = app_handle.clone();
         tauri::async_runtime::spawn(async move {
-            match TcpListener::bind("127.0.0.1:54321").await {
+            match TcpListener::bind("127.0.0.1:0").await {
                 Ok(listener) => {
-                    log::info!("Tunnel listening on 127.0.0.1:54321 -> remote 127.0.0.1:34567");
+                    let local_port = listener.local_addr().unwrap().port();
+                    log::info!("Tunnel listening on 127.0.0.1:{} -> remote 127.0.0.1:34567", local_port);
+                    let _ = app_handle_agent.emit("agent-tunnel-opened", local_port);
+
                     while let Ok((mut stream, _)) = listener.accept().await {
                         let session_inner = session_clone.clone();
                         tokio::spawn(async move {
-                            match session_inner.channel_open_direct_tcpip("127.0.0.1", 34567, "127.0.0.1", 54321).await {
+                            match session_inner.channel_open_direct_tcpip("127.0.0.1", 34567, "127.0.0.1", local_port as u32).await {
                                 Ok(channel) => {
                                     let (mut reader, mut writer) = stream.split();
                                     let (mut chan_reader, mut chan_writer) = tokio::io::split(channel.into_stream());
@@ -336,20 +340,24 @@ async fn connect_to_ssh(host: String, port: u16, user: String, pass: String, app
                         });
                     }
                 }
-                Err(e) => log::error!("Failed to bind to tunnel port 54321: {}", e),
+                Err(e) => log::error!("Failed to bind to dynamic tunnel port: {}", e),
             }
         });
 
-        // Tunnel for VNC (127.0.0.1:5901) -> localhost:55901
+        // Tunnel for VNC (127.0.0.1:5901)
         let session_clone_vnc = session_arc.clone();
+        let app_handle_vnc = app_handle.clone();
         tauri::async_runtime::spawn(async move {
-            match TcpListener::bind("127.0.0.1:55901").await {
+            match TcpListener::bind("127.0.0.1:0").await {
                 Ok(listener) => {
-                    log::info!("VNC Tunnel listening on 127.0.0.1:55901 -> remote 127.0.0.1:5901");
+                    let local_port = listener.local_addr().unwrap().port();
+                    log::info!("VNC Tunnel listening on 127.0.0.1:{} -> remote 127.0.0.1:5901", local_port);
+                    let _ = app_handle_vnc.emit("vnc-tunnel-opened", local_port);
+
                     while let Ok((mut stream, _)) = listener.accept().await {
                         let session_inner = session_clone_vnc.clone();
                         tokio::spawn(async move {
-                            match session_inner.channel_open_direct_tcpip("127.0.0.1", 5901, "127.0.0.1", 55901).await {
+                            match session_inner.channel_open_direct_tcpip("127.0.0.1", 5901, "127.0.0.1", local_port as u32).await {
                                 Ok(channel) => {
                                     let (mut reader, mut writer) = stream.split();
                                     let (mut chan_reader, mut chan_writer) = tokio::io::split(channel.into_stream());
@@ -363,7 +371,7 @@ async fn connect_to_ssh(host: String, port: u16, user: String, pass: String, app
                         });
                     }
                 }
-                Err(e) => log::error!("Failed to bind to VNC tunnel port 55901: {}", e),
+                Err(e) => log::error!("Failed to bind to dynamic VNC tunnel port: {}", e),
             }
         });
     }
@@ -391,6 +399,15 @@ async fn load_remote_skills(state: State<'_, AppState>) -> Result<Vec<Skill>, St
 
     let skills_path = ".ter/skills.json";
     
+    // Safety check: verify file size before reading to prevent OOM
+    if let Ok(metadata) = sftp.metadata(skills_path).await {
+        if let Some(size) = metadata.size {
+            if size > 1024 * 1024 { // 1MB limit
+                return Err(format!("skills.json is too large: {} bytes (max 1MB)", size));
+            }
+        }
+    }
+
     // Check if file exists by attempting to open it
     match sftp.open(skills_path).await {
         Ok(mut remote_file) => {

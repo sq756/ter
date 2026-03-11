@@ -11,16 +11,15 @@ export interface TerminalInstance {
 
 class TerminalManager {
   private instances: Map<string, TerminalInstance> = new Map();
-  private onDataCallback: ((id: string, data: string) => void) | null = null;
+  private callbacks: Map<string, (data: string) => void> = new Map();
 
-  public setOnDataCallback(cb: (id: string, data: string) => void) {
-    this.onDataCallback = cb;
+  public setOnDataCallback(id: string, cb: (data: string) => void) {
+    this.callbacks.set(id, cb);
   }
 
   public getOrCreate(id: string, options: any = {}): TerminalInstance {
-    if (this.instances.has(id)) {
-      return this.instances.get(id)!;
-    }
+    const existing = this.instances.get(id);
+    if (existing) return existing;
 
     const term = new Terminal({
       cursorBlink: true,
@@ -34,10 +33,10 @@ class TerminalManager {
     const fit = new FitAddon();
     term.loadAddon(fit);
 
+    // Atomic data binding
     term.onData((data) => {
-      if (this.onDataCallback) {
-        this.onDataCallback(id, data);
-      }
+      const cb = this.callbacks.get(id);
+      if (cb) cb(data);
     });
 
     const instance: TerminalInstance = { id, term, fit };
@@ -99,6 +98,7 @@ class TerminalManager {
     if (instance) {
       instance.term.dispose();
       this.instances.delete(id);
+      this.callbacks.delete(id);
     }
   }
 }
