@@ -69,6 +69,20 @@ struct AppState {
     db_error: tokio::sync::Mutex<Option<String>>,
     crypto: tokio::sync::Mutex<Option<Crypto>>,
     model_path: tokio::sync::Mutex<Option<std::path::PathBuf>>,
+    agent_port: tokio::sync::Mutex<Option<u16>>,
+    vnc_port: tokio::sync::Mutex<Option<u16>>,
+    agent_abort: tokio::sync::Mutex<Option<tokio::task::AbortHandle>>,
+    vnc_abort: tokio::sync::Mutex<Option<tokio::task::AbortHandle>>,
+}
+
+#[tauri::command]
+async fn get_active_ports(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
+    let agent = state.agent_port.lock().await;
+    let vnc = state.vnc_port.lock().await;
+    Ok(serde_json::json!({
+        "agent": *agent,
+        "vnc": *vnc
+    }))
 }
 
 #[tauri::command]
@@ -206,22 +220,37 @@ async fn deploy_agent(session: &client::Handle<Client>, token: &str, app_handle:
         format!("Local agent not found in any of the search paths. Resource dir was: {:?}", res_dir)
     })?;
 
-    let mut local_file = tokio::fs::File::open(&local_path).await.map_err(|e| format!("Failed to open agent at {:?}: {}", local_path, e))?;
+    // 1. Incremental Check: If exists and size matches, skip upload
+    let local_metadata = tokio::fs::metadata(&local_path).await.map_err(|e| e.to_string())?;
+    let local_size = local_metadata.len();
     
-    // Use a try-catch like approach for better error messaging on create
-    let mut remote_file = sftp.create(&remote_path).await.map_err(|e| {
-        format!("Failed to create remote file at {}. This often happens if the file is busy or permissions are insufficient. SFTP Error: {}", remote_path, e)
-    })?;
-    
-    let mut buf = vec![0; 16384];
-    while let Ok(n) = local_file.read(&mut buf).await {
-        if n == 0 { break; }
-        tokio::io::AsyncWriteExt::write_all(&mut remote_file, &buf[..n]).await.map_err(|e| format!("Write error: {}", e))?;
+    let mut should_upload = true;
+    if let Ok(remote_stat) = sftp.stat(&remote_path).await {
+        if let Some(remote_size) = remote_stat.size {
+            if remote_size == local_size {
+                log::info!("Agent already exists on remote with matching size ({}), skipping upload.", remote_size);
+                should_upload = false;
+            }
+        }
     }
-    tokio::io::AsyncWriteExt::flush(&mut remote_file).await.map_err(|e| e.to_string())?;
-    drop(remote_file);
 
-    // 5. Set executable permission and start agent
+    if should_upload {
+        log::info!("Uploading agent ({} bytes)...", local_size);
+        let mut local_file = tokio::fs::File::open(&local_path).await.map_err(|e| format!("Failed to open agent at {:?}: {}", local_path, e))?;
+        
+        let mut remote_file = sftp.create(&remote_path).await.map_err(|e| {
+            format!("Failed to create remote file at {}. SFTP Error: {}", remote_path, e)
+        })?;
+        
+        let mut buf = vec![0; 65536]; // Larger buffer for faster upload
+        while let Ok(n) = local_file.read(&mut buf).await {
+            if n == 0 { break; }
+            tokio::io::AsyncWriteExt::write_all(&mut remote_file, &buf[..n]).await.map_err(|e| format!("Write error: {}", e))?;
+        }
+        tokio::io::AsyncWriteExt::flush(&mut remote_file).await.map_err(|e| e.to_string())?;
+    }
+
+    // 5. Set executable permission and start agent (Always ensure +x and restart)
     let run_channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
     let cmd = format!("chmod +x {remote_path} && TER_AGENT_TOKEN={token} nohup {remote_path} --port 34567 > /dev/null 2>&1 &", remote_path=remote_path, token=token);
     run_channel.exec(true, cmd.as_str()).await.map_err(|e| e.to_string())?;
@@ -309,16 +338,27 @@ async fn connect_to_ssh(host: String, port: u16, user: String, pass: String, app
         }
     });
 
-    // Setup Local Port Forwarding for Agent (127.0.0.1:34567)
+    // 6. Setup Local Port Forwarding for Agent (127.0.0.1:34567)
     let session_guard = state.session.lock().await;
     if let Some(session_arc) = session_guard.as_ref() {
         let session_clone = session_arc.clone();
         let app_handle_agent = app_handle.clone();
-        tauri::async_runtime::spawn(async move {
+        let state_agent = state.clone();
+
+        // Cancel previous agent tunnel task if it exists
+        let mut agent_abort_guard = state.agent_abort.lock().await;
+        if let Some(handle) = agent_abort_guard.take() { handle.abort(); }
+
+        let agent_task = tauri::async_runtime::spawn(async move {
             match TcpListener::bind("127.0.0.1:0").await {
                 Ok(listener) => {
                     let local_port = listener.local_addr().unwrap().port();
                     log::info!("Tunnel listening on 127.0.0.1:{} -> remote 127.0.0.1:34567", local_port);
+                    
+                    // Update AppState with assigned port
+                    let state_clone = state_agent.clone();
+                    *state_clone.agent_port.lock().await = Some(local_port);
+
                     let _ = app_handle_agent.emit("agent-tunnel-opened", local_port);
 
                     while let Ok((mut stream, _)) = listener.accept().await {
@@ -343,15 +383,26 @@ async fn connect_to_ssh(host: String, port: u16, user: String, pass: String, app
                 Err(e) => log::error!("Failed to bind to dynamic tunnel port: {}", e),
             }
         });
+        *agent_abort_guard = Some(agent_task.abort_handle());
 
         // Tunnel for VNC (127.0.0.1:5901)
         let session_clone_vnc = session_arc.clone();
         let app_handle_vnc = app_handle.clone();
-        tauri::async_runtime::spawn(async move {
+        let state_vnc = state.clone();
+
+        // Cancel previous VNC tunnel task
+        let mut vnc_abort_guard = state.vnc_abort.lock().await;
+        if let Some(handle) = vnc_abort_guard.take() { handle.abort(); }
+
+        let vnc_task = tauri::async_runtime::spawn(async move {
             match TcpListener::bind("127.0.0.1:0").await {
                 Ok(listener) => {
                     let local_port = listener.local_addr().unwrap().port();
                     log::info!("VNC Tunnel listening on 127.0.0.1:{} -> remote 127.0.0.1:5901", local_port);
+                    
+                    let state_clone = state_vnc.clone();
+                    *state_clone.vnc_port.lock().await = Some(local_port);
+
                     let _ = app_handle_vnc.emit("vnc-tunnel-opened", local_port);
 
                     while let Ok((mut stream, _)) = listener.accept().await {
@@ -374,6 +425,7 @@ async fn connect_to_ssh(host: String, port: u16, user: String, pass: String, app
                 Err(e) => log::error!("Failed to bind to dynamic VNC tunnel port: {}", e),
             }
         });
+        *vnc_abort_guard = Some(vnc_task.abort_handle());
     }
 
     Ok(())
@@ -569,14 +621,24 @@ async fn upload_ui_snapshot(base64_data: String, state: State<'_, AppState>) -> 
 #[tauri::command]
 async fn write_remote_text(text: String, remote_path: String, state: State<'_, AppState>) -> Result<(), String> {
     let session_guard = state.session.lock().await;
-    let session = session_guard.as_ref().ok_or("No active SSH session")?;
+    let session = session_guard.as_ref().cloned().ok_or("No active SSH session")?;
+    drop(session_guard); // Release lock early
 
-    let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
-    channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
-    let sftp = SftpSession::new(channel.into_stream()).await.map_err(|e| e.to_string())?;
-
-    let mut remote_file = sftp.create(&remote_path).await.map_err(|e| e.to_string())?;
-    tokio::io::AsyncWriteExt::write_all(&mut remote_file, text.as_bytes()).await.map_err(|e| e.to_string())?;
+    // Spawn the SFTP write operation to avoid blocking the caller
+    tokio::spawn(async move {
+        match session.channel_open_session().await {
+            Ok(channel) => {
+                if let Ok(_) = channel.request_subsystem(true, "sftp").await {
+                    if let Ok(sftp) = SftpSession::new(channel.into_stream()).await {
+                        if let Ok(mut remote_file) = sftp.create(&remote_path).await {
+                            let _ = tokio::io::AsyncWriteExt::write_all(&mut remote_file, text.as_bytes()).await;
+                        }
+                    }
+                }
+            }
+            Err(e) => log::error!("Failed to open session for write_remote_text: {}", e),
+        }
+    });
     
     Ok(())
 }
@@ -744,8 +806,12 @@ pub fn run() {
             agent_token: tokio::sync::Mutex::new(String::new()),
             db: tokio::sync::OnceCell::new(),
             db_error: tokio::sync::Mutex::new(None),
-            crypto: tokio::sync::Mutex::new(None),
+            crypto: tokio::sync::Mutex::new(Option::None),
             model_path: tokio::sync::Mutex::new(None),
+            agent_port: tokio::sync::Mutex::new(None),
+            vnc_port: tokio::sync::Mutex::new(None),
+            agent_abort: tokio::sync::Mutex::new(None),
+            vnc_abort: tokio::sync::Mutex::new(None),
         })
         .register_uri_scheme_protocol("ter-model", |_, request| {
             // In Tauri v2, we can't easily get state from the first closure param if it's UriSchemeContext
@@ -895,7 +961,8 @@ pub fn run() {
             get_skill_manifest,
             load_remote_skills,
             upload_ui_snapshot,
-            write_remote_text
+            write_remote_text,
+            get_active_ports
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

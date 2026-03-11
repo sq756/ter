@@ -33,6 +33,7 @@ const currentPath = ref('/');
 const showContextMenu = ref(false);
 const menuX = ref(0);
 const menuY = ref(0);
+const contextMenuTabId = ref<string | null>(null);
 
 // Tabs State: Only store metadata in Vue's reactive system.
 const terminalTabs = ref<any[]>([]);
@@ -88,22 +89,44 @@ const closeTab = (id: string) => {
 };
 
 const sendToBackground = () => {
-  if (activeTab.value) {
-    const selection = terminalManager.getSelection(activeTab.value.id).trim();
-    activeTab.value.isBackground = true;
+  const targetId = contextMenuTabId.value || activeTabId.value;
+  if (!targetId) return;
+  const tab = terminalTabs.value.find(t => t.id === targetId);
+  
+  if (tab) {
+    const selection = terminalManager.getSelection(tab.id).trim();
+    tab.isBackground = true;
     // Use selection as semantic process name, fallback to task ID
-    activeTab.value.title = selection 
+    tab.title = selection 
       ? `Proc: ${selection.length > 20 ? selection.substring(0, 20) + '...' : selection}` 
-      : `Task: ${activeTab.value.id.substr(0, 5)}`;
-    activeTabId.value = null;
-    createNewTab("New Shell");
+      : `Task: ${tab.id.substr(0, 5)}`;
+    
+    if (activeTabId.value === targetId) {
+      activeTabId.value = terminalTabs.value.find(t => !t.isBackground)?.id || null;
+      if (!activeTabId.value) createNewTab("New Shell");
+    }
   }
   showContextMenu.value = false;
 };
 
-const onTerminalContextMenu = (e: MouseEvent) => {
-  menuX.value = e.clientX;
-  menuY.value = e.clientY;
+const bringToForeground = (id: string) => {
+  const tab = terminalTabs.value.find(t => t.id === id);
+  if (tab) {
+    tab.isBackground = false;
+    activeTabId.value = id;
+    nextTick(() => {
+      setTimeout(() => {
+        terminalManager.fit(id);
+        terminalManager.focus(id);
+      }, 50);
+    });
+  }
+};
+
+const onTerminalContextMenu = (payload: { e: MouseEvent, id: string }) => {
+  contextMenuTabId.value = payload.id;
+  menuX.value = payload.e.clientX;
+  menuY.value = payload.e.clientY;
   showContextMenu.value = true;
 };
 
@@ -116,12 +139,23 @@ const connectWithId = async (id: string) => {
   try {
     const s = savedServers.value.find(s => s.id === id);
     if (s) host.value = s.label || s.host;
-    await invoke('connect_with_id', { id }); 
-    await onConnected();
-    backendLogs.value.push('[INFO] 已建立新会话。');
-    // Immediate stats flow
-    setTimeout(() => fetchStats(), 500);
-  } catch (e) { alert("Connection Failed: " + e); } finally { isConnecting.value = false; }
+    
+    // ASYNC DECOUPLE: Don't wait for full initialization before hiding loader
+    invoke('connect_with_id', { id }).then(async () => {
+      isConnecting.value = false; // Fast UI response
+      await onConnected();
+      backendLogs.value.push('[INFO] 已建立新会话。');
+      // Immediate stats flow
+      setTimeout(() => fetchStats(), 500);
+    }).catch(e => {
+      isConnecting.value = false;
+      alert("Connection Failed: " + e);
+    });
+
+  } catch (e) { 
+    isConnecting.value = false;
+    alert("System Error: " + e); 
+  }
 };
 
 const runSkill = async (skill: any) => {
@@ -182,14 +216,13 @@ const onConnected = async () => {
     terminalManager.broadcast(data);
   });
 
-  // Listen for dynamic port assignment from backend
-  if (unlistenPort) unlistenPort();
-  unlistenPort = await listen<number>('agent-tunnel-opened', (event) => {
-    currentAgentPort.value = event.payload;
-    backendLogs.value.push(`[SYSTEM] Agent tunnel established on port ${event.payload}`);
-    // Trigger stats immediately once tunnel is open
+  // Backend Sync Fallback: Check if ports were already assigned
+  const ports: any = await invoke('get_active_ports');
+  if (ports.agent) {
+    currentAgentPort.value = ports.agent;
+    backendLogs.value.push(`[SYSTEM] Recovered agent port: ${ports.agent}`);
     nextTick(() => fetchStats());
-  });
+  }
 
   initCharts();
   setTimeout(() => {
@@ -255,6 +288,7 @@ const cpuChartRef = ref<HTMLElement | null>(null);
 const memChartRef = ref<HTMLElement | null>(null);
 let cpuChart: any, memChart: any;
 const cpuHistory = ref<number[]>([]), memHistory = ref<number[]>([]);
+const currentCpuUsage = computed(() => cpuHistory.value.length > 0 ? cpuHistory.value[cpuHistory.value.length - 1] : 0);
 
 const initCharts = () => { if (cpuChartRef.value) cpuChart = echarts.init(cpuChartRef.value); if (memChartRef.value) memChart = echarts.init(memChartRef.value); };
 const fetchStats = async () => {
@@ -289,16 +323,26 @@ const addServer = async () => {
 let unlistenLog: any, unlistenPty: any, unlistenPort: any;
 onMounted(async () => {
   unlistenLog = await listen<string>('backend-log', (e) => { backendLogs.value.push(e.payload); if (backendLogs.value.length > 100) backendLogs.value.shift(); });
+  
+  // Pre-emptive Listening: Capture ports as early as possible
+  unlistenPort = await listen<number>('agent-tunnel-opened', (event) => {
+    currentAgentPort.value = event.payload;
+    backendLogs.value.push(`[SYSTEM] Agent tunnel established on port ${event.payload}`);
+    nextTick(() => {
+      initCharts();
+      fetchStats();
+    });
+  });
+
   window.addEventListener('keydown', (e) => { if (e.altKey && e.key.toLowerCase() === 'l') isLocked.value = !isLocked.value; });
   window.addEventListener('focus', () => { if (activeTabId.value) terminalManager.focus(activeTabId.value); });
+  window.addEventListener('mouseup', () => { terminalManager.fitAll(); });
 });
 onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty(); if (unlistenPort) unlistenPort(); });
 </script>
 
 <template>
   <div class="app-shell">
-    <MatrixScreen :isLocked="isLocked" :logs="backendLogs" />
-
     <div v-if="!isMasterPasswordSet" class="modal-overlay">
       <div class="auth-card">
         <h2>🔒 Unlock Vault</h2>
@@ -338,7 +382,7 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
         :cpuChartRef="(el: any) => cpuChartRef = el"
         :memChartRef="(el: any) => memChartRef = el"
         v-model:isAutoPilot="isAutoPilot"
-        @switch-tab="(id: string) => activeTabId = id"
+        @switch-tab="bringToForeground"
         @switch-mode="(mode: number) => cyberMode = mode"
         @run-skill="runSkill"
         @change-dir="changeDir"
@@ -368,7 +412,7 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
             <TerminalTabs 
               :tabs="terminalTabs" 
               :activeTabId="activeTabId"
-              @switch-tab="(id: string) => activeTabId = id"
+              @switch-tab="bringToForeground"
               @close-tab="closeTab"
               @new-tab="createNewTab()"
               @terminal-context="onTerminalContextMenu"
@@ -405,6 +449,14 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
         </div>
       </main>
     </div>
+
+    <!-- GLOBAL OVERLAYS -->
+    <MatrixScreen 
+      :isLocked="isLocked" 
+      :logs="backendLogs" 
+      :cpuUsage="currentCpuUsage"
+      @unlock="isLocked = false" 
+    />
   </div>
 </template>
 
@@ -487,7 +539,7 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
   position: relative;
 }
 
-.context-menu { position: fixed; z-index: 10000; background: #18181b; border: 1px solid #3f3f46; border-radius: 6px; padding: 4px; min-width: 150px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+.context-menu { position: fixed; z-index: 99999; background: #18181b; border: 1px solid #3f3f46; border-radius: 6px; padding: 4px; min-width: 150px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
 .menu-item { padding: 8px 12px; font-size: 11px; color: #d4d4d8; cursor: pointer; border-radius: 4px; transition: 0.2s; }
 .menu-item:hover { background: #3f3f46; color: #fff; }
 .menu-item.disabled { color: #52525b; cursor: not-allowed; }

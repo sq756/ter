@@ -32,10 +32,16 @@ const vAttachTerm = {
       const ro = new ResizeObserver((entries) => {
         for (let entry of entries) {
           if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
+            console.log(`[DEBUG] Terminal ${tabId} Resized: ${entry.contentRect.width}x${entry.contentRect.height}`);
+            
+            // Immediate fit for responsiveness
+            terminalManager.fit(tabId);
+
+            // Debounced secondary fit to catch final layout settles
             if (resizeTimeout) clearTimeout(resizeTimeout);
             resizeTimeout = setTimeout(() => {
               terminalManager.fit(tabId);
-            }, 100);
+            }, 50);
           }
         }
       });
@@ -74,7 +80,7 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
         <div v-for="t in tabs" :key="t.id" 
              :class="['terminal-container', { 'inactive-tab': t.id !== activeTabId }]"
              v-attach-term="t.id"
-             @contextmenu.prevent="$emit('terminal-context', $event)">
+             @contextmenu.prevent="$emit('terminal-context', { e: $event, id: t.id })">
         </div>
       </section>
     </div>
@@ -102,6 +108,9 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
   position: absolute;
   inset: 0;
   overflow: hidden; 
+  min-width: 100px;
+  min-height: 100px;
+  pointer-events: auto !important;
 }
 
 /* PHYSICAL-KEEP-ALIVE: visibility: hidden keeps the layout metrics alive */

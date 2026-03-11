@@ -73,6 +73,14 @@ class TerminalManager {
     }
   }
 
+  public fitAll() {
+    this.instances.forEach((instance) => {
+      if (instance.term.element) {
+        instance.fit.fit();
+      }
+    });
+  }
+
   public focus(id: string) {
     const instance = this.instances.get(id);
     if (instance) {
