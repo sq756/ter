@@ -469,6 +469,30 @@ struct PluginManifest {
 }
 
 #[tauri::command]
+async fn upload_ui_snapshot(base64_data: String, state: State<'_, AppState>) -> Result<String, String> {
+    let session_guard = state.session.lock().await;
+    let session = session_guard.as_ref().ok_or("No active SSH session")?;
+
+    // 1. Decode base64
+    let raw_data = base64::engine::general_purpose::STANDARD
+        .decode(base64_data.replace("data:image/png;base64,", ""))
+        .map_err(|e| e.to_string())?;
+
+    // 2. Open SFTP session
+    let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
+    channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
+    let sftp = SftpSession::new(channel.into_stream()).await.map_err(|e| e.to_string())?;
+
+    // 3. Upload to /tmp/current_ui.png
+    let remote_path = "/tmp/current_ui.png";
+    let mut remote_file = sftp.create(remote_path).await.map_err(|e| e.to_string())?;
+    tokio::io::AsyncWriteExt::write_all(&mut remote_file, &raw_data).await.map_err(|e| e.to_string())?;
+    
+    log::info!("UI Snapshot uploaded to remote: {}", remote_path);
+    Ok(remote_path.to_string())
+}
+
+#[tauri::command]
 async fn get_skill_manifest() -> Result<serde_json::Value, String> {
     let project_root = std::env::current_dir().unwrap_or_default();
     let manifest_path = project_root.join(".ter/skills.json");
@@ -779,7 +803,8 @@ pub fn run() {
             ai_audit_ui,
             list_plugins,
             run_plugin,
-            get_skill_manifest
+            get_skill_manifest,
+            upload_ui_snapshot
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

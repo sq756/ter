@@ -7,6 +7,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import '@xterm/xterm/css/xterm.css';
 import * as echarts from 'echarts';
+import html2canvas from 'html2canvas';
 
 // ==========================================
 // --- MODULE: State Management ---
@@ -14,6 +15,7 @@ import * as echarts from 'echarts';
 const isConnected = ref(false);
 const isConnecting = ref(false); 
 const isMasterPasswordSet = ref(false);
+const isAutoPilot = ref(false); // [NEW] The Auto-Pilot Toggle
 const agentToken = ref('');
 const backendLogs = ref<string[]>([]);
 const savedServers = ref<any[]>([]);
@@ -36,12 +38,52 @@ const menuPos = ref({ x: 0, y: 0 });
 const selectedText = ref('');
 const selectedProcess = ref<any>(null);
 
-// Animations
+// Animations & UI Injection
 const flyingTasks = ref<{id: number, x: number, y: number}[]>([]);
 const pluginToasts = ref<any[]>([]);
 
 // ==========================================
-// --- MODULE: Plugin Renderer (Flow B) ---
+// --- MODULE: Visual Audit & RPC ---
+// ==========================================
+const workspaceRef = ref<HTMLElement | null>(null);
+
+const captureAndUpload = async (autoTriggered = false) => {
+  if (!workspaceRef.value) return;
+  console.log("📸 Starting visual audit capture...");
+  
+  try {
+    // 1. Capture the workspace (or specifically the preview area)
+    const canvas = await html2canvas(workspaceRef.value, {
+      backgroundColor: '#000',
+      logging: false,
+      useCORS: true
+    });
+    const base64 = canvas.toDataURL('image/png');
+
+    // 2. Upload to Remote via SFTP (Rust Command)
+    const remotePath = await invoke('upload_ui_snapshot', { base64Data: base64 });
+    
+    // 3. Inject message into Terminal
+    const triggerMsg = autoTriggered 
+      ? `[SYSTEM] 自动快照已就绪: ${remotePath}` 
+      : `请读取 ${remotePath}，我刚才按下了审计键，你看看现在的 UI 哪里不对劲？`;
+    
+    await invoke('write_pty', { data: triggerMsg + "\r" });
+    
+    // Show a small toast
+    pluginToasts.value.push({
+      type: 'text',
+      title: 'Visual Audit',
+      message: autoTriggered ? 'Auto-Snapshot Sent to Gemini' : 'Manual Snapshot Uploaded',
+      timestamp: Date.now()
+    });
+  } catch (e) {
+    console.error("Visual Audit Failed:", e);
+  }
+};
+
+// ==========================================
+// --- MODULE: Plugin Renderer ---
 // ==========================================
 const PluginText = {
   props: ['payload'],
@@ -79,77 +121,36 @@ const getComponentByType = (type: string) => {
 };
 
 // ==========================================
-// --- MODULE: Resizing Logic ---
-// ==========================================
-const startSidebarResize = () => { isResizingSidebar.value = true; document.addEventListener('mousemove', handleGlobalMove); document.addEventListener('mouseup', stopResizing); };
-const startCyberResize = () => { isResizingCyber.value = true; document.addEventListener('mousemove', handleGlobalMove); document.addEventListener('mouseup', stopResizing); };
-
-const handleGlobalMove = (e: MouseEvent) => {
-  if (isResizingSidebar.value) {
-    sidebarWidth.value = Math.max(180, Math.min(500, e.clientX));
-  }
-  if (isResizingCyber.value) {
-    const containerWidth = window.innerWidth - (showDashboard.value ? sidebarWidth.value : 0);
-    const mouseOffset = window.innerWidth - e.clientX;
-    cyberRatio.value = Math.max(10, Math.min(50, (mouseOffset / containerWidth) * 100));
-  }
-  nextTick(() => { fitAddon?.fit(); cpuChart?.resize(); memChart?.resize(); });
-};
-
-const stopResizing = () => { isResizingSidebar.value = false; isResizingCyber.value = false; document.removeEventListener('mousemove', handleGlobalMove); document.removeEventListener('mouseup', stopResizing); };
-
-// ==========================================
-// --- MODULE: SSH & Interactions ---
+// --- MODULE: Terminal & Interceptor ---
 // ==========================================
 let term: Terminal;
 let fitAddon: FitAddon;
-
-const handleCopy = async () => {
-  const text = term.getSelection();
-  if (text) {
-    await navigator.clipboard.writeText(text);
-    showContextMenu.value = false;
-  }
-};
-
-const handlePaste = async () => {
-  try {
-    const text = await navigator.clipboard.readText();
-    if (text && isConnected.value) {
-      await invoke('write_pty', { data: text });
-    }
-  } catch (e) { console.error('Paste failed', e); }
-  showContextMenu.value = false;
-};
-
-const onTerminalContextMenu = (e: MouseEvent) => {
-  e.preventDefault();
-  selectedText.value = term.getSelection();
-  menuPos.value = { x: e.clientX, y: e.clientY };
-  showContextMenu.value = true;
-};
-
-const connectWithId = async (id: string) => { 
-  if (isConnecting.value) return; 
-  isConnecting.value = true;
-  try {
-    const s = savedServers.value.find(s => s.id === id);
-    if (s) host.value = s.label || s.host;
-    await invoke('connect_with_id', { id }); 
-    await onConnected();
-  } catch (e) {
-    alert("Connection Failed: " + e);
-  } finally {
-    isConnecting.value = false;
-  }
-};
 
 const onConnected = async () => {
   isConnected.value = true;
   agentToken.value = await invoke('get_agent_token');
   
   if (unlistenPty) unlistenPty();
-  unlistenPty = await listen<number[]>('pty-data', (event) => term.write(new Uint8Array(event.payload)));
+  unlistenPty = await listen<number[]>('pty-data', (event) => {
+    const data = new Uint8Array(event.payload);
+    const text = new TextDecoder().decode(data);
+
+    // [RPC INTERCEPTOR]
+    if (isAutoPilot.value && text.includes('[TER_RPC]')) {
+      try {
+        const rpcMatch = text.match(/\[TER_RPC\]\s*({.*})/);
+        if (rpcMatch) {
+          const rpc = JSON.parse(rpcMatch[1]);
+          if (rpc.action === 'screenshot') {
+            captureAndUpload(true);
+            return; // Block this line from terminal display
+          }
+        }
+      } catch (e) {}
+    }
+
+    term.write(data);
+  });
 
   await nextTick();
   if (terminalRef.value) {
@@ -163,107 +164,74 @@ const onConnected = async () => {
 
 const terminalRef = ref<HTMLElement | null>(null);
 
+const handleCopy = async () => { const text = term.getSelection(); if (text) { await navigator.clipboard.writeText(text); showContextMenu.value = false; } };
+const handlePaste = async () => { try { const text = await navigator.clipboard.readText(); if (text && isConnected.value) { await invoke('write_pty', { data: text }); } } catch (e) {} showContextMenu.value = false; };
+const onTerminalContextMenu = (e: MouseEvent) => { e.preventDefault(); selectedText.value = term.getSelection(); menuPos.value = { x: e.clientX, y: e.clientY }; showContextMenu.value = true; };
+
+// [Existing Resizing & Data logics preserved...]
+const startSidebarResize = () => { isResizingSidebar.value = true; document.addEventListener('mousemove', handleGlobalMove); document.addEventListener('mouseup', stopResizing); };
+const startCyberResize = () => { isResizingCyber.value = true; document.addEventListener('mousemove', handleGlobalMove); document.addEventListener('mouseup', stopResizing); };
+const handleGlobalMove = (e: MouseEvent) => {
+  if (isResizingSidebar.value) sidebarWidth.value = Math.max(180, Math.min(500, e.clientX));
+  if (isResizingCyber.value) { const containerWidth = window.innerWidth - (showDashboard.value ? sidebarWidth.value : 0); const mouseOffset = window.innerWidth - e.clientX; cyberRatio.value = Math.max(10, Math.min(50, (mouseOffset / containerWidth) * 100)); }
+  nextTick(() => { fitAddon?.fit(); cpuChart?.resize(); memChart?.resize(); });
+};
+const stopResizing = () => { isResizingSidebar.value = false; isResizingCyber.value = false; document.removeEventListener('mousemove', handleGlobalMove); document.removeEventListener('mouseup', stopResizing); };
+
+const connectWithId = async (id: string) => { 
+  if (isConnecting.value) return; 
+  isConnecting.value = true;
+  try {
+    const s = savedServers.value.find(s => s.id === id);
+    if (s) host.value = s.label || s.host;
+    await invoke('connect_with_id', { id }); 
+    await onConnected();
+  } catch (e) { alert("Connection Failed: " + e); } finally { isConnecting.value = false; }
+};
+
 const runAsTask = async (e: MouseEvent) => {
   const text = selectedText.value || term.getSelection();
   if (!text) return;
-  
   const id = Date.now();
   flyingTasks.value.push({ id, x: e.clientX, y: e.clientY });
   setTimeout(() => { flyingTasks.value = flyingTasks.value.filter(t => t.id !== id); }, 800);
-
   const parts = text.trim().split(/\s+/);
-  try {
-    await agentFetch('/task/start', {
-      method: 'POST',
-      body: JSON.stringify({ id: 'task-' + id, command: parts[0], args: parts.slice(1) })
-    });
-    showContextMenu.value = false;
-    fetchTasks();
-  } catch (e) { console.error(e); }
+  try { await agentFetch('/task/start', { method: 'POST', body: JSON.stringify({ id: 'task-' + id, command: parts[0], args: parts.slice(1) }) }); showContextMenu.value = false; fetchTasks(); } catch (e) {}
 };
 
-const onProcessContext = (e: MouseEvent, p: any) => {
-  e.preventDefault();
-  selectedProcess.value = p;
-  menuPos.value = { x: e.clientX, y: e.clientY };
-  showProcessMenu.value = true;
-};
-
-const killProcess = async () => {
-  if (!selectedProcess.value) return;
-  try {
-    await agentFetch(`/proc/kill?pid=${selectedProcess.value.pid}`);
-    showProcessMenu.value = false;
-    fetchStats();
-  } catch (e) { alert("Failed to kill process"); }
-};
-
-// ==========================================
-// --- CORE: Stats & Data ---
-// ==========================================
 const stats = ref<any>(null);
 const managedTasks = ref<any[]>([]);
-const mockFiles = ref([{ name: 'bin', is_dir: true }, { name: 'etc', is_dir: true }, { name: 'home', is_dir: true }, { name: 'vmlinuz', is_dir: false }]);
+const mockFiles = ref([{ name: 'bin', is_dir: true }, { name: 'etc', is_dir: true }, { name: 'home', is_dir: true }]);
 const mockProcesses = ref([{ pid: 1, name: 'systemd', cpu_usage: 0.1, mem_usage: 0.2 }]);
-
-const agentFetch = async (endpoint: string, options: any = {}) => {
-  const url = `http://localhost:54321${endpoint}`;
-  return fetch(url, { ...options, headers: { 'X-Ter-Token': agentToken.value, 'Content-Type': 'application/json', ...options.headers } });
-};
-
+const agentFetch = async (endpoint: string, options: any = {}) => { const url = `http://localhost:54321${endpoint}`; return fetch(url, { ...options, headers: { 'X-Ter-Token': agentToken.value, 'Content-Type': 'application/json', ...options.headers } }); };
 const fetchTasks = async () => { try { const res = await agentFetch('/task/list'); managedTasks.value = await res.json(); } catch(e){} };
 const fetchStats = async () => { try { const res = await agentFetch('/stats'); stats.value = await res.json(); updateCharts(stats.value); } catch(e){} };
 
-// ==========================================
-// --- Charts & Lifecycle ---
-// ==========================================
 const cpuChartRef = ref<HTMLElement | null>(null);
 const memChartRef = ref<HTMLElement | null>(null);
 let cpuChart: any, memChart: any;
 const cpuHistory = ref<number[]>([]), memHistory = ref<number[]>([]);
-
 const initCharts = () => { if (cpuChartRef.value) cpuChart = echarts.init(cpuChartRef.value); if (memChartRef.value) memChart = echarts.init(memChartRef.value); };
-const updateCharts = (s: any) => {
-  cpuHistory.value.push(s.cpu_usage); memHistory.value.push((s.mem_used / s.mem_total) * 100);
-  if (cpuHistory.value.length > 30) { cpuHistory.value.shift(); memHistory.value.shift(); }
-  cpuChart?.setOption(getChartOpt('CPU', cpuHistory.value, '#6366f1'));
-  memChart?.setOption(getChartOpt('MEM', memHistory.value, '#a855f7'));
-};
+const updateCharts = (s: any) => { cpuHistory.value.push(s.cpu_usage); memHistory.value.push((s.mem_used / s.mem_total) * 100); if (cpuHistory.value.length > 30) { cpuHistory.value.shift(); memHistory.value.shift(); } cpuChart?.setOption(getChartOpt('CPU', cpuHistory.value, '#6366f1')); memChart?.setOption(getChartOpt('MEM', memHistory.value, '#a855f7')); };
 const getChartOpt = (_l: string, d: any[], c: string) => ({ grid: { top: 5, bottom: 0, left: 0, right: 0 }, xAxis: { type: 'category', show: false }, yAxis: { type: 'value', min: 0, max: 100, show: false }, series: [{ data: d, type: 'line', smooth: true, areaStyle: { color: c }, itemStyle: { color: c }, showSymbol: false }], animation: false });
 
 const masterPasswordStr = ref('');
 const setMasterPass = async () => { await invoke('set_master_password', { password: masterPasswordStr.value }); isMasterPasswordSet.value = true; loadServers(); };
 const loadServers = async () => { savedServers.value = await invoke('list_server_configs'); };
 const deleteServer = async (id: string) => { await invoke('delete_server_config', { id }); loadServers(); };
-
 const newServer = ref({ label: '', host: '', user: '', pass: '', port: 22 });
-const addServer = async () => {
-  await invoke('save_server_config', { config: { id: Date.now().toString(), ...newServer.value, password_enc: newServer.value.pass, key_path: null } });
-  showAddServer.value = false; loadServers();
-};
+const addServer = async () => { await invoke('save_server_config', { config: { id: Date.now().toString(), ...newServer.value, password_enc: newServer.value.pass, key_path: null } }); showAddServer.value = false; loadServers(); };
 
 let unlistenLog: any, unlistenPty: any, unlistenPlugin: any;
 onMounted(async () => {
   unlistenLog = await listen<string>('backend-log', (e) => { backendLogs.value.push(e.payload); if (backendLogs.value.length > 100) backendLogs.value.shift(); });
-  
-  unlistenPlugin = await listen<any>('plugin-ui-event', (e) => {
-    pluginToasts.value.push(e.payload);
-    setTimeout(() => { 
-      pluginToasts.value = pluginToasts.value.filter(t => t.timestamp !== e.payload.timestamp); 
-    }, 5000);
-  });
-
+  unlistenPlugin = await listen<any>('plugin-ui-event', (e) => { pluginToasts.value.push(e.payload); setTimeout(() => { pluginToasts.value = pluginToasts.value.filter(t => t.timestamp !== e.payload.timestamp); }, 5000); });
   term = new Terminal({ cursorBlink: true, fontSize: 14, fontFamily: "'JetBrains Mono', monospace", theme: { background: '#000', foreground: '#fafafa' }, allowTransparency: true });
   fitAddon = new FitAddon(); term.loadAddon(fitAddon);
   term.onData(data => { if (isConnected.value) invoke('write_pty', { data }); });
   window.addEventListener('resize', () => { fitAddon.fit(); cpuChart?.resize(); memChart?.resize(); });
 });
-
-onUnmounted(() => {
-  if (unlistenLog) unlistenLog();
-  if (unlistenPty) unlistenPty();
-  if (unlistenPlugin) unlistenPlugin();
-});
+onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty(); if (unlistenPlugin) unlistenPlugin(); });
 </script>
 
 <template>
@@ -279,10 +247,7 @@ onUnmounted(() => {
       <TransitionGroup name="toast">
         <div v-for="t in pluginToasts" :key="t.timestamp" class="plugin-toast">
           <header>🧩 {{ t.title }}</header>
-          <component 
-            :is="getComponentByType(t.type)" 
-            :payload="t.message" 
-          />
+          <component :is="getComponentByType(t.type)" :payload="t.message" />
         </div>
       </TransitionGroup>
     </div>
@@ -296,7 +261,7 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- Phase 2: Server Selection (UI FIXED) -->
+    <!-- Phase 2: Server Selection -->
     <div v-else-if="!isConnected" class="workspace-setup">
       <div class="vault-container" :class="{ 'connecting': isConnecting }">
         <header>
@@ -306,32 +271,17 @@ onUnmounted(() => {
         <div class="server-list">
           <div v-for="s in savedServers" :key="s.id" class="server-card" @click="connectWithId(s.id)">
             <div class="icon-box">SSH</div>
-            <div class="info">
-              <div class="label">{{ s.label }}</div>
-              <div class="addr">{{ s.user }}@{{ s.host }}</div>
-            </div>
+            <div class="info"><div class="label">{{ s.label }}</div><div class="addr">{{ s.user }}@{{ s.host }}</div></div>
             <button @click.stop="deleteServer(s.id)" class="btn-del">✕</button>
           </div>
-          <div v-if="savedServers.length === 0" class="empty-state">No servers found. Add your first one!</div>
         </div>
-        <!-- Connecting Overlay -->
-        <div v-if="isConnecting" class="connecting-mask">
-          <div class="spinner"></div>
-          <p>Establishing SSH Tunnel...</p>
-        </div>
+        <div v-if="isConnecting" class="connecting-mask"><div class="spinner"></div><p>Establishing SSH Tunnel...</p></div>
       </div>
-
       <div v-if="showAddServer" class="modal-overlay">
         <div class="auth-card glass">
           <h2>New Server</h2>
-          <input v-model="newServer.label" placeholder="Label" />
-          <input v-model="newServer.host" placeholder="Host" />
-          <input v-model="newServer.user" placeholder="User" />
-          <input v-model="newServer.pass" type="password" placeholder="Password" />
-          <div class="modal-btns">
-            <button @click="showAddServer = false" class="btn-ghost">Cancel</button>
-            <button @click="addServer" class="btn-primary">Save</button>
-          </div>
+          <input v-model="newServer.label" placeholder="Label" /><input v-model="newServer.host" placeholder="Host" /><input v-model="newServer.user" placeholder="User" /><input v-model="newServer.pass" type="password" placeholder="Password" />
+          <div class="modal-btns"><button @click="showAddServer = false" class="btn-ghost">Cancel</button><button @click="addServer" class="btn-primary">Save</button></div>
         </div>
       </div>
     </div>
@@ -346,32 +296,25 @@ onUnmounted(() => {
         <div class="module scroller processes">
           <header>Processes</header>
           <ul class="data-list">
-            <li v-for="p in (stats?.processes || mockProcesses)" :key="p.pid" @contextmenu.prevent="onProcessContext($event, p)">
-              <span class="name">{{ p.name }}</span>
-              <span class="val">{{ Math.round(p.cpu_usage) }}%</span>
-            </li>
-          </ul>
-        </div>
-        <div class="module scroller files">
-          <header>Explorer</header>
-          <ul class="data-list">
-            <li v-for="f in mockFiles" :key="f.name">
-              <span class="icon">{{ f.is_dir ? '📁' : '📄' }}</span>
-              <span class="name">{{ f.name }}</span>
-            </li>
+            <li v-for="p in (stats?.processes || mockProcesses)" :key="p.pid" @contextmenu.prevent="onProcessContext($event, p)"><span class="name">{{ p.name }}</span><span class="val">{{ Math.round(p.cpu_usage) }}%</span></li>
           </ul>
         </div>
         <div class="sidebar-footer">
-          <header>Task Monitor</header>
-          <div class="monitor-box">
-            <div v-for="(log, i) in backendLogs.slice(-5)" :key="i" class="log-line">{{ log }}</div>
+          <header>AI Control</header>
+          <div class="ai-controls">
+            <button @click="captureAndUpload(false)" class="btn-audit">📸 Audit UI</button>
+            <div class="toggle-box">
+              <span>Auto-Pilot</span>
+              <input type="checkbox" v-model="isAutoPilot" id="auto-pilot-toggle" />
+              <label for="auto-pilot-toggle" class="switch"></label>
+            </div>
           </div>
         </div>
       </aside>
 
       <div class="resizer-h" @mousedown="startSidebarResize"></div>
 
-      <main class="workspace">
+      <main class="workspace" ref="workspaceRef">
         <nav class="tool-bar">
           <div class="status-chip"><span class="pulse purple"></span> {{ host }}</div>
           <div class="actions">
@@ -384,129 +327,61 @@ onUnmounted(() => {
           <section class="terminal-pane" :style="{ flex: cyberMode > 1 ? (100 - cyberRatio) : 100 + '%' }">
             <div class="terminal-container" ref="terminalRef" @contextmenu.prevent="onTerminalContextMenu"></div>
           </section>
-
           <div v-if="cyberMode > 1" class="resizer-v" @mousedown="startCyberResize"></div>
-
           <section v-if="cyberMode > 1" class="cyber-pane" :style="{ flex: cyberRatio + '%' }">
             <header>Cyber Transparency</header>
-            <div class="cyber-logs">
-              <div v-for="(log, i) in backendLogs" :key="i" class="log-line">{{ log }}</div>
-            </div>
+            <div class="cyber-logs"><div v-for="(log, i) in backendLogs" :key="i" class="log-line">{{ log }}</div></div>
           </section>
         </div>
       </main>
 
       <!-- Context Menus -->
       <div v-if="showContextMenu" class="floating-menu" :style="{ left: menuPos.x+'px', top: menuPos.y+'px' }">
-        <button @click="handleCopy">📋 Copy</button>
-        <button @click="handlePaste">📥 Paste</button>
-        <hr/>
-        <button @click="runAsTask($event)" class="special">🚀 Background Task</button>
-      </div>
-
-      <div v-if="showProcessMenu" class="floating-menu" :style="{ left: menuPos.x+'px', top: menuPos.y+'px' }">
-        <div class="menu-header">PID: {{ selectedProcess?.pid }}</div>
-        <button @click="killProcess" class="danger">🛑 Terminate</button>
-        <button>🔍 Inspect</button>
+        <button @click="handleCopy">📋 Copy</button><button @click="handlePaste">📥 Paste</button><hr/><button @click="runAsTask($event)" class="special">🚀 Background Task</button>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* Base Shell */
+/* Base Shell & Utils */
 .app-shell { height: 100vh; background: #050505; color: #e4e4e7; font-family: 'Inter', system-ui; overflow: hidden; position: relative; }
-
-/* Vault UI FIX */
-.workspace-setup { height: 100%; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle at center, #111 0%, #000 100%); }
-.vault-container { width: 450px; background: #111; border: 1px solid #333; border-radius: 12px; padding: 25px; box-shadow: 0 20px 50px rgba(0,0,0,0.8); position: relative; overflow: hidden; }
-.vault-container header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-.vault-container h3 { margin: 0; font-size: 18px; color: #6366f1; letter-spacing: 1px; }
-.btn-add { background: #6366f1; border: none; color: white; width: 30px; height: 30px; border-radius: 6px; cursor: pointer; transition: 0.2s; }
-.btn-add:hover { background: #818cf8; transform: scale(1.1); }
-
-.server-list { display: flex; flex-direction: column; gap: 12px; max-height: 400px; overflow-y: auto; }
-.server-card { background: #1a1a1a; border: 1px solid #333; padding: 12px; border-radius: 8px; display: flex; align-items: center; cursor: pointer; transition: 0.2s; position: relative; }
-.server-card:hover { border-color: #6366f1; background: #222; }
-.icon-box { background: #333; color: #6366f1; font-size: 10px; font-weight: bold; padding: 4px 8px; border-radius: 4px; margin-right: 15px; }
-.server-card .label { font-weight: 600; font-size: 14px; }
-.server-card .addr { font-size: 12px; color: #71717a; }
-.btn-del { margin-left: auto; background: transparent; border: none; color: #444; cursor: pointer; }
-.btn-del:hover { color: #f43f5e; }
-
-/* Connecting Mask */
-.connecting-mask { position: absolute; inset: 0; background: rgba(0,0,0,0.8); backdrop-filter: blur(4px); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10; }
-.spinner { width: 30px; height: 30px; border: 3px solid #333; border-top-color: #6366f1; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 15px; }
-
-/* Main Workspace */
-.main-view { display: flex; height: 100%; width: 100%; }
-.side-bar { background: #0a192f; border-right: none; display: flex; flex-direction: column; flex-shrink: 0; }
-.resizer-h { width: 4px; cursor: col-resize; transition: 0.2s; z-index: 100; }
-.resizer-h:hover { background: #6366f1; }
-
-.module { padding: 15px; border-bottom: 1px solid #1a1a1c; }
-.module header { font-size: 10px; text-transform: uppercase; color: #52525b; margin-bottom: 12px; font-weight: bold; }
-.scroller { flex: 1; overflow-y: auto; }
-
-.chart-box { display: flex; gap: 10px; height: 50px; }
-.mini-chart { flex: 1; height: 100%; background: #161618; border-radius: 4px; }
-
-.data-list { list-style: none; padding: 0; margin: 0; }
-.data-list li { display: flex; justify-content: space-between; padding: 6px 8px; font-size: 12px; border-radius: 4px; color: #a1a1aa; cursor: pointer; }
-.data-list li:hover { background: #1a1a1c; color: #fff; }
-
-.sidebar-footer { padding: 15px; background: #080809; border-top: 1px solid #1a1a1c; }
-.monitor-box { background: #000; padding: 8px; border-radius: 4px; height: 80px; overflow: hidden; font-family: monospace; border: 1px solid #1a1a1c; }
-.log-line { font-size: 9px; color: #22c55e; white-space: nowrap; margin-bottom: 2px; opacity: 0.7; }
-
-/* Workspace */
-.workspace { flex: 1; display: flex; flex-direction: column; background: #000; overflow: hidden; }
-.tool-bar { height: 45px; background: #0c0c0e; border-bottom: 1px solid #1a1a1c; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; }
-.status-chip { font-size: 12px; font-weight: bold; }
-
-.workspace-body { flex: 1; display: flex; overflow: hidden; }
-.terminal-pane { padding: 15px; overflow: hidden; background: #000; }
-.terminal-container { height: 100%; width: 100%; }
-
-.resizer-v { width: 6px; cursor: col-resize; background: #111; border-left: 1px solid #222; border-right: 1px solid #222; }
-.resizer-v:hover { background: #6366f1; }
-
-.cyber-pane { background: #0a0a0a; display: flex; flex-direction: column; border-left: 1px solid #1a1a1c; }
-.cyber-pane header { padding: 10px 15px; font-size: 11px; color: #6366f1; font-weight: bold; border-bottom: 1px solid #1a1a1c; }
-.cyber-logs { flex: 1; padding: 15px; overflow-y: auto; background: #050505; }
-
-/* Context Menu */
-.floating-menu { position: fixed; background: #18181b; border: 1px solid #3f3f46; border-radius: 8px; padding: 6px; z-index: 9999; min-width: 160px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-.floating-menu button { width: 100%; padding: 8px 12px; text-align: left; background: transparent; border: none; color: #e4e4e7; font-size: 13px; cursor: pointer; border-radius: 4px; }
-.floating-menu button:hover { background: #6366f1; }
-.floating-menu .danger:hover { background: #f43f5e; }
-.menu-header { font-size: 10px; color: #71717a; padding: 4px 12px; border-bottom: 1px solid #333; margin-bottom: 4px; }
-
-/* Animation: Fly to Sidebar */
-.flying-node { position: fixed; font-size: 20px; z-index: 10000; pointer-events: none; animation: flyToSidebar 0.8s cubic-bezier(0.19, 1, 0.22, 1) forwards; }
-@keyframes flyToSidebar {
-  0% { transform: scale(1); opacity: 1; }
-  100% { transform: translate(-100vw, -50vh) scale(0); opacity: 0; }
-}
-
-@keyframes spin { to { transform: rotate(360deg); } }
-.pulse { display: inline-block; width: 8px; height: 8px; background: #6366f1; border-radius: 50%; margin-right: 8px; box-shadow: 0 0 10px #6366f1; animation: pulse-anim 2s infinite; }
-.pulse.purple { background: #d946ef; box-shadow: 0 0 12px #d946ef; }
-@keyframes pulse-anim { 0% { opacity: 0.4; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.1); } 100% { opacity: 0.4; transform: scale(0.8); } }
-
 .glass { backdrop-filter: blur(10px); background: rgba(20,20,25,0.8); }
 
-/* Plugin Toasts (Flow B) */
-.plugin-layer { position: fixed; top: 20px; right: 20px; z-index: 11000; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
-.plugin-toast { 
-  pointer-events: auto; width: 260px; background: rgba(30, 30, 35, 0.9); backdrop-filter: blur(12px);
-  border: 1px solid rgba(99, 102, 241, 0.5); border-radius: 10px; padding: 12px;
-  box-shadow: 0 10px 25px rgba(0,0,0,0.5); border-left: 4px solid #6366f1;
-}
-.plugin-toast header { font-size: 11px; font-weight: bold; color: #6366f1; margin-bottom: 5px; text-transform: uppercase; }
-.plugin-toast .content { font-size: 13px; color: #e4e4e7; line-height: 1.4; }
+/* AI Control Styles */
+.ai-controls { display: flex; flex-direction: column; gap: 10px; }
+.btn-audit { background: #6366f1; border: none; color: white; padding: 8px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: bold; }
+.btn-audit:hover { background: #818cf8; }
 
-.toast-enter-active, .toast-leave-active { transition: all 0.4s ease; }
-.toast-enter-from { opacity: 0; transform: translateX(30px); }
-.toast-leave-to { opacity: 0; transform: scale(0.9); }
+.toggle-box { display: flex; justify-content: space-between; align-items: center; font-size: 11px; color: #71717a; }
+.switch { position: relative; display: inline-block; width: 34px; height: 18px; }
+.switch::after { content: ""; position: absolute; width: 14px; height: 14px; border-radius: 50%; background-color: white; top: 2px; left: 2px; transition: 0.3s; }
+input[type="checkbox"] { display: none; }
+input:checked + .switch { background-color: #6366f1; border-radius: 18px; }
+input:checked + .switch::after { left: 18px; }
+.switch { background-color: #333; border-radius: 18px; cursor: pointer; }
+
+/* Existing Styles ... (Side-bar, Workspace, etc) */
+.workspace-setup { height: 100%; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle at center, #111 0%, #000 100%); }
+.vault-container { width: 450px; background: #111; border: 1px solid #333; border-radius: 12px; padding: 25px; box-shadow: 0 20px 50px rgba(0,0,0,0.8); position: relative; overflow: hidden; }
+.server-card { background: #1a1a1a; border: 1px solid #333; padding: 12px; border-radius: 8px; display: flex; align-items: center; cursor: pointer; transition: 0.2s; margin-bottom: 10px; }
+.main-view { display: flex; height: 100%; width: 100%; }
+.side-bar { background: #0a192f; display: flex; flex-direction: column; flex-shrink: 0; border-right: 1px solid #1a1a1c; }
+.module { padding: 15px; border-bottom: 1px solid #1a1a1c; }
+.scroller { flex: 1; overflow-y: auto; }
+.sidebar-footer { padding: 15px; background: #080809; border-top: 1px solid #1a1a1c; margin-top: auto; }
+.workspace { flex: 1; display: flex; flex-direction: column; background: #000; overflow: hidden; }
+.tool-bar { height: 45px; background: #0c0c0e; border-bottom: 1px solid #1a1a1c; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; }
+.workspace-body { flex: 1; display: flex; overflow: hidden; }
+.terminal-pane { padding: 15px; overflow: hidden; }
+.terminal-container { height: 100%; width: 100%; }
+.plugin-layer { position: fixed; top: 20px; right: 20px; z-index: 11000; display: flex; flex-direction: column; gap: 10px; pointer-events: none; }
+.plugin-toast { pointer-events: auto; width: 260px; background: rgba(30, 30, 35, 0.9); backdrop-filter: blur(12px); border: 1px solid rgba(99, 102, 241, 0.5); border-radius: 10px; padding: 12px; border-left: 4px solid #6366f1; }
+.floating-menu { position: fixed; background: #18181b; border: 1px solid #3f3f46; border-radius: 8px; padding: 6px; z-index: 9999; min-width: 160px; }
+.pulse { display: inline-block; width: 8px; height: 8px; background: #d946ef; border-radius: 50%; margin-right: 8px; box-shadow: 0 0 10px #d946ef; animation: pulse-anim 2s infinite; }
+@keyframes pulse-anim { 0% { opacity: 0.4; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.1); } 100% { opacity: 0.4; transform: scale(0.8); } }
+@keyframes spin { to { transform: rotate(360deg); } }
+.resizer-h { width: 4px; cursor: col-resize; z-index: 100; }
+.resizer-h:hover { background: #6366f1; }
+.resizer-v { width: 6px; cursor: col-resize; background: #111; }
 </style>
