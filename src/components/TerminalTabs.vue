@@ -1,62 +1,12 @@
 <script setup lang="ts">
-import { terminalManager } from '../TerminalManager';
+import TerminalView from './TerminalView.vue';
 
 const props = defineProps<{
   tabs: any[];
   activeTabId: string | null;
 }>();
 
-const emit = defineEmits(['switch-tab', 'close-tab', 'new-tab', 'terminal-context']);
-
-/**
- * Custom directive to bridge Vue lifecycle with xterm.js non-reactive instances.
- * Using 'v-attach-term' instead of old 'v-mount-term' for the new architecture.
- */
-const vAttachTerm = {
-  mounted: (el: HTMLElement, binding: any) => {
-    const tabId = binding.value;
-    if (tabId) {
-      console.log(`[UI] v-attach-term: FORCING mount for ${tabId} into container-${tabId}`);
-      
-      terminalManager.getOrCreate(tabId);
-      // Force mount directly to this element (the container)
-      terminalManager.mount(tabId, el);
-
-      // Trigger immediate fit
-      terminalManager.fit(tabId);
-      requestAnimationFrame(() => {
-        setTimeout(() => terminalManager.fit(tabId), 50);
-        setTimeout(() => terminalManager.fit(tabId), 150);
-      });
-
-      // Simple debounce for ResizeObserver
-      let resizeTimeout: any = null;
-      const ro = new ResizeObserver((entries) => {
-        for (let entry of entries) {
-          if (entry.contentRect.width > 0 && entry.contentRect.height > 0) {
-            console.log(`[DEBUG] Terminal ${tabId} Resized: ${entry.contentRect.width}x${entry.contentRect.height}`);
-            
-            // Immediate fit for responsiveness
-            terminalManager.fit(tabId);
-
-            // Debounced secondary fit to catch final layout settles
-            if (resizeTimeout) clearTimeout(resizeTimeout);
-            resizeTimeout = setTimeout(() => {
-              terminalManager.fit(tabId);
-            }, 50);
-          }
-        }
-      });
-      ro.observe(el);
-      (el as any)._ro = ro;
-    }
-  },
-  unmounted: (el: HTMLElement) => {
-    if ((el as any)._ro) {
-      (el as any)._ro.disconnect();
-    }
-  }
-};
+defineEmits(['switch-tab', 'close-tab', 'new-tab', 'terminal-context']);
 
 const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
 </script>
@@ -78,12 +28,12 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
 
     <div class="workspace-body">
       <section class="terminal-pane">
-        <!-- Persistent Terminal Containers: Preserve physical size with visibility: hidden -->
+        <!-- Persistent Terminal Views: Preserve physical instance with v-show -->
         <div v-for="t in tabs" :key="t.id" 
-             :id="'container-' + t.id"
-             :class="['terminal-container', { 'inactive-tab': t.id !== activeTabId }]"
-             v-attach-term="t.id"
+             class="terminal-wrapper"
+             v-show="t.id === activeTabId"
              @contextmenu.prevent="$emit('terminal-context', { e: $event, id: t.id })">
+          <TerminalView :id="t.id" :active="t.id === activeTabId" />
         </div>
       </section>
     </div>
@@ -99,7 +49,6 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
   overflow: hidden; 
   background: #000; 
   position: relative; 
-  z-index: 50; /* Higher than sidebar handles */
 }
 
 .tab-bar { background: #0c0c0e; border-bottom: 1px solid #1a1a1c; display: flex; align-items: center; padding: 0 10px; height: 32px; flex-shrink: 0; z-index: 10; }
@@ -112,42 +61,15 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
 .workspace-body { flex: 1; position: relative; overflow: hidden; display: flex; }
 .terminal-pane { 
   height: 100%; 
-  flex: 1 0 300px !important; /* flex-grow: 1, flex-shrink: 0, min-width: 300px */
+  flex: 1;
   position: relative; 
   background: #000; 
 }
 
-/* 
- * PHYSICAL-INSET: Absolute positioning ensures zero jitter from Flexbox 
- * and ensures the container always fills its parent 1:1.
- */
-.terminal-container { 
-  display: block !important;
-  position: absolute !important;
-  width: 100% !important;
-  height: 100% !important;
-  top: 0 !important;
-  left: 0 !important;
-  background: #000 !important;
-  overflow: hidden !important;
-  pointer-events: auto !important;
-}
-
-/* PHYSICAL-KEEP-ALIVE: visibility: hidden keeps the layout metrics alive */
-.inactive-tab {
-  visibility: hidden;
-  pointer-events: none;
-  z-index: -1;
-}
-
-/* Force xterm internal elements to fill container */
-:deep(.xterm), 
-:deep(.xterm-viewport), 
-:deep(.xterm-screen),
-:deep(canvas) {
-  display: block !important;
-  width: 100% !important;
-  height: 100% !important;
-  background-color: #000 !important;
+.terminal-wrapper {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
 }
 </style>

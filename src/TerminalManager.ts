@@ -6,9 +6,12 @@ export interface TerminalInstance {
   id: string;
   term: Terminal;
   fit: FitAddon;
-  webgl?: WebglAddon;
 }
 
+/**
+ * Registry Pattern: TerminalManager only manages terminal instances in memory.
+ * DOM operations are handled by the TerminalView component.
+ */
 class TerminalManager {
   private instances: Map<string, TerminalInstance> = new Map();
   private callbacks: Map<string, (data: string) => void> = new Map();
@@ -26,7 +29,7 @@ class TerminalManager {
       fontSize: 14,
       fontFamily: "'JetBrains Mono', monospace",
       theme: { background: '#000000', foreground: '#fafafa' },
-      allowTransparency: false, // Ensure solid black background
+      allowTransparency: false,
       ...options
     });
 
@@ -42,46 +45,6 @@ class TerminalManager {
     const instance: TerminalInstance = { id, term, fit };
     this.instances.set(id, instance);
     return instance;
-  }
-
-  public mount(id: string, el: HTMLElement) {
-    const instance = this.instances.get(id);
-    if (instance) {
-      // Physical Seizure: Clear container to prevent duplicate elements or stale nodes
-      if (instance.term.element !== el) {
-        console.log(`[Manager] Redirecting terminal ${id} to new DOM node`);
-        el.innerHTML = ''; 
-        instance.term.open(el);
-      } else if (!el.contains(instance.term.element)) {
-        // Handle cases where the element might be empty or lost its children
-        el.innerHTML = '';
-        instance.term.open(el);
-      }
-      
-      // Try to load WebGL for performance if not already loaded
-      if (!instance.webgl) {
-        try {
-          const webgl = new WebglAddon();
-          instance.term.loadAddon(webgl);
-          instance.webgl = webgl;
-        } catch (e) {
-          console.warn("[Manager] WebGL addon failed to load:", e);
-        }
-      }
-      
-      // Initial fit with forced dimensions check
-      requestAnimationFrame(() => {
-        instance.fit.fit();
-        instance.term.focus();
-      });
-    }
-  }
-
-  public fit(id: string) {
-    const instance = this.instances.get(id);
-    if (instance && instance.term.element) {
-      instance.fit.fit();
-    }
   }
 
   public fitAll() {
@@ -128,3 +91,4 @@ class TerminalManager {
 }
 
 export const terminalManager = new TerminalManager();
+export { WebglAddon };

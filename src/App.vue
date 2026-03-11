@@ -43,17 +43,6 @@ const realFiles = ref<any[]>([]);
 const skills = ref<any[]>([]);
 
 // ==========================================
-// --- TERMINAL MOUNTING ---
-// ==========================================
-watch(activeTabId, async (newId) => {
-  if (newId) {
-    await nextTick();
-    const el = document.getElementById(`container-${newId}`);
-    if (el) terminalManager.mount(newId, el);
-  }
-});
-
-// ==========================================
 // --- TAB MANAGEMENT ---
 // ==========================================
 const createNewTab = (title = "Shell") => {
