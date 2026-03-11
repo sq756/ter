@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/cpu"
@@ -55,11 +56,11 @@ type ManagedTask struct {
 }
 
 var (
-	port     = flag.Int("port", 34567, "Agent listen port")
-	token    = flag.String("token", "", "Security token for authentication")
-	tasks    = make(map[string]*ManagedTask)
-	tasksMu  sync.RWMutex
-	logDir   string
+	port      = flag.Int("port", 34567, "Agent listen port")
+	token     = flag.String("token", "", "Security token for authentication")
+	tasks     = make(map[string]*ManagedTask)
+	tasksMu   sync.RWMutex
+	logDir    string
 	stateFile string
 )
 
@@ -91,15 +92,12 @@ func loadState() {
 	for _, t := range tasks {
 		if t.Status == "running" {
 			p, err := os.FindProcess(t.PID)
-			if err != nil || p.Signal(os.Signal(uintptr(0))) != nil {
+			// Signal 0 is used to check if process exists
+			if err != nil || p.Signal(syscall.Signal(0)) != nil {
 				t.Status = "stopped"
 			}
 		}
 	}
-}
-
-func startTaskHandler(w http.ResponseWriter, r *http.Request) {
-    // ... (rest of logic same but calls saveState after success)
 }
 
 func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
@@ -251,6 +249,8 @@ func startTaskHandler(w http.ResponseWriter, r *http.Request) {
 		cmd:       cmd,
 	}
 	tasks[req.ID] = task
+	saveState() // Save state immediately
+
 	go func() {
 		err := cmd.Wait()
 		f.Close()
@@ -261,6 +261,7 @@ func startTaskHandler(w http.ResponseWriter, r *http.Request) {
 		} else {
 			task.Status = "stopped"
 		}
+		saveState() // Save state on completion
 	}()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(task)
@@ -290,6 +291,7 @@ func stopTaskHandler(w http.ResponseWriter, r *http.Request) {
 		task.cmd.Process.Kill()
 	}
 	fmt.Fprintf(w, "Task %s stopped", id)
+	saveState()
 }
 
 func taskLogsHandler(w http.ResponseWriter, r *http.Request) {
@@ -344,6 +346,9 @@ func main() {
 	if *token == "" {
 		*token = os.Getenv("TER_AGENT_TOKEN")
 	}
+
+	loadState() // Load saved tasks on startup
+
 	http.HandleFunc("/stats", authMiddleware(statsHandler))
 	http.HandleFunc("/proc/kill", authMiddleware(killHandler))
 	http.HandleFunc("/task/start", authMiddleware(startTaskHandler))
