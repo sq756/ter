@@ -72,6 +72,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_INCREMENTAL: 1
+          CARGO_PROFILE_RELEASE_LTO: thin
           CARGO_HTTP_MULTIPLEXING: false
           CARGO_NET_RETRY: 10
           CARGO_TERM_COLOR: always
