@@ -6,48 +6,47 @@ use crypto::Crypto;
 use std::sync::Arc;
 use anyhow::Result;
 use russh::*;
-use russh_sftp::client::SftpSession;
 use std::future::Future;
 use tauri::{AppHandle, State, Manager};
 use tokio::sync::mpsc;
 use tauri::Emitter;
-use tokio::net::TcpListener;
-use tokio::io::AsyncReadExt;
 use uuid::Uuid;
 use std::sync::OnceLock;
-use base64::Engine;
 
 static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 
-const AGENT_SCRIPT: &str = r#"
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+struct Skill { name: String, description: String }
+
+const AGENT_SCRIPT: &str = r####"
 (function() {
   window.TerAgent = {
     extractDOM: function() {
-      const selectors = 'a, button, input, textarea, [role="button"], [onclick]';
+      const selectors = "a, button, input, textarea, [role='button'], [onclick]";
       const elements = document.querySelectorAll(selectors);
       let idCounter = 1;
       let markdown = "### CYBER_DOM_SNAPSHOT\n\n";
       elements.forEach(el => {
         const rect = el.getBoundingClientRect();
         const style = window.getComputedStyle(el);
-        if (rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0') {
+        if (rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden" && style.opacity !== "0") {
           const id = idCounter++;
-          el.setAttribute('data-ter-id', id);
+          el.setAttribute("data-ter-id", id);
           const tag = el.tagName.toLowerCase();
           const text = (el.innerText || el.value || el.placeholder || el.ariaLabel || "").trim().substring(0, 40);
-          markdown += "- [" + tag.toUpperCase() + " #" + id + ": " + (text || 'NODE') + "]\n";
+          markdown += "- [" + tag.toUpperCase() + " #" + id + ": " + (text || "NODE") + "]\n";
         }
       });
       return markdown;
     },
     click: function(id) {
-      const el = document.querySelector('[data-ter-id="' + id + '"]');
+      const el = document.querySelector("[data-ter-id='" + id + "']");
       if (el) { el.click(); return "OK"; }
       return "FAIL";
     }
   };
 })();
-"#;
+"####;
 
 struct BackendLogger;
 impl log::Log for BackendLogger {
@@ -111,7 +110,7 @@ async fn delete_server_config(id: String, state: State<'_, AppState>) -> Result<
 
 #[tauri::command]
 async fn navigate_cyber_webview(url: String, app_handle: AppHandle) -> Result<(), String> {
-    if let Some(wv) = app_handle.get_webview("cyber-native-view") {
+    if let Some(wv) = app_handle.get_webview_window("cyber-native-view") {
         wv.navigate(url.parse().map_err(|e| format!("{}", e))?).map_err(|e| e.to_string())?;
         wv.eval(AGENT_SCRIPT).map_err(|e| e.to_string())?;
     }
@@ -120,7 +119,7 @@ async fn navigate_cyber_webview(url: String, app_handle: AppHandle) -> Result<()
 
 #[tauri::command]
 async fn reload_cyber_webview(app_handle: AppHandle) -> Result<(), String> {
-    if let Some(wv) = app_handle.get_webview("cyber-native-view") {
+    if let Some(wv) = app_handle.get_webview_window("cyber-native-view") {
         wv.eval("window.location.reload()").map_err(|e| e.to_string())?;
         wv.eval(AGENT_SCRIPT).map_err(|e| e.to_string())?;
     }
@@ -129,8 +128,16 @@ async fn reload_cyber_webview(app_handle: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 async fn extract_cyber_dom(app_handle: AppHandle) -> Result<(), String> {
-    if let Some(wv) = app_handle.get_webview("cyber-native-view") {
+    if let Some(wv) = app_handle.get_webview_window("cyber-native-view") {
         wv.eval("window.emit('dom-extracted', window.TerAgent.extractDOM())").map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn eval_cyber_webview(code: String, app_handle: AppHandle) -> Result<(), String> {
+    if let Some(wv) = app_handle.get_webview_window("cyber-native-view") {
+        wv.eval(&code).map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -141,7 +148,7 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
     let mut channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
     channel.request_pty(true, "xterm-256color", 80, 24, 0, 0, &[]).await.map_err(|e| e.to_string())?;
     let tmux_cmd = format!("tmux new-session -A -s {} \\; set-option status off", tab_id);
-    channel.exec(true, &tmux_cmd).await.map_err(|e| e.to_string())?;
+    channel.exec(true, tmux_cmd.as_str()).await.map_err(|e| e.to_string())?;
     let (tx, mut rx) = mpsc::channel::<String>(100);
     let (ctrl_tx, mut ctrl_rx) = mpsc::channel::<PtyControl>(10);
     state.pty_channels.insert(tab_id.clone(), tx);
@@ -149,7 +156,7 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
     tauri::async_runtime::spawn(async move {
         loop {
             tokio::select! {
-                Some(ctrl) = ctrl_rx.recv() => { if let PtyControl::Resize(c, r) = ctrl { let _ = channel.window_change(c, r, 0, 0).await; } }
+                Some(ctrl) = ctrl_rx.recv() => { let PtyControl::Resize(c, r) = ctrl; let _ = channel.window_change(c, r, 0, 0).await; }
                 Some(data) = rx.recv() => { let _ = channel.data(data.as_bytes()).await; }
                 msg = channel.wait() => { 
                     if let Some(russh::ChannelMsg::Data { data }) = msg { let _ = app_handle.emit("pty-data", serde_json::json!({"id": tab_id, "data": data.to_vec()})); }
@@ -180,20 +187,12 @@ async fn load_remote_skills(_: State<'_, AppState>) -> Result<Vec<Skill>, String
 struct RemoteFile { name: String, is_dir: bool, size: u64 }
 
 #[tauri::command]
-async fn eval_cyber_webview(code: String, app_handle: AppHandle) -> Result<(), String> {
-    if let Some(wv) = app_handle.get_webview("cyber-native-view") {
-        wv.eval(&code).map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-#[tauri::command]
-async fn connect_with_id(id: String, app_handle: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+async fn connect_with_id(id: String, _app_handle: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let db = get_db(&state).await?;
     let config = db.list_servers().await.map_err(|e| e.to_string())?.into_iter().find(|c| c.id == id).ok_or("Not found")?;
     let mut pass = String::new();
     if let Some(enc) = &config.password_enc { if let Some(c) = state.crypto.lock().await.as_ref() { pass = c.decrypt(enc).ok_or("Decrypt failed")?; } }
-    let sess = client::connect(Arc::new(client::Config::default()), (config.host.as_str(), config.port as u16), Client {}).await.map_err(|e| e.to_string())?;
+    let mut sess = client::connect(Arc::new(client::Config::default()), (config.host.as_str(), config.port as u16), Client {}).await.map_err(|e| e.to_string())?;
     let auth = sess.authenticate_password(config.user, pass).await.map_err(|e| e.to_string())?;
     if !matches!(auth, russh::client::AuthResult::Success) { return Err("Auth fail".to_string()); }
     *state.session.lock().await = Some(Arc::new(sess));

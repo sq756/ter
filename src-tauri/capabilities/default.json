@@ -7,14 +7,17 @@
   ],
   "permissions": [
     "core:default",
+    "core:app:default",
+    "core:webview:default",
+    "core:webview:allow-create-webview",
+    "core:webview:allow-set-webview-size",
+    "core:webview:allow-set-webview-position",
+    "core:window:default",
+    "core:window:allow-create",
+    "core:window:allow-set-size",
+    "core:window:allow-set-position",
     "dialog:default",
-    "shell:default",
     "log:default",
-    "webview:allow-create-webview",
-    "webview:allow-navigate",
-    "webview:allow-javascript-eval",
-    "window:allow-create-window",
-    "window:allow-set-size",
-    "window:allow-set-position"
+    "shell:default"
   ]
 }
