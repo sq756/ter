@@ -14,7 +14,7 @@ const isConnected = ref(false), isConnecting = ref(false), isMasterPasswordSet =
 const isAutoPilot = ref(false), lastAutoPilotTime = ref(0), connectionStatus = ref<'connected' | 'busy' | 'disconnected'>('disconnected');
 const activeTriggers = ref<string[]>(['Allow execution of:', '1. Allow once']);
 const showSettings = ref(false), activeMacros = ref<{name: string, cmd: string}[]>([]);
-const morseSequence = ref(''), morseText = ref(''), morseDownTime = ref(0), showMorseMacro = ref(false), morseTimer = ref<any>(null), isMorsePressed = ref(false);
+const morseSequence = ref(''), morseText = ref(''), showMorseMacro = ref(false), morseTimer = ref<any>(null), isMorsePressed = ref(false);
 const morseMap: Record<string, string> = { '.-': 'A', '-...': 'B', '-.-.': 'C', '-..': 'D', '.': 'E', '..-.': 'F', '--.': 'G', '....': 'H', '..': 'I', '.---': 'J', '-.-': 'K', '.-..': 'L', '--': 'M', '-.': 'N', '---': 'O', '.--.': 'P', '--.-': 'Q', '.-.': 'R', '...': 'S', '-': 'T', '..-': 'U', '...-': 'V', '.--': 'W', '-..-': 'X', '-.--': 'Y', '--..': 'Z', '-----': '0', '.----': '1', '..---': '2', '...--': '3', '....-': '4', '.....': '5', '-....': '6', '--...': '7', '---..': '8', '----.': '9' };
 const isLocked = ref(false), cyberMode = ref(0), agentToken = ref(''), currentAgentPort = ref<number | null>(null), previewUrl = ref('http://localhost:5173'), isWebviewLoading = ref(false);
 const backendLogs = ref<string[]>([]), savedServers = ref<any[]>([]), host = ref('Remote Server'), currentPath = ref('/'), realFiles = ref<any[]>([]), skills = ref<any[]>([]);
@@ -65,8 +65,12 @@ const onConnected = async () => {
     if (connectionStatus.value === 'connected') { connectionStatus.value = 'busy'; setTimeout(() => { if (isConnected.value) connectionStatus.value = 'connected'; }, 200); }
     if (isAutoPilot.value && id === activeTabId.value) {
       const pt = text.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, ''); const now = Date.now();
-      const actionMatch = pt.match(/\[TER_ACTION:\s*click\((\d+)\)\]/);
-      if (actionMatch && actionMatch[1]) { invoke('eval_cyber_webview', { code: `window.TerAgent.click(${actionMatch[1]})` }); return; }
+      const actionMatch = pt.match(/\[TER_ACTION:\s*(click|type)\((\d+)(?:,\s*"(.*?)")?\)\]/);
+      if (actionMatch) {
+        const action = actionMatch[1], eid = actionMatch[2], txt = actionMatch[3] || "";
+        const code = action === 'click' ? `window.TerAgent.click(${eid})` : `window.TerAgent.type(${eid}, ${JSON.stringify(txt)})`;
+        invoke('eval_cyber_webview', { code }); return;
+      }
       if (!pt.includes('tab-') && (now - lastAutoPilotTime.value) > 500) {
         const lm = pt.match(/http:\/\/localhost:(\d+)/); if (lm && lm[1]) refreshWebview(`http://localhost:${lm[1]}`);
         if (activeTriggers.value.some(t => pt.includes(t))) { lastAutoPilotTime.value = now; setTimeout(() => { invoke('write_pty', { tabId: id, data: "\r" }); }, 300); }
@@ -89,11 +93,35 @@ const refreshWebview = async (fUrl?: string) => {
 };
 const handleExtractDOM = async () => { backendLogs.value.push(`[INFO] Extracting DOM...`); await invoke('extract_cyber_dom'); };
 const onDomExtracted = async (md: string) => { if (activeTabId.value) { await invoke('write_pty', { tabId: activeTabId.value, data: `\x1b[200~${md}\x1b[201~\r` }); backendLogs.value.push(`[INFO] Snapshot injected.`); } };
-const onMorseDown = () => { isMorsePressed.value = true; morseDownTime.value = Date.now(); if (morseTimer.value) clearTimeout(morseTimer.value); };
-const onMorseUp = () => {
-  isMorsePressed.value = false; const d = Date.now() - morseDownTime.value; morseSequence.value += (d < 250) ? '.' : '-';
-  morseTimer.value = setTimeout(async () => { const c = morseMap[morseSequence.value]; if (c && activeTabId.value) { morseText.value += c; await invoke('write_pty', { tabId: activeTabId.value, data: c }); } morseSequence.value = ''; setTimeout(() => { morseText.value = ''; }, 2000); }, 1000);
+
+// v2.3.7 Refactored Morse System
+const possibleLetters = computed(() => {
+  if (!morseSequence.value) return "";
+  const candidates = Object.entries(morseMap).filter(([code]) => code.startsWith(morseSequence.value)).slice(0, 5).map(([code, char]) => `${char}(${code})`);
+  return candidates.length ? "Next: " + candidates.join(" ") : "";
+});
+const handleMorseMouse = (e: MouseEvent) => {
+  if (e.button === 1) { onMorseMacro(e); return; }
+  isMorsePressed.value = true;
+  setTimeout(() => { isMorsePressed.value = false; }, 100);
+  if (e.button === 0) morseSequence.value += '.';
+  else if (e.button === 2) morseSequence.value += '-';
+  if (morseTimer.value) clearTimeout(morseTimer.value);
+  morseTimer.value = setTimeout(commitMorse, 800);
 };
+const handleMorseWheel = (e: WheelEvent) => {
+  if (activeTabId.value) {
+    if (e.deltaY < 0) invoke('write_pty', { tabId: activeTabId.value, data: "\r" });
+    else invoke('write_pty', { tabId: activeTabId.value, data: "\x7f" });
+  }
+};
+const commitMorse = async () => {
+  const char = morseMap[morseSequence.value];
+  if (char && activeTabId.value) { morseText.value += char; await invoke('write_pty', { tabId: activeTabId.value, data: char }); }
+  morseSequence.value = '';
+  setTimeout(() => { if (!morseSequence.value) morseText.value = ''; }, 2000);
+};
+
 const onMorseMacro = (e: MouseEvent) => { calculateMenuPosition(e, 200); showMorseMacro.value = true; };
 const runMacro = async (c: string) => { if (activeTabId.value) await invoke('write_pty', { tabId: activeTabId.value, data: c + '\n' }); showMorseMacro.value = false; };
 const renameTabAction = () => { const id = contextMenuTabId.value; if (id) { const n = prompt("New name:"); if (n) { const t = terminalTabs.value.find(x => x.id === id); if (t) t.title = n; } } showContextMenu.value = false; };
@@ -132,9 +160,8 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
     </div>
     <div v-else class="main-view">
       <SettingsPanel :isOpen="showSettings" @close="showSettings = false" @update-macros="(m) => activeMacros = m" />
-      <SidebarPanel :files="realFiles" :currentPath="currentPath" :bgTabs="backgroundTabs" :skills="skills" :cpuChartRef="(el: any) => cpuChartRef = el" :memChartRef="(el: any) => memChartRef = el" v-model:isAutoPilot="isAutoPilot" @switch-tab="bringToForeground" @switch-mode="(mode: number) => cyberMode = mode" @view-history="viewHistory" @proc-context="(p: any) => onTerminalContextMenu({e: p.event, id: p.tab.id})" @run-skill="runSkill" @change-dir="changeDir" @open-trigger-settings="showSettings = true" @fast-access="onFastAccess" @morse-down="onMorseDown" @morse-up="onMorseUp" @morse-context="onMorseMacro" />
+      <SidebarPanel :files="realFiles" :currentPath="currentPath" :bgTabs="backgroundTabs" :skills="skills" :cpuChartRef="(el: any) => cpuChartRef = el" :memChartRef="(el: any) => memChartRef = el" v-model:isAutoPilot="isAutoPilot" @switch-tab="bringToForeground" @switch-mode="(mode: number) => cyberMode = mode" @view-history="viewHistory" @proc-context="(p: any) => onTerminalContextMenu({e: p.event, id: p.tab.id})" @run-skill="runSkill" @change-dir="changeDir" @open-trigger-settings="showSettings = true" @fast-access="onFastAccess" />
       <main class="workspace" ref="workspaceRef" @click="activeTabId && terminalManager.focus(activeTabId)">
-        <!-- Context Menus with dynamic positioning -->
         <div v-if="showContextMenu" class="context-menu" :style="{ top: menuY + 'px', left: menuX + 'px' }">
           <header class="menu-header">TERMINAL ACTIONS</header>
           <div v-if="hasErrorSelection" class="menu-item highlight" @click="diagnoseSelection">🤖 Diagnose Error</div>
@@ -147,7 +174,11 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
           <div v-for="m in activeMacros" :key="m.name" class="menu-item" @click="runMacro(m.cmd)">⚡ {{ m.name }}</div>
           <div class="menu-divider"></div><div class="menu-item" @click="showSettings = true">⚙️ Manage...</div>
         </div>
-        <div v-if="morseSequence || morseText" class="morse-preview-overlay"><div class="sequence">{{ morseSequence }}</div><div class="text">{{ morseText }}</div></div>
+        <div v-if="morseSequence || morseText" class="morse-preview-overlay">
+          <div class="sequence">{{ morseSequence }}</div>
+          <div class="text">{{ morseText }}</div>
+          <div class="candidates" v-if="possibleLetters">{{ possibleLetters }}</div>
+        </div>
         <nav class="tool-bar"><div class="status-chip"><span class="pulse purple"></span> {{ host }}</div><div class="actions"><button @click="isLocked = true" class="btn-tool">Lock System</button></div></nav>
         <div class="workspace-body">
           <section class="terminal-pane"><TerminalTabs :tabs="terminalTabs" :activeTabId="activeTabId" :connectionStatus="connectionStatus" @switch-tab="bringToForeground" @close-tab="closeTab" @new-tab="createNewTab()" @terminal-context="onTerminalContextMenu" /></section>
@@ -167,7 +198,7 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
           </section>
         </div>
         <footer class="status-bar">
-          <div class="status-left stealth-zone" @mousedown="onMorseDown" @mouseup="onMorseUp" @contextmenu.prevent="onMorseMacro">
+          <div class="status-left stealth-zone" @mousedown.prevent="handleMorseMouse" @wheel.prevent="handleMorseWheel">
             <div class="tiny-dot" :class="{ 'active': isMorsePressed }"></div>
             <span class="item">1 | Agent: Active</span>
           </div>
@@ -231,7 +262,9 @@ input:checked + .slider:before { transform: translateX(12px); }
 .menu-item.danger { color: #ef4444; }
 .menu-item.danger:hover { background: #ef4444; color: #fff; }
 .morse-preview-overlay { position: absolute; bottom: 40px; left: 10px; background: rgba(0, 0, 0, 0.8); border: 1px solid #22c55e; padding: 10px 20px; border-radius: 8px; z-index: 1000; display: flex; flex-direction: column; align-items: center; pointer-events: none; }
-.morse-preview-overlay .sequence { font-size: 24px; color: #22c55e; letter-spacing: 4px; }
+.morse-preview-overlay .sequence { font-size: 24px; color: #22c55e; letter-spacing: 4px; font-family: 'JetBrains Mono', monospace; }
+.morse-preview-overlay .text { font-size: 14px; color: #fafafa; margin-top: 4px; font-family: 'JetBrains Mono', monospace; }
+.morse-preview-overlay .candidates { font-size: 9px; color: #71717a; margin-top: 6px; font-family: 'JetBrains Mono', monospace; }
 .modal-overlay { position: fixed; inset: 0; background: rgba(9, 9, 11, 0.9); display: flex; align-items: center; justify-content: center; z-index: 10000; backdrop-filter: blur(4px); }
 .auth-card { background: #18181b; padding: 30px; border-radius: 12px; border: 1px solid #27272a; width: 320px; }
 .btn-primary { width: 100%; padding: 12px; background: #3b82f6; border: none; color: #fff; border-radius: 6px; cursor: pointer; }
