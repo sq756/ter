@@ -367,6 +367,7 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
     <div v-else class="main-view">
       <SidebarPanel 
         :files="realFiles" 
+        :currentPath="currentPath"
         :bgTabs="backgroundTabs"
         :skills="skills"
         :cpuChartRef="(el: any) => cpuChartRef = el"
@@ -390,10 +391,7 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
         <nav class="tool-bar">
           <div class="status-chip"><span class="pulse purple"></span> {{ host }}</div>
           <div class="actions">
-            <button @click="isLocked = true" class="btn-tool">Lock</button>
-            <button @click="cyberMode = cyberMode === 1 ? 0 : 1" class="btn-tool">
-              {{ cyberMode === 1 ? 'Focus' : 'Cyber View' }}
-            </button>
+            <button @click="isLocked = true" class="btn-tool">Lock System</button>
           </div>
         </nav>
 
@@ -426,6 +424,28 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
             </div>
           </section>
         </div>
+
+        <!-- NEW: Status Bar -->
+        <footer class="status-bar">
+          <div class="status-left">
+            <span class="item">🟢 {{ host }}</span>
+            <span class="item separator">|</span>
+            <span class="item">Agent: {{ currentAgentPort ? 'Active' : 'Offline' }}</span>
+          </div>
+          <div class="status-right">
+            <button class="status-btn" @click="captureAndUpload">📸 Audit UI</button>
+            <button class="status-btn" @click="cyberMode = cyberMode === 1 ? 0 : 1">
+              {{ cyberMode === 1 ? '🖥️ Terminal Focus' : '🌐 Cyber View' }}
+            </button>
+            <div class="status-toggle">
+              <span>Auto-Pilot</span>
+              <label class="mini-switch">
+                <input type="checkbox" v-model="isAutoPilot" />
+                <span class="slider"></span>
+              </label>
+            </div>
+          </div>
+        </footer>
       </main>
     </div>
 
@@ -434,36 +454,92 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
 </template>
 
 <style scoped>
-.app-shell { height: 100vh; background: #050505; color: #e4e4e7; font-family: 'Inter', system-ui; overflow: hidden; }
+.app-shell { height: 100vh; background: #09090b; color: #d4d4d8; font-family: 'Inter', system-ui; overflow: hidden; }
 .main-view { display: flex; height: 100%; width: 100%; }
-.workspace { flex: 1; display: flex; flex-direction: column; background: #000; overflow: hidden; min-width: 0; }
-.tool-bar { height: 45px; background: #09090b; border-bottom: 1px solid #27272a; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; }
+.workspace { flex: 1; display: flex; flex-direction: column; background: #09090b; overflow: hidden; min-width: 0; }
+.tool-bar { height: 36px; background: #09090b; border-bottom: 1px solid #27272a; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; }
+
+/* Status Bar */
+.status-bar { 
+  height: 24px; 
+  background: #007acc; 
+  color: #fff; 
+  display: flex; 
+  justify-content: space-between; 
+  align-items: center; 
+  padding: 0 10px; 
+  font-size: 11px; 
+  z-index: 100;
+  flex-shrink: 0;
+}
+
+/* Alternative Status Bar color for non-focused mode if you prefer */
+.status-bar { background: #18181b; border-top: 1px solid #27272a; color: #71717a; }
+
+.status-left, .status-right { display: flex; align-items: center; gap: 15px; }
+.status-left .item { display: flex; align-items: center; }
+.status-left .separator { opacity: 0.3; }
+
+.status-btn { 
+  background: transparent; 
+  border: none; 
+  color: #a1a1aa; 
+  cursor: pointer; 
+  font-size: 11px; 
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+.status-btn:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
+
+.status-toggle { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #71717a; }
+
+/* Mini Switch for Status Bar */
+.mini-switch { position: relative; display: inline-block; width: 24px; height: 12px; }
+.mini-switch input { opacity: 0; width: 0; height: 0; }
+.slider { position: absolute; cursor: pointer; inset: 0; background-color: #3f3f46; transition: .4s; border-radius: 12px; }
+.slider:before { position: absolute; content: ""; height: 8px; width: 8px; left: 2px; bottom: 2px; background-color: white; transition: .4s; border-radius: 50%; }
+input:checked + .slider { background-color: #3b82f6; }
+input:checked + .slider:before { transform: translateX(12px); }
+
 .workspace-body { flex: 1; display: flex; overflow: hidden; }
-.terminal-pane { flex: 1; height: 100%; min-width: 0; }
-.cyber-pane { width: 380px; height: 100%; border-left: 1px solid #27272a; background: #000; overflow: hidden; }
+.terminal-pane { flex: 1; height: 100%; min-width: 0; position: relative; }
+.cyber-pane { width: 420px; height: 100%; border-left: 1px solid #27272a; background: #09090b; overflow: hidden; }
 .cyber-container { display: flex; flex-direction: column; height: 100%; }
-.cyber-logs-view { flex: 0 0 40%; display: flex; flex-direction: column; background: #050505; border-bottom: 1px solid #27272a; overflow: hidden; }
+.cyber-logs-view { flex: 0 0 35%; display: flex; flex-direction: column; background: #09090b; border-bottom: 1px solid #27272a; overflow: hidden; }
 .cyber-logs-view header { padding: 8px 12px; background: #09090b; border-bottom: 1px solid #27272a; }
-.cyber-logs-view .title { font-size: 10px; color: #6366f1; font-weight: bold; text-transform: uppercase; }
+.cyber-logs-view .title { font-size: 10px; color: #3b82f6; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; }
 .logs-container { flex: 1; padding: 10px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #a1a1aa; scroll-behavior: smooth; }
-.log-line { margin-bottom: 2px; white-space: pre-wrap; word-break: break-all; }
+.log-line { margin-bottom: 2px; white-space: pre-wrap; word-break: break-all; opacity: 0.8; }
 .line-num { color: #3f3f46; margin-right: 8px; }
 .cyber-divider { height: 1px; background: #27272a; }
-.cyber-webview-wrapper { flex: 1; background: #000; position: relative; }
+.cyber-webview-wrapper { flex: 1; background: #09090b; position: relative; }
 .context-menu { position: fixed; z-index: 100000; background: #18181b; border: 1px solid #3f3f46; border-radius: 6px; padding: 4px; min-width: 150px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
 .menu-item { padding: 8px 12px; font-size: 11px; color: #d4d4d8; cursor: pointer; border-radius: 4px; }
-.menu-item:hover { background: #3f3f46; color: #fff; }
+.menu-item:hover { background: #3b82f6; color: #fff; }
 .menu-item.disabled { color: #52525b; cursor: not-allowed; }
 .menu-divider { height: 1px; background: #27272a; margin: 4px 0; }
-.status-chip { font-size: 11px; color: #a1a1aa; display: flex; align-items: center; }
-.pulse { width: 8px; height: 8px; background: #d946ef; border-radius: 50%; margin-right: 8px; box-shadow: 0 0 10px #d946ef; }
-.btn-tool { background: transparent; border: 1px solid #27272a; color: #a1a1aa; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 11px; margin-left: 10px; }
-.btn-tool:hover { border-color: #6366f1; color: #fff; }
-.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 10000; }
-.auth-card { background: #111; padding: 30px; border-radius: 12px; border: 1px solid #333; width: 320px; }
-.auth-card input { width: 100%; padding: 12px; background: #000; border: 1px solid #333; color: #fff; border-radius: 6px; margin-bottom: 15px; }
-.btn-primary { width: 100%; padding: 12px; background: #6366f1; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-weight: bold; }
-.workspace-setup { height: 100%; display: flex; align-items: center; justify-content: center; background: #000; }
-.vault-container { width: 450px; background: #111; border: 1px solid #333; border-radius: 12px; padding: 25px; }
-.server-card { background: #1a1a1a; border: 1px solid #333; padding: 12px; border-radius: 8px; display: flex; align-items: center; cursor: pointer; margin-bottom: 10px; }
+.status-chip { font-size: 11px; color: #a1a1aa; display: flex; align-items: center; font-family: 'JetBrains Mono', monospace; }
+.pulse { width: 6px; height: 6px; background: #3b82f6; border-radius: 50%; margin-right: 8px; box-shadow: 0 0 8px #3b82f6; }
+.btn-tool { background: transparent; border: 1px solid #27272a; color: #71717a; padding: 3px 10px; border-radius: 4px; cursor: pointer; font-size: 10px; margin-left: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+.btn-tool:hover { border-color: #3b82f6; color: #fff; }
+.modal-overlay { position: fixed; inset: 0; background: rgba(9, 9, 11, 0.9); display: flex; align-items: center; justify-content: center; z-index: 10000; backdrop-filter: blur(4px); }
+.auth-card { background: #18181b; padding: 30px; border-radius: 12px; border: 1px solid #27272a; width: 320px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
+.auth-card h2 { font-size: 18px; margin-bottom: 20px; color: #fff; text-align: center; }
+.auth-card input { width: 100%; padding: 12px; background: #09090b; border: 1px solid #27272a; color: #fff; border-radius: 6px; margin-bottom: 15px; outline: none; }
+.auth-card input:focus { border-color: #3b82f6; }
+.btn-primary { width: 100%; padding: 12px; background: #3b82f6; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-weight: bold; transition: background 0.2s; }
+.btn-primary:hover { background: #2563eb; }
+.workspace-setup { height: 100%; display: flex; align-items: center; justify-content: center; background: #09090b; }
+.vault-container { width: 480px; background: #18181b; border: 1px solid #27272a; border-radius: 12px; padding: 30px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
+.vault-container header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }
+.vault-container h3 { font-size: 16px; color: #a1a1aa; letter-spacing: 0.05em; text-transform: uppercase; }
+.btn-add { background: #27272a; border: none; color: #fff; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-size: 18px; line-height: 1; }
+.btn-add:hover { background: #3f3f46; }
+.server-list { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.server-card { background: #09090b; border: 1px solid #27272a; padding: 15px; border-radius: 10px; display: flex; align-items: center; cursor: pointer; transition: all 0.2s; gap: 12px; }
+.server-card:hover { border-color: #3b82f6; background: rgba(59, 130, 246, 0.05); }
+.icon-box { background: #27272a; padding: 6px 8px; border-radius: 6px; font-size: 10px; font-weight: bold; color: #a1a1aa; }
+.info b { display: block; font-size: 13px; color: #e4e4e7; margin-bottom: 2px; }
+.info small { color: #52525b; font-size: 11px; }
 </style>

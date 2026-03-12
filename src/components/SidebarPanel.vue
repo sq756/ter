@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { computed } from 'vue';
+
 const props = defineProps<{
   files: any[];
+  currentPath: string;
   bgTabs: any[];
   skills: any[];
   cpuChartRef: any;
@@ -10,9 +13,20 @@ const props = defineProps<{
 
 const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill', 'change-dir']);
 
-const updateAutoPilot = (e: any) => {
-  emit('update:isAutoPilot', e.target.checked);
-};
+const sortedFiles = computed(() => {
+  // 1. Filter out '..' if it exists in the original list (we add it manually if not at root)
+  const baseFiles = props.files.filter(f => f.name !== '..');
+  
+  // 2. Sort logic
+  const sorted = [...baseFiles].sort((a, b) => {
+    // Directories first
+    if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+    // Alphabetical case-insensitive
+    return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+  });
+
+  return sorted;
+});
 
 const onItemClick = (f: any) => {
   if (f.is_dir) {
@@ -24,7 +38,7 @@ const onItemClick = (f: any) => {
 <template>
   <aside class="side-bar">
     <div class="module sys-health" @click="$emit('switch-mode', 0)" style="cursor: pointer;">
-      <header>System Health (Dashboard)</header>
+      <header>System Health</header>
       <div class="chart-box">
         <div :ref="cpuChartRef" class="mini-chart"></div>
         <div :ref="memChartRef" class="mini-chart"></div>
@@ -44,7 +58,7 @@ const onItemClick = (f: any) => {
     </div>
 
     <div class="module scroller skills-hub">
-      <header>Skill Hub (Remote)</header>
+      <header>Skill Hub</header>
       <ul class="data-list">
         <li v-for="s in skills" :key="s.id" @click="$emit('run-skill', s)" :title="s.description">
           <span class="icon">{{ s.icon || '🛠️' }}</span>
@@ -56,65 +70,128 @@ const onItemClick = (f: any) => {
     </div>
 
     <div class="module scroller explorer">
-      <header>SFTP Explorer</header>
+      <header>
+        <span>SFTP Explorer</span>
+        <div class="current-path">{{ currentPath }}</div>
+      </header>
       <ul class="data-list">
-        <li @click="$emit('change-dir', '..')">
-          <span class="icon">📁</span>
-          <span class="name">..</span>
+        <!-- Always '..' for navigation unless root? (Backend handles root logic) -->
+        <li @click="$emit('change-dir', '..')" class="file-item">
+          <span class="file-icon">📁</span>
+          <span class="file-name">..</span>
         </li>
-        <li v-for="f in files" :key="f.name" @click="onItemClick(f)">
-          <span class="icon">{{ f.is_dir ? '📁' : '📄' }}</span>
-          <span class="name">{{ f.name }}</span>
+        <li v-for="f in sortedFiles" :key="f.name" @click="onItemClick(f)" class="file-item">
+          <span class="file-icon">{{ f.is_dir ? '📁' : '📄' }}</span>
+          <span class="file-name">{{ f.name }}</span>
         </li>
       </ul>
-    </div>
-
-    <div class="sidebar-footer">
-      <header>AI Control</header>
-      <div class="ai-controls">
-        <button @click="$emit('switch-mode', 1)" class="btn-cyber">🌐 Open Cyber View</button>
-        <button @click="$emit('audit-ui')" class="btn-audit">📸 Audit UI</button>
-        <div class="toggle-box">
-          <span>Auto-Pilot</span>
-          <input type="checkbox" :checked="isAutoPilot" @change="updateAutoPilot" id="at-sidebar" />
-          <label for="at-sidebar" class="switch"></label>
-        </div>
-      </div>
     </div>
   </aside>
 </template>
 
 <style scoped>
-.side-bar { background: #09090b; width: 260px; height: 100%; display: flex; flex-direction: column; flex-shrink: 0; border-right: 1px solid #27272a; }
-.sys-health { height: 160px; flex-shrink: 0; }
-.module { padding: 16px; border-bottom: 1px solid #27272a; }
-.module header { font-size: 10px; text-transform: uppercase; color: #a1a1aa; margin-bottom: 12px; font-weight: bold; letter-spacing: 0.08em; }
-.scroller { flex: 1; overflow-y: auto; }
-.chart-box { display: flex; gap: 10px; height: 50px; }
-.mini-chart { flex: 1; height: 100%; background: #18181b; border: 1px solid #27272a; border-radius: 4px; }
+.side-bar { 
+  background: #09090b; 
+  width: 260px; 
+  height: 100%; 
+  display: flex; 
+  flex-direction: column; 
+  flex-shrink: 0; 
+  border-right: 1px solid #27272a; 
+}
+
+.module { 
+  padding: 16px; 
+  border-bottom: 1px solid #27272a; 
+}
+
+.module header { 
+  font-size: 11px;
+  color: #71717a; 
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.current-path {
+  font-size: 10px;
+  color: #52525b;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: normal;
+  word-break: break-all;
+  opacity: 0.8;
+}
+
+.scroller { 
+  flex: 0 0 auto; 
+  overflow-y: auto; 
+  max-height: 30%;
+}
+
+.explorer {
+  flex: 1;
+  max-height: none;
+}
+
+.sys-health { height: 140px; flex-shrink: 0; }
+.chart-box { display: flex; gap: 10px; height: 40px; }
+.mini-chart { flex: 1; height: 100%; background: #000; border: 1px solid #18181b; border-radius: 4px; }
 
 .data-list { list-style: none; padding: 0; margin: 0; }
-.data-list li { display: flex; justify-content: space-between; padding: 4px 8px; font-size: 11px; border-radius: 4px; color: #a1a1aa; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.02); }
-.data-list li:hover { background: rgba(255, 255, 255, 0.05); color: #fafafa; }
-.data-list .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }
-.data-list .val.active { color: #22c55e; font-weight: bold; }
-.data-list .val { color: #6366f1; font-size: 9px; border: 1px solid rgba(99, 102, 241, 0.4); padding: 1px 4px; border-radius: 3px; }
 
-.empty-hint { font-size: 10px; color: #3f3f46; text-align: center; margin-top: 20px; }
+/* Refactored File Item */
+.file-item, .data-list li { 
+  display: flex; 
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 6px 8px;
+  margin-bottom: 2px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #d4d4d8;
+  font-size: 13px;
+  transition: background 0.15s ease, color 0.15s ease;
+  border-bottom: none;
+}
 
-.skills-hub { max-height: 200px; flex: 0 0 auto; }
+.file-item:hover, .data-list li:hover { 
+  background: rgba(255, 255, 255, 0.08); 
+  color: #ffffff; 
+}
 
-.sidebar-footer { padding: 16px; background: #09090b; border-top: 1px solid #27272a; margin-top: auto; }
-.ai-controls { display: flex; flex-direction: column; gap: 8px; }
-.btn-audit { background: #6366f1; border: none; color: white; padding: 8px; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: bold; transition: opacity 0.2s; }
-.btn-audit:hover { opacity: 0.9; }
-.btn-cyber { background: #18181b; border: 1px solid #27272a; color: #d4d4d8; padding: 8px; border-radius: 6px; cursor: pointer; font-size: 11px; font-weight: bold; transition: all 0.2s; }
-.btn-cyber:hover { background: rgba(255, 255, 255, 0.08); border-color: #3f3f46; color: #fff; }
-.toggle-box { display: flex; justify-content: space-between; align-items: center; font-size: 10px; color: #71717a; }
+.file-name, .data-list .name { 
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+}
 
-.switch { position: relative; display: inline-block; width: 30px; height: 16px; background: #333; border-radius: 10px; cursor: pointer; }
-.switch::after { content: ''; position: absolute; width: 12px; height: 12px; background: #fff; border-radius: 50%; top: 2px; left: 2px; transition: 0.2s; }
-input[type="checkbox"] { display: none; }
-input:checked + .switch { background-color: #6366f1; }
-input:checked + .switch::after { left: 16px; }
+.file-icon, .data-list .icon { 
+  opacity: 0.7;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+}
+
+.data-list .val.active { color: #22c55e; font-weight: bold; font-size: 9px; }
+.data-list .val { 
+  color: #6366f1; 
+  font-size: 8px; 
+  border: 1px solid rgba(99, 102, 241, 0.4); 
+  padding: 0px 4px; 
+  border-radius: 3px;
+  margin-left: auto;
+}
+
+.empty-hint { font-size: 10px; color: #3f3f46; text-align: center; padding: 10px; }
+
+.skills-hub { max-height: 25%; }
 </style>

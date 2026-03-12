@@ -55,7 +55,7 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
 
 .tab-bar { background: #09090b; border-bottom: 1px solid #27272a; display: flex; align-items: center; padding: 0 10px; height: 32px; flex-shrink: 0; z-index: 10; }
 .tab-item { padding: 0 15px; height: 100%; display: flex; align-items: center; font-size: 11px; color: #71717a; border-right: 1px solid #27272a; cursor: pointer; position: relative; min-width: 80px; transition: all 0.2s; }
-.tab-item.active { background: #18181b; color: #6366f1; border-top: 2px solid #6366f1; }
+.tab-item.active { background: #18181b; color: #3b82f6; border-top: 2px solid #3b82f6; }
 .tab-item:hover:not(.active) { background: rgba(255, 255, 255, 0.04); color: #a1a1aa; }
 .tab-item .btn-close { margin-left: 10px; background: transparent; border: none; color: #444; cursor: pointer; visibility: hidden; font-size: 14px; }
 .tab-item:hover .btn-close { visibility: visible; }
@@ -66,7 +66,7 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
   height: 100%; 
   flex: 1;
   position: relative; 
-  background: #000; 
+  background: #09090b; 
 }
 
 .terminal-wrapper {
@@ -74,5 +74,9 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
   inset: 0;
   width: 100%;
   height: 100%;
+}
+
+.terminal-wrapper[v-show="true"] {
+  border-top: 2px solid #3b82f6;
 }
 </style>
