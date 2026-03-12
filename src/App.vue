@@ -179,10 +179,19 @@ onMounted(async () => {
   
   if (unlistenPty) unlistenPty();
   unlistenPty = await listen<any>('pty-data', (ev) => {
-    const { id, data } = ev.payload; const bytes = new Uint8Array(data);
-    if (terminalManager) terminalManager.write(id, bytes);
-    if (connectionStatus.value === 'connected') { connectionStatus.value = 'busy'; setTimeout(() => { if (isConnected.value) connectionStatus.value = 'connected'; }, 200); }
+    const { id, data } = ev.payload;
+    // 优化：直接透传，减少 WebKit 内存拷贝压力
+    if (terminalManager) {
+      terminalManager.write(id, typeof data === 'string' ? data : new Uint8Array(data));
+    }
+    
+    if (connectionStatus.value === 'connected') { 
+      connectionStatus.value = 'busy'; 
+      setTimeout(() => { if (isConnected.value) connectionStatus.value = 'connected'; }, 200); 
+    }
+    
     if (isAutoPilot.value && id === activeTabId.value) {
+      const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : new Uint8Array(data);
       const text = new TextDecoder().decode(bytes);
       const pt = text.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
       const actionMatch = pt.match(/\[TER_ACTION:\s*(click|type)\((\d+)(?:,\s*"(.*?)")?\)\]/);
@@ -275,9 +284,14 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.app-shell { height: 100vh; background: #000; color: #d4d4d8; font-family: 'JetBrains Mono', monospace; overflow: hidden; }
+.app-shell { height: 100vh; background: #000; color: #d4d4d8; font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace, 'Segoe UI Emoji', 'Noto Color Emoji'; overflow: hidden; }
 .main-view { display: flex; height: 100%; width: 100%; }
 .workspace { flex: 1; display: flex; flex-direction: column; background: #000; overflow: hidden; min-width: 0; }
+
+/* Global Icon Fix for Linux WebKit */
+.icon, .file-icon, .btn-tool, .status-btn { 
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+}
 
 .context-menu { position: fixed; z-index: 1000000; background: #09090b; border: 1px solid #22c55e; padding: 4px; min-width: 160px; box-shadow: 0 10px 25px rgba(0,0,0,0.8); }
 .menu-header { padding: 6px 12px; font-size: 9px; color: #166534; border-bottom: 1px solid #18181b; margin-bottom: 4px; }
@@ -287,17 +301,29 @@ onUnmounted(() => {
 .menu-item.danger:hover { background: #ef4444; color: #000; }
 .menu-divider { height: 1px; background: #18181b; margin: 4px 0; }
 
-.status-bar { height: 24px; background: #000; border-top: 1px solid #18181b; color: #52525b; display: flex; justify-content: space-between; align-items: center; padding: 0 10px; font-size: 10px; z-index: 100; flex-shrink: 0; }
-.status-bar, .bottom-actions {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 15px; /* 强制拉开间距 */
-  padding: 10px;
-  z-index: 100;
+.status-bar { 
+  height: 28px; 
+  background: #000; 
+  border-top: 1px solid #18181b; 
+  color: #52525b; 
+  display: flex; 
+  justify-content: space-between; 
+  align-items: center; 
+  padding: 0 12px; 
+  font-size: 10px; 
+  z-index: 100; 
+  flex-shrink: 0; 
 }
-.status-right { display: flex; align-items: center; gap: 15px; }
+
+.status-right { 
+  display: flex; 
+  align-items: center; 
+}
+
+.status-right > * {
+  margin-left: 15px !important; /* Force physical isolation for Linux compatibility */
+}
+
 .tiny-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; transition: all 0.1s; }
 .tiny-dot.active { transform: scale(1.1); box-shadow: 0 0 8px #22c55e; filter: brightness(1.5); }
 .stealth-zone { display: flex; align-items: center; gap: 8px; cursor: pointer; height: 100%; padding: 0 5px; }

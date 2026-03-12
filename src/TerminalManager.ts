@@ -16,6 +16,12 @@ export interface TerminalInstance {
 class TerminalManager {
   private instances: Map<string, TerminalInstance> = new Map();
   private callbacks: Map<string, (id: string, data: string) => void> = new Map();
+  private static instance: TerminalManager;
+
+  constructor() {
+    if (TerminalManager.instance) return TerminalManager.instance;
+    TerminalManager.instance = this;
+  }
 
   public setOnDataCallback(id: string, cb: (id: string, data: string) => void) {
     this.callbacks.set(id, cb);
@@ -28,7 +34,7 @@ class TerminalManager {
     const term = new Terminal({
       cursorBlink: true,
       fontSize: 14,
-      fontFamily: "'JetBrains Mono', monospace",
+      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
       theme: { background: '#09090b', foreground: '#d4d4d8' },
       allowTransparency: false,
       ...options
@@ -46,6 +52,24 @@ class TerminalManager {
     const instance: TerminalInstance = { id, term, fit };
     this.instances.set(id, instance);
     return instance;
+  }
+
+  /**
+   * Explicitly mount terminal to a DOM element.
+   * Ensures that the terminal is correctly attached and focused.
+   */
+  public mount(id: string, element: HTMLElement) {
+    const instance = this.getOrCreate(id);
+    if (instance.term.element) {
+      if (instance.term.element === element) return;
+      // If already mounted elsewhere, xterm handles relocation but we clear old parent
+      if (instance.term.element.parentElement) {
+        instance.term.element.parentElement.innerHTML = '';
+      }
+    }
+    element.innerHTML = '';
+    instance.term.open(element);
+    instance.fit.fit();
   }
 
   public fitAll() {

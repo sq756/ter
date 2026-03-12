@@ -54,7 +54,9 @@ const onFastAccessClick = (path: string) => {
       <header>Running Processes</header>
       <ul class="data-list">
         <li v-for="t in bgTabs" :key="t.id" @click="$emit('switch-tab', t.id)" @contextmenu.prevent="$emit('proc-context', {event: $event, tab: t})">
-          <span class="icon">📟</span>
+          <span class="icon">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17h16M4 7h16M4 12h16"></path></svg>
+          </span>
           <span class="name">{{ t.title }}</span>
           <span class="val active">ACTIVE</span>
         </li>
@@ -69,7 +71,10 @@ const onFastAccessClick = (path: string) => {
       </header>
       <ul class="data-list">
         <li v-for="s in skills" :key="s.id" @click="$emit('run-skill', s)" :title="s.description">
-          <span class="icon">{{ s.icon || '🛠️' }}</span>
+          <span class="icon">
+            <svg v-if="!s.icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
+            <span v-else>{{ s.icon }}</span>
+          </span>
           <span class="name">{{ s.name }}</span>
           <span class="val">RUN</span>
         </li>
@@ -82,7 +87,9 @@ const onFastAccessClick = (path: string) => {
       <header>FAST ACCESS</header>
       <ul class="data-list">
         <li v-for="path in lastVisited" :key="path" @click="onFastAccessClick(path)">
-          <span class="icon">🚀</span>
+          <span class="icon">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg>
+          </span>
           <span class="name">{{ path.split('/').pop() || '/' }}</span>
           <span class="val">GOTO</span>
         </li>
@@ -97,11 +104,16 @@ const onFastAccessClick = (path: string) => {
       </header>
       <ul class="data-list">
         <li @click="$emit('change-dir', '..')" class="file-item">
-          <span class="file-icon">📁</span>
+          <span class="file-icon">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+          </span>
           <span class="file-name">..</span>
         </li>
         <li v-for="f in sortedFiles" :key="f.name" @click="onItemClick(f)" class="file-item">
-          <span class="file-icon">{{ f.is_dir ? '📁' : '📄' }}</span>
+          <span class="file-icon">
+            <svg v-if="f.is_dir" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+            <svg v-else viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
+          </span>
           <span class="file-name">{{ f.name }}</span>
         </li>
       </ul>

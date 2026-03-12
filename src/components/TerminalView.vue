@@ -13,22 +13,9 @@ let resizeObserver: ResizeObserver | null = null;
 const initTerminal = async () => {
   if (!terminalRef.value) return;
   
+  terminalManager.mount(props.id, terminalRef.value);
   const instance = terminalManager.getOrCreate(props.id);
   const { term, fit } = instance;
-
-  // Ensure DOM is ready and element is visible
-  await nextTick();
-
-  // If already opened elsewhere, xterm handles it, but we should clear local DOM
-  if (term.element && term.element !== terminalRef.value) {
-    console.log(`[TerminalView] Terminal ${props.id} moving to new element`);
-    if (term.element.parentElement) {
-      term.element.parentElement.innerHTML = '';
-    }
-  }
-  
-  terminalRef.value.innerHTML = '';
-  term.open(terminalRef.value);
 
   // Resize Handling
   const performFit = () => {
