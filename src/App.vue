@@ -81,7 +81,8 @@ const createNewTab = async (title = "Shell", skipPty = false, existingId?: strin
   if (!skipPty && isConnected.value) {
     try {
       await invoke('spawn_new_pty', { tabId: id });
-      setTimeout(() => invoke('write_pty', { tabId: id, data: "\r" }), 500);
+      // 增强唤醒逻辑：使用 \n\r 确保 PTY 彻底激活
+      setTimeout(() => invoke('write_pty', { tabId: id, data: "\n\r" }), 600);
     } catch (e) { backendLogs.value.push(`[ERROR] PTY Fail: ${e}`); }
   }
   if (!existingId) terminalTabs.value.push({ id, title, isBackground: false });
@@ -182,11 +183,14 @@ onMounted(async () => {
   unlistenLog = await listen<string>('backend-log', (e) => { backendLogs.value.push(e.payload); if (backendLogs.value.length > 500) backendLogs.value.shift(); });
   
   if (unlistenPty) unlistenPty();
+  const decoder = new TextDecoder('utf-8', { fatal: false });
   unlistenPty = await listen<any>('pty-data', (ev) => {
     const { id, data } = ev.payload;
-    // 优化：直接透传，减少 WebKit 内存拷贝压力
+    const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : new Uint8Array(data);
+    
+    // 优化：直接喂字节流给 xterm.js，减少 WebKit 内存拷贝压力
     if (terminalManager) {
-      terminalManager.write(id, typeof data === 'string' ? data : new Uint8Array(data));
+      terminalManager.write(id, bytes);
     }
     
     if (connectionStatus.value === 'connected') { 
@@ -195,8 +199,7 @@ onMounted(async () => {
     }
     
     if (isAutoPilot.value && id === activeTabId.value) {
-      const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : new Uint8Array(data);
-      const text = new TextDecoder().decode(bytes);
+      const text = decoder.decode(bytes);
       const pt = text.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
       const actionMatch = pt.match(/\[TER_ACTION:\s*(click|type)\((\d+)(?:,\s*"(.*?)")?\)\]/);
       if (actionMatch) {

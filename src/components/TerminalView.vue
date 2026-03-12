@@ -18,6 +18,13 @@ const initTerminal = async (retries = 3) => {
   
   try {
     terminalManager.mount(props.id, terminalRef.value);
+    // Linux 下布局计算有延迟，强制在挂载后 500ms 再对齐一次
+    setTimeout(() => {
+      const instance = terminalManager.getOrCreate(props.id);
+      if (terminalRef.value && terminalRef.value.offsetWidth > 0) {
+        instance.fit.fit();
+      }
+    }, 500);
   } catch (e) {
     console.error(`[TerminalView] Mount failed for ${props.id}, retrying...`, e);
     if (retries > 0) {
