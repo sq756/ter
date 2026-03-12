@@ -2,8 +2,8 @@
 import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import * as echarts from 'echarts';
 
+// Components
 import { terminalManager } from './TerminalManager';
 import MatrixScreen from './components/MatrixScreen.vue';
 import SidebarPanel from './components/SidebarPanel.vue';
@@ -12,7 +12,10 @@ import CyberWebview from './components/CyberWebview.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
 import CyberGate from './components/CyberGate.vue';
 
+// Composables
 import { useMorse } from './composables/useMorse';
+import { useTabs } from './composables/useTabs';
+import { useStats } from './composables/useStats';
 
 // ==========================================
 // --- GLOBAL STATE ---
@@ -43,16 +46,21 @@ const menuY = ref(0);
 const contextMenuTabId = ref<string | null>(null);
 const hasErrorSelection = ref(false);
 
-const terminalTabs = ref<any[]>([]);
-const activeTabId = ref<string | null>(null);
-const backgroundTabs = computed(() => terminalTabs.value.filter(t => t.isBackground));
 const storageKey = computed(() => `ter_tabs_${host.value.replace(/\s+/g, '_')}`);
-
 let statsIntervalId: any = null;
 
 // ==========================================
-// --- COMPOSABLES ---
+// --- DECOUPLED LOGIC ---
 // ==========================================
+const { 
+  terminalTabs, activeTabId, backgroundTabs, 
+  createNewTab, closeTab, sendToBackground, bringToForeground, renameTab 
+} = useTabs(isConnected, backendLogs);
+
+const { 
+  cpuChartRef, memChartRef, currentCpuUsage, initCharts, fetchStats 
+} = useStats(currentAgentPort, agentToken);
+
 const calculateMenuPosition = (e: MouseEvent, estimatedHeight = 250, estimatedWidth = 160) => {
   let x = e.clientX, y = e.clientY;
   if (y + estimatedHeight > window.innerHeight) y = window.innerHeight - estimatedHeight - 10;
@@ -74,36 +82,55 @@ watch(activeTriggers, (val) => { localStorage.setItem('ter_active_triggers', JSO
 // ==========================================
 // --- METHODS ---
 // ==========================================
-const createNewTab = async (title = "Shell", skipPty = false, existingId?: string) => {
-  const id = existingId || 'tab-' + Math.random().toString(36).substr(2, 9);
-  terminalManager.setOnDataCallback(id, (tid, data) => { if (!skipPty && isConnected.value) invoke('write_pty', { tabId: tid, data }); });
-  terminalManager.getOrCreate(id);
-  if (!skipPty && isConnected.value) {
-    try {
-      await invoke('spawn_new_pty', { tabId: id });
-      // 增强唤醒逻辑：使用 \n\r 确保 PTY 彻底激活
-      setTimeout(() => invoke('write_pty', { tabId: id, data: "\n\r" }), 600);
-    } catch (e) { backendLogs.value.push(`[ERROR] PTY Fail: ${e}`); }
-  }
-  if (!existingId) terminalTabs.value.push({ id, title, isBackground: false });
-  activeTabId.value = id; return id;
-};
-
 const viewHistory = async (originalTabId: string) => {
   const t = terminalTabs.value.find(x => x.id === originalTabId);
   const playbackId = await createNewTab(`Playback: ${t?.title || originalTabId}`, true);
   try {
     const logs = await invoke<number[][]>('get_terminal_logs', { tabId: originalTabId, limit: 1000 });
-    for (const chunk of logs) { terminalManager.write(playbackId, new Uint8Array(chunk)); await new Promise(r => setTimeout(r, 20)); }
+    for (const chunk of logs) { 
+      terminalManager.write(playbackId, new Uint8Array(chunk)); 
+      await new Promise(r => setTimeout(r, 20)); 
+    }
   } catch (e) { terminalManager.write(playbackId, `\r\n[ERROR] History Fail: ${e}\r\n`); }
 };
 
-const closeTab = (id: string) => { const idx = terminalTabs.value.findIndex(t => t.id === id); if (idx !== -1) { terminalTabs.value.splice(idx, 1); terminalManager.remove(id); if (activeTabId.value === id) activeTabId.value = terminalTabs.value.find(t => !t.isBackground)?.id || null; } };
-const copySelectedText = async () => { const id = contextMenuTabId.value || activeTabId.value; if (id) { const s = terminalManager.getSelection(id); if (s) await navigator.clipboard.writeText(s); } showContextMenu.value = false; };
-const pasteFromClipboard = async () => { const id = contextMenuTabId.value || activeTabId.value; if (id) { try { const t = await navigator.clipboard.readText(); if (t) invoke('write_pty', { tabId: id, data: t }); } catch(e){} } showContextMenu.value = false; };
-const sendToBackground = () => { const tid = contextMenuTabId.value || activeTabId.value; if (tid) { const tab = terminalTabs.value.find(t => t.id === tid); if (tab) { const s = terminalManager.getSelection(tab.id).trim(); tab.isBackground = true; tab.title = s ? `Proc: ${s.substring(0, 20)}...` : `Task: ${tab.id.substr(0, 5)}`; if (activeTabId.value === tid) activeTabId.value = terminalTabs.value.find(t => !t.isBackground)?.id || null; } } showContextMenu.value = false; };
-const bringToForeground = (id: string) => { const t = terminalTabs.value.find(t => t.id === id); if (t) { t.isBackground = false; activeTabId.value = id; } };
-const onTerminalContextMenu = (p: { e: MouseEvent, id: string }) => { contextMenuTabId.value = p.id; calculateMenuPosition(p.e); const s = terminalManager.getSelection(p.id); hasErrorSelection.value = s.toLowerCase().includes('error') || s.toLowerCase().includes('exception') || s.includes('\x1b[31m'); showContextMenu.value = true; };
+const copySelectedText = async () => { 
+  const id = contextMenuTabId.value || activeTabId.value; 
+  if (id) { 
+    const s = terminalManager.getSelection(id); 
+    if (s) await navigator.clipboard.writeText(s); 
+  } 
+  showContextMenu.value = false; 
+};
+
+const pasteFromClipboard = async () => { 
+  const id = contextMenuTabId.value || activeTabId.value; 
+  if (id) { 
+    try { 
+      const t = await navigator.clipboard.readText(); 
+      if (t) invoke('write_pty', { tabId: id, data: t }); 
+    } catch(e){} 
+  } 
+  showContextMenu.value = false; 
+};
+
+const onTerminalContextMenu = (p: { e: MouseEvent, id: string }) => { 
+  contextMenuTabId.value = p.id; 
+  calculateMenuPosition(p.e); 
+  const s = terminalManager.getSelection(p.id); 
+  hasErrorSelection.value = s.toLowerCase().includes('error') || s.toLowerCase().includes('exception') || s.includes('\x1b[31m'); 
+  showContextMenu.value = true; 
+};
+
+const captureAndUpload = async (auto = false) => {
+  backendLogs.value.push(`[SYSTEM] Initiating UI sync...`);
+  try {
+    const path = await invoke<string>('ai_audit_ui');
+    if (!auto) backendLogs.value.push(`[INFO] UI Snapshot saved: ${path}`);
+  } catch (e) {
+    backendLogs.value.push(`[ERROR] Audit Fail: ${e}`);
+  }
+};
 
 const onConnected = async (hostLabel: string) => {
   host.value = hostLabel;
@@ -117,7 +144,6 @@ const onConnected = async (hostLabel: string) => {
       const ts = JSON.parse(saved); 
       terminalTabs.value = ts;
       for (const t of ts) {
-        // 核心修复：对每一个恢复的标签，强制触发后端 PTY 启动
         await createNewTab(t.title, false, t.id);
       }
       activeTabId.value = ts.find((t: any) => !t.isBackground)?.id || ts[0]?.id;
@@ -125,51 +151,77 @@ const onConnected = async (hostLabel: string) => {
   } else if (terminalTabs.value.length === 0) { await createNewTab("Main Shell", false, "tab-1"); }
 
   setTimeout(() => {
-    if (typeof refreshExplorer === 'function') refreshExplorer();
+    refreshExplorer();
     invoke('load_remote_skills').then((s: any) => skills.value = s).catch(()=>{});
     nextTick(() => {
-      if (typeof initCharts === 'function') initCharts();
+      initCharts();
       if (statsIntervalId) clearInterval(statsIntervalId);
-      if (typeof fetchStats === 'function') statsIntervalId = setInterval(fetchStats, 3000);
+      statsIntervalId = setInterval(fetchStats, 3000);
     });
   }, 1000);
 };
 
 const refreshExplorer = async () => { if (isConnected.value) realFiles.value = await invoke('ls_remote', { path: currentPath.value }); };
 const changeDir = (p: string) => {
-  if (p === '..') { const pts = currentPath.value.split('/').filter(x => x); pts.pop(); currentPath.value = '/' + pts.join('/'); } else { currentPath.value = (currentPath.value === '/' ? '' : currentPath.value) + '/' + p; }
-  const s = localStorage.getItem('ter_fast_access'); let l = s ? JSON.parse(s) : []; l = [currentPath.value, ...l.filter((x: string) => x !== currentPath.value)].slice(0, 5); localStorage.setItem('ter_fast_access', JSON.stringify(l)); refreshExplorer();
+  if (p === '..') { const pts = currentPath.value.split('/').filter(x => x); pts.pop(); currentPath.value = '/' + pts.join('/'); } 
+  else { currentPath.value = (currentPath.value === '/' ? '' : currentPath.value) + '/' + p; }
+  const s = localStorage.getItem('ter_fast_access'); let l = s ? JSON.parse(s) : []; 
+  l = [currentPath.value, ...l.filter((x: string) => x !== currentPath.value)].slice(0, 5); 
+  localStorage.setItem('ter_fast_access', JSON.stringify(l)); 
+  refreshExplorer();
 };
-const onFastAccess = async (p: string) => { currentPath.value = p; if (activeTabId.value) await invoke('write_pty', { tabId: activeTabId.value, data: `cd "${p}"\r` }); refreshExplorer(); };
+
+const onFastAccess = async (p: string) => { 
+  currentPath.value = p; 
+  if (activeTabId.value) await invoke('write_pty', { tabId: activeTabId.value, data: `cd "${p}"\r` }); 
+  refreshExplorer(); 
+};
+
 const refreshWebview = async (fUrl?: string) => {
   if (fUrl) previewUrl.value = fUrl; let u = previewUrl.value.trim(); if (!u) return; if (/^\d+$/.test(u)) { u = `http://localhost:${u}`; previewUrl.value = u; }
-  const m = u.match(/(?:localhost|127\.0\.0\.1):(\d+)/); if (m && m[1]) { isWebviewLoading.value = true; try { const p = await invoke<number>('open_dynamic_tunnel', { remotePort: parseInt(m[1]) }); previewUrl.value = `http://localhost:${p}`; } catch (e) {} finally { isWebviewLoading.value = false; } }
+  const m = u.match(/(?:localhost|127\.0\.0\.1):(\d+)/); 
+  if (m && m[1]) { 
+    isWebviewLoading.value = true; 
+    try { 
+      const p = await invoke<number>('open_dynamic_tunnel', { remotePort: parseInt(m[1]) }); 
+      previewUrl.value = `http://localhost:${p}`; 
+    } catch (e) {} finally { isWebviewLoading.value = false; } 
+  }
 };
+
 const handleExtractDOM = async () => { backendLogs.value.push(`[INFO] Extracting DOM...`); await invoke('extract_cyber_dom'); };
 const onDomExtracted = async (md: string) => { if (activeTabId.value) { await invoke('write_pty', { tabId: activeTabId.value, data: `\x1b[200~${md}\x1b[201~\r` }); backendLogs.value.push(`[INFO] Snapshot injected.`); } };
 
 const runMacro = async (c: string) => { if (activeTabId.value) await invoke('write_pty', { tabId: activeTabId.value, data: c + '\n' }); showMorseMacro.value = false; };
-const renameTabAction = () => { const id = contextMenuTabId.value; if (id) { const n = prompt("New name:"); if (n) { const t = terminalTabs.value.find(x => x.id === id); if (t) t.title = n; } } showContextMenu.value = false; };
-const copyTabIdAction = async () => { if (contextMenuTabId.value) await navigator.clipboard.writeText(contextMenuTabId.value); showContextMenu.value = false; };
-const diagnoseSelection = async () => { const id = contextMenuTabId.value || activeTabId.value; if (id) { const s = terminalManager.getSelection(id); if (activeTabId.value) await invoke('write_pty', { tabId: activeTabId.value, data: `\x1b[200~帮我诊断并给方案：\n\n\`\`\`\n${s}\n\`\`\`\x1b[201~\r` }); } showContextMenu.value = false; };
-const captureAndUpload = async () => { await invoke('ai_audit_ui'); };
-const runSkill = async (s: any) => { backendLogs.value.push(`[SKILL] Exec: ${s.name}`); };
-
-const cpuChartRef = ref<HTMLElement | null>(null), memChartRef = ref<HTMLElement | null>(null);
-let cpuChart: any, memChart: any; const cpuHistory = ref<number[]>([]), memHistory = ref<number[]>([]);
-const currentCpuUsage = computed(() => cpuHistory.value.length > 0 ? cpuHistory.value[cpuHistory.value.length - 1] : 0);
-const initCharts = () => { if (cpuChartRef.value) cpuChart = echarts.init(cpuChartRef.value); if (memChartRef.value) memChart = echarts.init(memChartRef.value); };
-const fetchStats = async () => {
-  if (!currentAgentPort.value) return;
-  try {
-    const r = await fetch(`http://localhost:${currentAgentPort.value}/stats`, { headers: { 'X-Ter-Token': agentToken.value } });
-    const d = await r.json();
-    cpuHistory.value.push(d.cpu_usage); memHistory.value.push((d.mem_used / d.mem_total) * 100);
-    if (cpuHistory.value.length > 30) { cpuHistory.value.shift(); memHistory.value.shift(); }
-    cpuChart?.setOption(getChartOpt(cpuHistory.value, '#6366f1')); memChart?.setOption(getChartOpt(memHistory.value, '#a855f7'));
-  } catch (e) {}
+const renameTabAction = () => { 
+  const id = contextMenuTabId.value; 
+  if (id) { 
+    const n = prompt("New name:"); 
+    if (n) renameTab(id, n); 
+  } 
+  showContextMenu.value = false; 
 };
-const getChartOpt = (d: any[], c: string) => ({ grid: { top: 5, bottom: 0, left: 0, right: 0 }, xAxis: { type: 'category', show: false }, yAxis: { type: 'value', min: 0, max: 100, show: false }, series: [{ data: d, type: 'line', smooth: true, areaStyle: { color: c }, itemStyle: { color: c }, showSymbol: false }], animation: false });
+
+const copyTabIdAction = async () => { if (contextMenuTabId.value) await navigator.clipboard.writeText(contextMenuTabId.value); showContextMenu.value = false; };
+const diagnoseSelection = async () => { 
+  const id = contextMenuTabId.value || activeTabId.value; 
+  if (id) { 
+    const s = terminalManager.getSelection(id); 
+    if (activeTabId.value) await invoke('write_pty', { tabId: activeTabId.value, data: `\x1b[200~帮我诊断并给方案：\n\n\`\`\`\n${s}\n\`\`\`\x1b[201~\r` }); 
+  } 
+  showContextMenu.value = false; 
+};
+
+const runSkill = async (skill: any) => {
+  if (!isConnected.value) return;
+  if (skill.context_requirement?.require_screenshot) {
+    await captureAndUpload(true);
+  }
+  const rpc = skill.rpc || skill.trigger;
+  if (rpc && activeTabId.value) {
+    invoke('write_pty', { tabId: activeTabId.value, data: rpc.endsWith('\n') ? rpc : rpc + "\r\n" });
+  }
+};
 
 let unlistenLog: any, unlistenPty: any;
 const preventDefaultContextMenu = (e: MouseEvent) => e.preventDefault();
@@ -178,20 +230,56 @@ const handleGlobalKeyDown = (e: KeyboardEvent) => { if (e.altKey && e.key.toLowe
 onMounted(async () => {
   window.addEventListener('contextmenu', preventDefaultContextMenu);
   window.addEventListener('keydown', handleGlobalKeyDown);
+  
   const st = localStorage.getItem('ter_active_triggers'); if (st) try { activeTriggers.value = JSON.parse(st); } catch(e){}
   const sm = localStorage.getItem('ter_macros'); if (sm) try { activeMacros.value = JSON.parse(sm); } catch(e){}
-  unlistenLog = await listen<string>('backend-log', (e) => { backendLogs.value.push(e.payload); if (backendLogs.value.length > 500) backendLogs.value.shift(); });
   
-  if (unlistenPty) unlistenPty();
+  unlistenLog = await listen<string>('backend-log', (e) => { 
+    backendLogs.value.push(e.payload); 
+    if (backendLogs.value.length > 500) backendLogs.value.shift(); 
+  });
+  
   const decoder = new TextDecoder('utf-8', { fatal: false });
   unlistenPty = await listen<any>('pty-data', (ev) => {
     const { id, data } = ev.payload;
-    const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : new Uint8Array(data);
-    
-    // 优化：直接喂字节流给 xterm.js，减少 WebKit 内存拷贝压力
-    if (terminalManager) {
-      terminalManager.write(id, bytes);
+    let bytes = typeof data === 'string' ? new TextEncoder().encode(data) : new Uint8Array(data);
+    let text = decoder.decode(bytes);
+
+    // ==========================================
+    // --- PTY RPC INTERCEPTOR (Enhanced) ---
+    // ==========================================
+    if (text.includes('[TER_RPC]')) {
+      const rpcRegex = /\[TER_RPC\]\s*({.*?})/g;
+      let match;
+      let cleanedText = text;
+      let foundRpc = false;
+
+      while ((match = rpcRegex.exec(text)) !== null) {
+        if (!match[1]) continue;
+        try {
+          const rpc = JSON.parse(match[1]);
+          foundRpc = true;
+          
+          if (rpc.action === 'screenshot') {
+            captureAndUpload(true);
+          } else if (rpc.action === 'notify') {
+            backendLogs.value.push(`[🔔 AI NOTIFY] ${rpc.msg || rpc.message}`);
+          } else if (rpc.action === 'chart') {
+            backendLogs.value.push(`[📊 AI CHART DATA] ${JSON.stringify(rpc.data)}`);
+          }
+          
+          // Remove the RPC command from the text stream
+          cleanedText = cleanedText.replace(match[0], '');
+        } catch (e) { console.warn("RPC Parse Error:", e); }
+      }
+
+      if (foundRpc) {
+        if (cleanedText.trim() === '') return; // Stop if nothing left
+        bytes = new TextEncoder().encode(cleanedText);
+      }
     }
+
+    if (terminalManager) terminalManager.write(id, bytes);
     
     if (connectionStatus.value === 'connected') { 
       connectionStatus.value = 'busy'; 
@@ -199,7 +287,6 @@ onMounted(async () => {
     }
     
     if (isAutoPilot.value && id === activeTabId.value) {
-      const text = decoder.decode(bytes);
       const pt = text.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
       const actionMatch = pt.match(/\[TER_ACTION:\s*(click|type)\((\d+)(?:,\s*"(.*?)")?\)\]/);
       if (actionMatch) {
@@ -207,8 +294,12 @@ onMounted(async () => {
         const code = action === 'click' ? `window.TerAgent.click(${eid})` : `window.TerAgent.type(${eid}, ${JSON.stringify(txt)})`;
         invoke('eval_cyber_webview', { code });
       } else if (!pt.includes('tab-') && (Date.now() - lastAutoPilotTime.value) > 500) {
-        const lm = pt.match(/http:\/\/localhost:(\d+)/); if (lm && lm[1]) refreshWebview(`http://localhost:${lm[1]}`);
-        if (activeTriggers.value.some(t => pt.includes(t))) { lastAutoPilotTime.value = Date.now(); setTimeout(() => { invoke('write_pty', { tabId: id, data: "\r" }); }, 300); }
+        const lm = pt.match(/http:\/\/localhost:(\d+)/); 
+        if (lm && lm[1]) refreshWebview(`http://localhost:${lm[1]}`);
+        if (activeTriggers.value.some(t => pt.includes(t))) { 
+          lastAutoPilotTime.value = Date.now(); 
+          setTimeout(() => { invoke('write_pty', { tabId: id, data: "\r" }); }, 300); 
+        }
       }
     }
   });
@@ -230,7 +321,7 @@ onUnmounted(() => {
       <SettingsPanel :isOpen="showSettings" @close="showSettings = false" @update-macros="(m) => activeMacros = m" />
       <SidebarPanel 
         :files="realFiles" :currentPath="currentPath" :bgTabs="backgroundTabs" :skills="skills"
-        :cpuChartRef="(el: any) => cpuChartRef = el" :memChartRef="(el: any) => memChartRef = el"
+        :cpuChartRef="cpuChartRef" :memChartRef="memChartRef"
         v-model:isAutoPilot="isAutoPilot"
         @switch-tab="bringToForeground" @switch-mode="(mode: number) => cyberMode = mode"
         @view-history="viewHistory" @proc-context="(p: any) => onTerminalContextMenu({e: p.event, id: p.tab.id})" @run-skill="runSkill"
@@ -241,7 +332,7 @@ onUnmounted(() => {
         <div v-if="showContextMenu" class="context-menu" :style="{ top: menuY + 'px', left: menuX + 'px' }">
           <header class="menu-header">TERMINAL ACTIONS</header>
           <div v-if="hasErrorSelection" class="menu-item highlight" @click="diagnoseSelection">🤖 Diagnose Error</div>
-          <div class="menu-item" @click="renameTabAction">✏️ Rename Tab</div><div class="menu-item" @click="copyTabIdAction">🆔 Copy ID</div><div class="menu-item" @click="sendToBackground">🚀 Background</div>
+          <div class="menu-item" @click="renameTabAction">✏️ Rename Tab</div><div class="menu-item" @click="copyTabIdAction">🆔 Copy ID</div><div class="menu-item" @click="sendToBackground(contextMenuTabId)">🚀 Background</div>
           <div class="menu-divider"></div><div class="menu-item" @click="copySelectedText">📋 Copy</div><div class="menu-item" @click="pasteFromClipboard">📥 Paste</div>
           <div class="menu-divider"></div><div class="menu-item danger" @click="closeTab(contextMenuTabId!)">❌ Force Close</div>
         </div>
@@ -279,7 +370,7 @@ onUnmounted(() => {
             <span class="item">1 | Agent: Active</span>
           </div>
           <div class="status-right">
-            <button class="status-btn" @click="captureAndUpload">📸 Audit</button>
+            <button class="status-btn" @click="captureAndUpload(false)">📸 Audit</button>
             <button class="status-btn" @click="cyberMode = cyberMode === 1 ? 0 : 1">{{ cyberMode === 1 ? '🖥️' : '🌐' }}</button>
             <div class="status-toggle"><span>Auto</span><label class="mini-switch"><input type="checkbox" v-model="isAutoPilot" /><span class="slider"></span></label></div>
           </div>
@@ -295,7 +386,6 @@ onUnmounted(() => {
 .main-view { display: flex; height: 100%; width: 100%; }
 .workspace { flex: 1; display: flex; flex-direction: column; background: #000; overflow: hidden; min-width: 0; }
 
-/* Global Icon Fix for Linux WebKit */
 .icon, .file-icon, .btn-tool, .status-btn { 
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
 }
@@ -308,29 +398,9 @@ onUnmounted(() => {
 .menu-item.danger:hover { background: #ef4444; color: #000; }
 .menu-divider { height: 1px; background: #18181b; margin: 4px 0; }
 
-.status-bar { 
-  height: 28px; 
-  background: #000; 
-  border-top: 1px solid #18181b; 
-  color: #52525b; 
-  display: flex; 
-  justify-content: space-between; 
-  align-items: center; 
-  padding: 0 12px; 
-  font-size: 10px; 
-  z-index: 100; 
-  flex-shrink: 0; 
-}
-
-.status-right { 
-  display: flex; 
-  align-items: center; 
-}
-
-.status-right > * {
-  margin-left: 15px !important; /* Force physical isolation for Linux compatibility */
-}
-
+.status-bar { height: 28px; background: #000; border-top: 1px solid #18181b; color: #52525b; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; font-size: 10px; z-index: 100; flex-shrink: 0; }
+.status-right { display: flex; align-items: center; }
+.status-right > * { margin-left: 15px !important; }
 .tiny-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; transition: all 0.1s; }
 .tiny-dot.active { transform: scale(1.1); box-shadow: 0 0 8px #22c55e; filter: brightness(1.5); }
 .stealth-zone { display: flex; align-items: center; gap: 8px; cursor: pointer; height: 100%; padding: 0 5px; }
