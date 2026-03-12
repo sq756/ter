@@ -119,10 +119,14 @@ const onConnected = async (hostLabel: string) => {
     } catch (e) { await createNewTab("Main Shell", false, "tab-1"); }
   } else if (terminalTabs.value.length === 0) { await createNewTab("Main Shell", false, "tab-1"); }
 
-  if (statsIntervalId) clearInterval(statsIntervalId);
   setTimeout(() => {
-    refreshExplorer(); invoke('load_remote_skills').then((s: any) => skills.value = s).catch(()=>{});
-    nextTick(() => { initCharts(); statsIntervalId = setInterval(fetchStats, 3000); });
+    if (typeof refreshExplorer === 'function') refreshExplorer();
+    invoke('load_remote_skills').then((s: any) => skills.value = s).catch(()=>{});
+    nextTick(() => {
+      if (typeof initCharts === 'function') initCharts();
+      if (statsIntervalId) clearInterval(statsIntervalId);
+      if (typeof fetchStats === 'function') statsIntervalId = setInterval(fetchStats, 3000);
+    });
   }, 1000);
 };
 
@@ -284,6 +288,16 @@ onUnmounted(() => {
 .menu-divider { height: 1px; background: #18181b; margin: 4px 0; }
 
 .status-bar { height: 24px; background: #000; border-top: 1px solid #18181b; color: #52525b; display: flex; justify-content: space-between; align-items: center; padding: 0 10px; font-size: 10px; z-index: 100; flex-shrink: 0; }
+.status-bar, .bottom-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 15px; /* 强制拉开间距 */
+  padding: 10px;
+  z-index: 100;
+}
+.status-right { display: flex; align-items: center; gap: 15px; }
 .tiny-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; transition: all 0.1s; }
 .tiny-dot.active { transform: scale(1.1); box-shadow: 0 0 8px #22c55e; filter: brightness(1.5); }
 .stealth-zone { display: flex; align-items: center; gap: 8px; cursor: pointer; height: 100%; padding: 0 5px; }
