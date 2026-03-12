@@ -10,10 +10,22 @@ const props = defineProps<{
 const terminalRef = ref<HTMLElement | null>(null);
 let resizeObserver: ResizeObserver | null = null;
 
-const initTerminal = async () => {
-  if (!terminalRef.value) return;
+const initTerminal = async (retries = 3) => {
+  if (!terminalRef.value) {
+    if (retries > 0) setTimeout(() => initTerminal(retries - 1), 100);
+    return;
+  }
   
-  terminalManager.mount(props.id, terminalRef.value);
+  try {
+    terminalManager.mount(props.id, terminalRef.value);
+  } catch (e) {
+    console.error(`[TerminalView] Mount failed for ${props.id}, retrying...`, e);
+    if (retries > 0) {
+      setTimeout(() => initTerminal(retries - 1), 200);
+      return;
+    }
+  }
+
   const instance = terminalManager.getOrCreate(props.id);
   const { term, fit } = instance;
 
@@ -33,6 +45,7 @@ const initTerminal = async () => {
     }
   };
 
+  if (resizeObserver) resizeObserver.disconnect();
   resizeObserver = new ResizeObserver(() => {
     performFit();
   });

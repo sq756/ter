@@ -113,8 +113,12 @@ const onConnected = async (hostLabel: string) => {
   const saved = localStorage.getItem(storageKey.value);
   if (saved) {
     try {
-      const ts = JSON.parse(saved); terminalTabs.value = ts;
-      for (const t of ts) await createNewTab(t.title, false, t.id);
+      const ts = JSON.parse(saved); 
+      terminalTabs.value = ts;
+      for (const t of ts) {
+        // 核心修复：对每一个恢复的标签，强制触发后端 PTY 启动
+        await createNewTab(t.title, false, t.id);
+      }
       activeTabId.value = ts.find((t: any) => !t.isBackground)?.id || ts[0]?.id;
     } catch (e) { await createNewTab("Main Shell", false, "tab-1"); }
   } else if (terminalTabs.value.length === 0) { await createNewTab("Main Shell", false, "tab-1"); }
