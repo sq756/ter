@@ -103,7 +103,23 @@ struct AppState {
 }
 
 #[tauri::command]
-async fn close_pty(tab_id: String, state: State<'_, AppState>) -> Result<(), String> { state.pty_channels.remove(&tab_id); state.ctrl_channels.remove(&tab_id); Ok(()) }
+async fn close_pty(tab_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    log::info!("Closing PTY and killing remote session for Tab: {}", tab_id);
+    
+    // v2.3.11: Fix P0-3 Zombie Process Leak
+    // Attempt to kill the remote tmux session before removing channels
+    if let Some(session) = state.session.lock().await.as_ref() {
+        if let Ok(mut channel) = session.channel_open_session().await {
+            let kill_cmd = format!("tmux kill-session -t {} || exit", tab_id);
+            let _ = channel.exec(true, kill_cmd.as_str()).await;
+        }
+    }
+
+    state.pty_channels.remove(&tab_id);
+    state.ctrl_channels.remove(&tab_id);
+    Ok(())
+}
+
 #[tauri::command]
 async fn get_terminal_logs(tab_id: String, limit: i32, state: State<'_, AppState>) -> Result<Vec<Vec<u8>>, String> { let db = get_db(&state).await?; db.get_logs(&tab_id, limit).await.map_err(|e| e.to_string()) }
 #[tauri::command]
@@ -227,7 +243,17 @@ pub fn run() {
         })
         .setup(|app| {
             let ah = app.handle().clone(); let _ = APP_HANDLE.set(ah.clone());
-            let app_dir = app.path().app_data_dir().unwrap(); if !app_dir.exists() { std::fs::create_dir_all(&app_dir).unwrap(); }
+            
+            // v2.3.11: Fix P0-2 Startup Panic Risk
+            let app_dir = match app.path().app_data_dir() {
+                Ok(dir) => dir,
+                Err(_) => {
+                    eprintln!("[ERROR] Failed to get app data dir, falling back to /tmp/.ter");
+                    std::path::PathBuf::from("/tmp/.ter")
+                }
+            };
+            if !app_dir.exists() { let _ = std::fs::create_dir_all(&app_dir); }
+            
             let db_url = format!("sqlite:///{}?mode=rwc", app_dir.join("ter.db").to_string_lossy());
             let state = app.state::<AppState>();
             tauri::async_runtime::block_on(async move { match Db::new(&db_url).await { Ok(db) => { let _ = state.db.set(db); } Err(e) => { *state.db_error.lock().await = Some(e.to_string()); } } });
