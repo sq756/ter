@@ -11,7 +11,7 @@ const props = defineProps<{
   isAutoPilot: boolean;
 }>();
 
-const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill', 'change-dir']);
+const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill', 'change-dir', 'view-history']);
 
 const sortedFiles = computed(() => {
   // 1. Filter out '..' if it exists in the original list (we add it manually if not at root)
@@ -66,6 +66,18 @@ const onItemClick = (f: any) => {
           <span class="val">RUN</span>
         </li>
         <li v-if="skills.length === 0" class="empty-hint">No skills in .ter/skills.json</li>
+      </ul>
+    </div>
+
+    <div class="module scroller history">
+      <header>Session History</header>
+      <ul class="data-list">
+        <li v-for="t in bgTabs" :key="'hist-' + t.id" @click="$emit('view-history', t.id)">
+          <span class="icon">📜</span>
+          <span class="name">{{ t.title }} Logs</span>
+          <span class="val">VIEW</span>
+        </li>
+        <li v-if="bgTabs.length === 0" class="empty-hint">No history available</li>
       </ul>
     </div>
 

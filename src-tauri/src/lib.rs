@@ -58,16 +58,16 @@ impl client::Handler for Client {
     }
 }
 
-use std::collections::HashMap;
 use tokio::sync::Mutex as TokioMutex;
+use dashmap::DashMap;
 
 enum PtyControl {
     Resize(u32, u32),
 }
 
 struct AppState {
-    pty_channels: TokioMutex<HashMap<String, mpsc::Sender<String>>>,
-    ctrl_channels: TokioMutex<HashMap<String, mpsc::Sender<PtyControl>>>,
+    pty_channels: DashMap<String, mpsc::Sender<String>>,
+    ctrl_channels: DashMap<String, mpsc::Sender<PtyControl>>,
     session: TokioMutex<Option<Arc<client::Handle<Client>>>>,
     agent_token: TokioMutex<String>,
     db: tokio::sync::OnceCell<Db>,
@@ -80,6 +80,20 @@ struct AppState {
     agent_abort: Arc<TokioMutex<Option<tokio::task::AbortHandle>>>,
     vnc_abort: Arc<TokioMutex<Option<tokio::task::AbortHandle>>>,
     dynamic_abort: Arc<TokioMutex<Option<tokio::task::AbortHandle>>>,
+}
+
+#[tauri::command]
+async fn close_pty(tab_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    log::info!("Closing PTY for Tab: {}", tab_id);
+    state.pty_channels.remove(&tab_id);
+    state.ctrl_channels.remove(&tab_id);
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_terminal_logs(tab_id: String, limit: i32, state: State<'_, AppState>) -> Result<Vec<Vec<u8>>, String> {
+    let db = get_db(&state).await?;
+    db.get_logs(&tab_id, limit).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -291,6 +305,10 @@ async fn connect_to_ssh(host: String, port: u16, user: String, pass: String, app
     }
     log::info!("Authentication successful.");
 
+    // Clear old channels (Handle connection storm)
+    state.pty_channels.clear();
+    state.ctrl_channels.clear();
+
     // Generate random token for agent
     let token = Uuid::new_v4().to_string();
     *state.agent_token.lock().await = token.clone();
@@ -480,17 +498,22 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
 
     let mut channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
     channel.request_pty(true, "xterm-256color", 80, 24, 0, 0, &[]).await.map_err(|e| e.to_string())?;
-    channel.request_shell(true).await.map_err(|e| e.to_string())?;
+    
+    // Tmux Hijacking: Attach to an existing session with this tab_id, or create a new one.
+    // This provides terminal persistence even after SSH disconnects.
+    let tmux_cmd = format!("tmux new-session -A -s {}", tab_id);
+    channel.exec(true, tmux_cmd.as_str()).await.map_err(|e| e.to_string())?;
 
     let (tx, mut rx) = mpsc::channel::<String>(100);
     let (ctrl_tx, mut ctrl_rx) = mpsc::channel::<PtyControl>(10);
     
     // Store in global state
-    state.pty_channels.lock().await.insert(tab_id.clone(), tx);
-    state.ctrl_channels.lock().await.insert(tab_id.clone(), ctrl_tx);
+    state.pty_channels.insert(tab_id.clone(), tx);
+    state.ctrl_channels.insert(tab_id.clone(), ctrl_tx);
 
     let app_handle_clone = app_handle.clone();
     let tid_clone = tab_id.clone();
+    let db = get_db(&state).await.ok(); // Get DB if available
 
     tauri::async_runtime::spawn(async move {
         loop {
@@ -509,6 +532,11 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
                     if let Some(msg) = msg {
                         match msg {
                             russh::ChannelMsg::Data { data } => {
+                                // Evolution 1: Cyber Time-Travel Logging
+                                if let Some(db) = &db {
+                                    let _ = db.append_log(&tid_clone, &data).await;
+                                }
+
                                 let payload = serde_json::json!({
                                     "id": tid_clone,
                                     "data": data.to_vec()
@@ -532,8 +560,8 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
 
 #[tauri::command]
 async fn write_pty(tab_id: String, data: String, state: State<'_, AppState>) -> Result<(), String> {
-    let channels = state.pty_channels.lock().await;
-    if let Some(tx) = channels.get(&tab_id) {
+    if let Some(tx) = state.pty_channels.get(&tab_id) {
+        let tx = tx.clone();
         let _ = tx.send(data).await;
     }
     Ok(())
@@ -541,8 +569,8 @@ async fn write_pty(tab_id: String, data: String, state: State<'_, AppState>) -> 
 
 #[tauri::command]
 async fn resize_pty(tab_id: String, cols: u32, rows: u32, state: State<'_, AppState>) -> Result<(), String> {
-    let channels = state.ctrl_channels.lock().await;
-    if let Some(tx) = channels.get(&tab_id) {
+    if let Some(tx) = state.ctrl_channels.get(&tab_id) {
+        let tx = tx.clone();
         let _ = tx.send(PtyControl::Resize(cols, rows)).await;
     }
     Ok(())
@@ -902,8 +930,8 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(AppState {
-            pty_channels: TokioMutex::new(HashMap::new()),
-            ctrl_channels: TokioMutex::new(HashMap::new()),
+            pty_channels: DashMap::new(),
+            ctrl_channels: DashMap::new(),
             session: TokioMutex::new(None),
             agent_token: TokioMutex::new(String::new()),
             db: tokio::sync::OnceCell::new(),
@@ -1045,10 +1073,12 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            connect_to_ssh, 
+            connect_to_ssh,
             spawn_new_pty,
-            write_pty, 
-            resize_pty, 
+            close_pty,
+            write_pty,
+            resize_pty,
+ 
             get_agent_token,
             ls_remote,
             download_file,
@@ -1068,6 +1098,7 @@ pub fn run() {
             upload_ui_snapshot,
             write_remote_text,
             get_active_ports,
+            get_terminal_logs,
             open_dynamic_tunnel
         ])
         .run(tauri::generate_context!())

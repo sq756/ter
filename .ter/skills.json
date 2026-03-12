@@ -21,6 +21,14 @@
       "description": "扫描并列出所有已安装的第三方插件及其能力声明。"
     },
     {
+      "name": "read_context",
+      "description": "跨 Tab 获取其他终端的运行上下文或当前文件树。用于解决报错对齐、代码协同等复杂运维场景。",
+      "context_requirement": {
+        "require_tabs": true,
+        "require_files": true
+      }
+    },
+    {
       "name": "connect_to_ssh",
       "description": "建立远程 SSH 连接并部署 Go Agent。这是所有可视化监控的前提。"
     }

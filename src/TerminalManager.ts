@@ -1,6 +1,7 @@
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
+import { invoke } from '@tauri-apps/api/core';
 
 export interface TerminalInstance {
   id: string;
@@ -67,17 +68,31 @@ class TerminalManager {
     return instance ? instance.term.getSelection() : '';
   }
 
+  public hasSelection(id: string): boolean {
+    const instance = this.instances.get(id);
+    return instance ? instance.term.hasSelection() : false;
+  }
+
+  public getBufferText(id: string, lines: number = 50): string {
+    const instance = this.instances.get(id);
+    if (!instance) return '';
+    const term = instance.term;
+    const buffer = term.buffer.active;
+    let result = '';
+    const start = Math.max(0, buffer.baseY + buffer.cursorY - lines);
+    const end = buffer.baseY + buffer.cursorY;
+    for (let i = start; i <= end; i++) {
+      const line = buffer.getLine(i);
+      if (line) result += line.translateToString() + '\n';
+    }
+    return result.trim();
+  }
+
   public write(id: string, data: string | Uint8Array) {
     const instance = this.instances.get(id);
     if (instance) {
       instance.term.write(data);
     }
-  }
-
-  public broadcast(data: string | Uint8Array) {
-    this.instances.forEach((instance) => {
-      instance.term.write(data);
-    });
   }
 
   public remove(id: string) {
@@ -86,6 +101,10 @@ class TerminalManager {
       instance.term.dispose();
       this.instances.delete(id);
       this.callbacks.delete(id);
+      // Clean up backend PTY resources
+      invoke('close_pty', { tabId: id }).catch(e => {
+        console.error("Failed to close backend PTY:", e);
+      });
     }
   }
 }

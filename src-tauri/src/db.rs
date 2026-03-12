@@ -37,7 +37,42 @@ impl Db {
         .execute(&pool)
         .await?;
 
+        // Migration: Terminal Logs
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS terminal_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tab_id TEXT NOT NULL,
+                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+                content BLOB NOT NULL
+            )"
+        )
+        .execute(&pool)
+        .await?;
+
+        // Index for performance
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_tab_id ON terminal_logs(tab_id)")
+            .execute(&pool)
+            .await?;
+
         Ok(Self { pool })
+    }
+
+    pub async fn append_log(&self, tab_id: &str, content: &[u8]) -> Result<()> {
+        sqlx::query("INSERT INTO terminal_logs (tab_id, content) VALUES (?, ?)")
+            .bind(tab_id)
+            .bind(content)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn get_logs(&self, tab_id: &str, limit: i32) -> Result<Vec<Vec<u8>>> {
+        let rows = sqlx::query_as::<_, (Vec<u8>,)>("SELECT content FROM terminal_logs WHERE tab_id = ? ORDER BY id DESC LIMIT ?")
+            .bind(tab_id)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows.into_iter().map(|r| r.0).rev().collect())
     }
 
     pub async fn list_servers(&self) -> Result<Vec<ServerConfig>> {

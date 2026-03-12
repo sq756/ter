@@ -40,6 +40,16 @@ const terminalTabs = ref<any[]>([]);
 const activeTabId = ref<string | null>(null);
 const backgroundTabs = computed(() => terminalTabs.value.filter(t => t.isBackground));
 
+// Persistence Logic
+const storageKey = computed(() => `ter_tabs_${host.value.replace(/\s+/g, '_')}`);
+
+// 1. Save tabs to localStorage on change
+watch(terminalTabs, (newTabs) => {
+  if (isConnected.value) {
+    localStorage.setItem(storageKey.value, JSON.stringify(newTabs));
+  }
+}, { deep: true });
+
 // SFTP / Data State
 const realFiles = ref<any[]>([]);
 const skills = ref<any[]>([]);
@@ -47,17 +57,17 @@ const skills = ref<any[]>([]);
 // ==========================================
 // --- TAB MANAGEMENT ---
 // ==========================================
-const createNewTab = async (title = "Shell") => {
-  const id = 'tab-' + Math.random().toString(36).substr(2, 9);
+const createNewTab = async (title = "Shell", skipPty = false, existingId?: string) => {
+  const id = existingId || 'tab-' + Math.random().toString(36).substr(2, 9);
   
   // 1. Setup local Terminal instance
   terminalManager.setOnDataCallback(id, (tid, data) => {
-    if (isConnected.value) invoke('write_pty', { tabId: tid, data });
+    if (!skipPty && isConnected.value) invoke('write_pty', { tabId: tid, data });
   });
   terminalManager.getOrCreate(id);
   
-  // 2. Spawn remote PTY if connected
-  if (isConnected.value) {
+  // 2. Spawn remote PTY if connected and not in skipPty mode
+  if (!skipPty && isConnected.value) {
     try {
       await invoke('spawn_new_pty', { tabId: id });
     } catch (e) {
@@ -66,21 +76,68 @@ const createNewTab = async (title = "Shell") => {
     }
   }
 
-  terminalTabs.value.push({ id, title, isBackground: false });
+  if (!existingId) {
+    terminalTabs.value.push({ id, title, isBackground: false });
+  }
   activeTabId.value = id;
   return id;
 };
 
+const viewHistory = async (originalTabId: string) => {
+  const originalTab = terminalTabs.value.find(t => t.id === originalTabId);
+  const title = `Playback: ${originalTab?.title || originalTabId}`;
+  
+  const playbackId = await createNewTab(title, true); // skipPty = true
+  
+  try {
+    const logs = await invoke<number[][]>('get_terminal_logs', { tabId: originalTabId, limit: 1000 });
+    backendLogs.value.push(`[INFO] Replaying ${logs.length} chunks from history...`);
+    
+    // Playback with slight delay for "Movie" effect
+    for (const chunk of logs) {
+      const bytes = new Uint8Array(chunk);
+      terminalManager.write(playbackId, bytes);
+      await new Promise(r => setTimeout(r, 20)); // 20ms delay between chunks
+    }
+  } catch (e) {
+    console.error("Failed to load history:", e);
+    terminalManager.write(playbackId, `\r\n[ERROR] Failed to load history: ${e}\r\n`);
+  }
+};
 const closeTab = (id: string) => {
   const index = terminalTabs.value.findIndex(t => t.id === id);
   if (index !== -1) {
     terminalTabs.value.splice(index, 1);
     terminalManager.remove(id);
-    // Note: Rust side channel will eventually close on next read/write fail or we could add 'close_pty' command
     if (activeTabId.value === id) {
-      activeTabId.value = terminalTabs.value[0]?.id || null;
+      activeTabId.value = terminalTabs.value.find(t => !t.isBackground)?.id || null;
     }
   }
+};
+
+const copySelectedText = async () => {
+  const id = contextMenuTabId.value || activeTabId.value;
+  if (!id) return;
+  const selection = terminalManager.getSelection(id);
+  if (selection) {
+    await navigator.clipboard.writeText(selection);
+    backendLogs.value.push(`[INFO] Copied ${selection.length} chars to clipboard.`);
+  }
+  showContextMenu.value = false;
+};
+
+const pasteFromClipboard = async () => {
+  const id = contextMenuTabId.value || activeTabId.value;
+  if (!id) return;
+  try {
+    const text = await navigator.clipboard.readText();
+    if (text) {
+      invoke('write_pty', { tabId: id, data: text });
+    }
+  } catch (e) {
+    console.error("Paste failed:", e);
+  }
+  showContextMenu.value = false;
 };
 
 const sendToBackground = () => {
@@ -145,7 +202,26 @@ const connectWithId = async (id: string) => {
 const onConnected = async () => {
   isConnected.value = true;
   agentToken.value = await invoke('get_agent_token');
-  await createNewTab("Main Shell");
+  
+  // 1. Restore from localStorage or create new
+  const saved = localStorage.getItem(storageKey.value);
+  if (saved) {
+    try {
+      const tabs = JSON.parse(saved);
+      terminalTabs.value = tabs;
+      backendLogs.value.push(`[INFO] Restoring ${tabs.length} tabs...`);
+      for (const t of tabs) {
+        // Re-init PTY for existing tab IDs
+        await createNewTab(t.title, false, t.id);
+      }
+      activeTabId.value = tabs.find((t: any) => !t.isBackground)?.id || tabs[0]?.id;
+    } catch (e) {
+      console.error("Failed to restore tabs:", e);
+      await createNewTab("Main Shell");
+    }
+  } else {
+    await createNewTab("Main Shell");
+  }
 
   if (unlistenPty) unlistenPty();
   unlistenPty = await listen<any>('pty-data', (event) => {
@@ -186,6 +262,14 @@ const onConnected = async () => {
             backendLogs.value.push(`[🔔 NOTIFY] ${rpc.msg || rpc.message || 'New message from AI'}`);
           } else if (rpc.action === 'chart') {
             backendLogs.value.push(`[📊 AI CHART DATA] ${JSON.stringify(rpc.data)}`);
+          } else if (rpc.action === 'read_tab') {
+            const target = rpc.target || activeTabId.value;
+            const lines = rpc.lines || 50;
+            const buffer = terminalManager.getBufferText(target, lines);
+            invoke('write_pty', { tabId: id, data: `\n[TER_CONTEXT_START: ${target}]\n${buffer}\n[TER_CONTEXT_END]\n` });
+          } else if (rpc.action === 'get_cwd_files') {
+            const filesData = JSON.stringify(realFiles.value);
+            invoke('write_pty', { tabId: id, data: `\n[TER_FILES_START]\n${filesData}\n[TER_FILES_END]\n` });
           }
           
           cleanedText = cleanedText.replace(match[0], '');
@@ -261,7 +345,9 @@ const captureAndUpload = async () => {
 
     const prompt = ` @../../../../../tmp/current_ui.png 请作为前端专家，看一眼这张刚刚截取的系统UI图。有没有什么明显的错位、报错或者需要优化的地方？`;
     const payload = `\x1b[200~${prompt}\x1b[201~\r`;
-    await invoke('write_pty', { data: payload });
+    if (activeTabId.value) {
+      await invoke('write_pty', { tabId: activeTabId.value, data: payload });
+    }
   } catch (e) { 
     console.error("Capture Failed:", e); 
     backendLogs.value.push(`[ERROR] Visual Audit failed: ${e}`);
@@ -291,6 +377,25 @@ const runSkill = async (skill: any) => {
     const payload = `\x1b[200~${cleanRpc}\x1b[201~\r`;
     if (activeTabId.value) {
       invoke('write_pty', { tabId: activeTabId.value, data: payload });
+    }
+  }
+};
+
+const refreshWebview = async () => {
+  const urlStr = previewUrl.value.trim();
+  if (!urlStr) return;
+
+  const match = urlStr.match(/(?:localhost|127\.0\.0\.1):(\d+)/);
+  if (match && match[1]) {
+    const remotePort = parseInt(match[1]);
+    try {
+      backendLogs.value.push(`[INFO] Requesting tunnel for port ${remotePort}...`);
+      const localPort = await invoke<number>('open_dynamic_tunnel', { remotePort });
+      previewUrl.value = `http://localhost:${localPort}`;
+      backendLogs.value.push(`[INFO] Tunnel established: ${previewUrl.value}`);
+    } catch (e) {
+      console.error("Failed to open dynamic tunnel:", e);
+      backendLogs.value.push(`[ERROR] Tunnel failed: ${e}`);
     }
   }
 };
@@ -392,6 +497,7 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
         v-model:isAutoPilot="isAutoPilot"
         @switch-tab="bringToForeground"
         @switch-mode="(mode: number) => cyberMode = mode"
+        @view-history="viewHistory"
         @proc-context="onProcContext"
         @run-skill="runSkill"
         @change-dir="changeDir"
@@ -401,8 +507,8 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
         <div v-if="showContextMenu" class="context-menu" :style="{ top: menuY + 'px', left: menuX + 'px' }">
           <div class="menu-item" @click="sendToBackground">🚀 Background Task</div>
           <div class="menu-divider"></div>
-          <div class="menu-item disabled">📋 Copy (Coming)</div>
-          <div class="menu-item disabled">📥 Paste (Coming)</div>
+          <div class="menu-item" :class="{ disabled: !contextMenuTabId || !terminalManager.hasSelection(contextMenuTabId) }" @click="copySelectedText">📋 Copy Selection</div>
+          <div class="menu-item" @click="pasteFromClipboard">📥 Paste Clipboard</div>
         </div>
 
         <nav class="tool-bar">
@@ -436,6 +542,18 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
               </div>
               <div class="cyber-divider"></div>
               <div class="cyber-webview-wrapper">
+                <nav class="webview-address-bar">
+                  <div class="address-input-wrapper">
+                    <span class="secure-icon">🔒</span>
+                    <input 
+                      v-model="previewUrl" 
+                      @keyup.enter="refreshWebview" 
+                      class="address-bar-input" 
+                      placeholder="Enter remote URL (e.g. localhost:3000)"
+                    />
+                  </div>
+                  <button class="refresh-btn" @click="refreshWebview">⚡</button>
+                </nav>
                 <CyberWebview ref="webviewRef" :url="previewUrl" />
               </div>
             </div>
@@ -530,7 +648,13 @@ input:checked + .slider:before { transform: translateX(12px); }
 .log-line { margin-bottom: 2px; white-space: pre-wrap; word-break: break-all; opacity: 0.8; }
 .line-num { color: #3f3f46; margin-right: 8px; }
 .cyber-divider { height: 1px; background: #27272a; }
-.cyber-webview-wrapper { flex: 1; background: #09090b; position: relative; }
+.cyber-webview-wrapper { flex: 1; background: #09090b; position: relative; display: flex; flex-direction: column; overflow: hidden; }
+.webview-address-bar { height: 32px; background: #09090b; border-bottom: 1px solid #27272a; display: flex; align-items: center; padding: 0 8px; gap: 8px; flex-shrink: 0; }
+.address-input-wrapper { flex: 1; background: #18181b; border: 1px solid #27272a; border-radius: 6px; display: flex; align-items: center; padding: 0 8px; height: 24px; }
+.secure-icon { font-size: 10px; opacity: 0.5; margin-right: 6px; }
+.address-bar-input { background: transparent; border: none; color: #a1a1aa; font-size: 10px; width: 100%; outline: none; font-family: 'JetBrains Mono', monospace; }
+.refresh-btn { background: transparent; border: none; color: #3b82f6; cursor: pointer; font-size: 12px; padding: 2px 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
+.refresh-btn:hover { background: rgba(59, 130, 246, 0.1); }
 .context-menu { position: fixed; z-index: 100000; background: #18181b; border: 1px solid #3f3f46; border-radius: 6px; padding: 4px; min-width: 150px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
 .menu-item { padding: 8px 12px; font-size: 11px; color: #d4d4d8; cursor: pointer; border-radius: 4px; }
 .menu-item:hover { background: #3b82f6; color: #fff; }

@@ -13,7 +13,7 @@ let matrixInterval: any = null;
 const startMatrix = () => {
   const canvas = matrixCanvas.value;
   if (!canvas) return;
-  const ctx = canvas.getContext('2d')!;
+  const ctx = canvas.getContext('2d', { alpha: false })!; // Alpha false for performance
   
   const setCanvasSize = () => {
     canvas.width = window.innerWidth;
@@ -29,43 +29,58 @@ const startMatrix = () => {
   
   for (let x = 0; x < columns; x++) {
     drops[x] = Math.random() * -100;
-    columnLogs[x] = props.logs[Math.floor(Math.random() * props.logs.length)] || "SYSTEM.CORE.AUDIT.INIT...";
+    columnLogs[x] = "SYSTEM_INITIALIZING...";
   }
 
   const draw = () => {
-    // Persistent Black Background with slight trail
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.08)';
+    // Persistent Black Background with slight trail (Dynamic trail length)
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     ctx.font = `bold ${fontSize}px 'JetBrains Mono', monospace`;
 
     for (let i = 0; i < drops.length; i++) {
       const dropY = drops[i];
-      const logLine = columnLogs[i];
+      let logLine = columnLogs[i];
       if (dropY === undefined || logLine === undefined) continue;
 
       const charIndex = Math.floor(dropY) % logLine.length;
       const char = logLine[charIndex] || " ";
 
-      // Brightness: Darker at bottom, bright at the "head" of the drop
       const yPos = dropY * fontSize;
       const brightness = Math.max(0.05, 1 - (yPos / canvas.height));
       
-      // Leading character is brighter/white
-      if (Math.random() > 0.98) {
+      // Feature: Randomly highlight actual logs with glowing white/green
+      const isRealLog = logLine.startsWith("[") || logLine.includes("DEBUG");
+      
+      if (isRealLog && Math.random() > 0.98) {
         ctx.fillStyle = '#fff';
+        ctx.shadowBlur = 12;
+        ctx.shadowColor = '#0f0';
       } else {
         ctx.fillStyle = `rgba(0, 255, 70, ${brightness})`;
+        ctx.shadowBlur = 0;
       }
 
       ctx.fillText(char, i * fontSize, yPos);
 
-      // Dynamic Speed based on CPU usage (0.5 to 3.0 range)
-      const speed = 0.8 + (props.cpuUsage / 100) * 2.2;
+      // Dynamic Speed based on CPU usage (Turbo mode when high load)
+      const speed = 0.5 + (props.cpuUsage / 100) * 3.0;
       
       if (yPos > canvas.height && Math.random() > 0.975) {
         drops[i] = 0;
-        columnLogs[i] = props.logs[Math.floor(Math.random() * props.logs.length)] || "RE-ENCRYPTING.DATA.STREAM";
+        // Inject recent logs into columns
+        if (props.logs.length > 0 && Math.random() > 0.4) {
+          const rawLog = props.logs[Math.floor(Math.random() * props.logs.length)];
+          if (rawLog) {
+            // Clean up ANSI and pick a slice
+            columnLogs[i] = rawLog.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '').substring(0, 60);
+          } else {
+            columnLogs[i] = "NODE_TRACE_NULL";
+          }
+        } else {
+          columnLogs[i] = "NODE_TRACE_" + Math.random().toString(16).slice(2, 10).toUpperCase();
+        }
       } else {
         drops[i] = dropY + speed;
       }
@@ -122,6 +137,15 @@ onUnmounted(() => {
             <div class="glitch-text" data-text="AUTHENTICATION REQUIRED">AUTHENTICATION REQUIRED</div>
           </div>
           <div class="barrier-sub">LEVEL 7 CLEARANCE DETECTED // ENCRYPTING TRACE</div>
+          
+          <!-- Live CyberLog Viewer -->
+          <div class="live-logs-window">
+             <div v-for="(log, idx) in logs.slice(-5)" :key="idx" class="log-entry">
+               <span class="timestamp">[{{ new Date().toLocaleTimeString() }}]</span>
+               <span class="content">{{ log.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '').substring(0, 100) }}</span>
+             </div>
+          </div>
+
           <div class="security-lines">
             <div class="line"></div>
             <div class="line"></div>
@@ -188,7 +212,7 @@ canvas {
   position: absolute;
   inset: 0;
   background: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyBAMAAADsEZWCAAAAGFBMVEUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAs697FAAAACHRSTlMA7v7+/v7+/v7+U88qAAAANUlEQVQ4y2NgQAX8DIyMTIwMDEwMDIyMTIyMDEwMDIyMTIyMDEwMDIyMTIyMDEwMDIyMTIyMTAwAtSADf99S99EAAAAASUVORK5CYII=');
-  opacity: 0.05;
+  opacity: 0.04;
   pointer-events: none;
   z-index: 11;
 }
@@ -201,18 +225,60 @@ canvas {
   align-items: center;
   justify-content: center;
   z-index: 20;
-  background: radial-gradient(circle at center, transparent 30%, rgba(0, 0, 0, 0.6) 100%);
+  background: radial-gradient(circle at center, transparent 20%, rgba(0, 0, 0, 0.7) 100%);
   pointer-events: none;
 }
 
 .security-barrier {
   text-align: center;
-  border: 1px solid rgba(0, 255, 70, 0.3);
-  padding: 40px 80px;
-  background: rgba(0, 10, 0, 0.7);
-  backdrop-filter: blur(10px);
+  border: 1px solid rgba(0, 255, 70, 0.4);
+  padding: 50px 80px;
+  background: rgba(0, 10, 0, 0.45);
+  backdrop-filter: blur(15px) saturate(180%);
   position: relative;
-  box-shadow: 0 0 30px rgba(0, 255, 70, 0.1);
+  box-shadow: 
+    0 0 50px rgba(0, 255, 70, 0.1),
+    inset 0 0 20px rgba(0, 255, 70, 0.05);
+  border-radius: 4px;
+}
+
+.live-logs-window {
+  margin-top: 30px;
+  text-align: left;
+  font-family: 'JetBrains Mono', monospace;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(0, 255, 70, 0.2);
+  padding: 15px;
+  border-radius: 4px;
+  height: 110px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.8);
+}
+
+.log-entry {
+  font-size: 11px;
+  color: rgba(0, 255, 70, 0.7);
+  white-space: nowrap;
+  animation: log-slide 0.3s ease-out;
+}
+
+.log-entry .timestamp {
+  color: #333;
+  margin-right: 10px;
+  font-size: 10px;
+}
+
+.log-entry .content {
+  color: #0f0;
+  text-shadow: 0 0 5px rgba(0, 255, 70, 0.5);
+}
+
+@keyframes log-slide {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .glitch-wrapper {
@@ -221,12 +287,12 @@ canvas {
 }
 
 .glitch-text {
-  font-size: 48px;
-  font-weight: 900;
+  font-size: 42px;
+  font-weight: 800;
   color: #fff;
-  letter-spacing: 12px;
+  letter-spacing: 16px;
   font-family: 'JetBrains Mono', monospace;
-  text-shadow: 0 0 10px rgba(0, 255, 70, 0.8);
+  text-shadow: 0 0 15px rgba(0, 255, 70, 0.9);
 }
 
 .glitch-text::before,
@@ -272,11 +338,12 @@ canvas {
 
 .barrier-sub {
   color: #0f0;
-  font-size: 12px;
+  font-size: 11px;
   margin-top: 15px;
-  letter-spacing: 4px;
-  font-family: monospace;
-  opacity: 0.6;
+  letter-spacing: 6px;
+  font-family: 'JetBrains Mono', monospace;
+  opacity: 0.8;
+  text-transform: uppercase;
 }
 
 .security-lines {
@@ -316,12 +383,15 @@ canvas {
 
 .status-monitor {
   position: absolute;
-  bottom: 40px;
-  right: 40px;
+  bottom: 50px;
+  right: 50px;
   text-align: right;
   font-family: 'JetBrains Mono', monospace;
-  border-right: 1px solid rgba(0, 255, 70, 0.4);
-  padding-right: 15px;
+  border-right: 2px solid #0f0;
+  padding-right: 20px;
+  background: rgba(0, 0, 0, 0.3);
+  padding: 15px;
+  backdrop-filter: blur(5px);
 }
 
 .monitor-item {
@@ -331,12 +401,14 @@ canvas {
 .monitor-item .label {
   font-size: 10px;
   color: #666;
-  margin-right: 8px;
+  margin-right: 12px;
 }
 
 .monitor-item .value {
-  font-size: 12px;
-  color: #0f0;
+  font-size: 14px;
+  color: #fff;
+  text-shadow: 0 0 10px #0f0;
+  font-weight: bold;
 }
 
 .fade-enter-active,
@@ -349,4 +421,3 @@ canvas {
   opacity: 0;
 }
 </style>
-
