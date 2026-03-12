@@ -94,8 +94,11 @@ struct AppState {
     agent_port: Arc<TokioMutex<Option<u16>>>,
     vnc_port: Arc<TokioMutex<Option<u16>>>,
     dynamic_port: Arc<TokioMutex<Option<u16>>>,
+    #[allow(dead_code)]
     agent_abort: Arc<TokioMutex<Option<tokio::task::AbortHandle>>>,
+    #[allow(dead_code)]
     vnc_abort: Arc<TokioMutex<Option<tokio::task::AbortHandle>>>,
+    #[allow(dead_code)]
     dynamic_abort: Arc<TokioMutex<Option<tokio::task::AbortHandle>>>,
 }
 
@@ -234,7 +237,8 @@ pub fn run() {
             set_master_password, list_server_configs, delete_server_config, connect_with_id,
             spawn_new_pty, write_pty, close_pty, resize_pty, get_terminal_logs, get_active_ports,
             get_agent_token, open_dynamic_tunnel, ls_remote, load_remote_skills, ai_audit_ui,
-            navigate_cyber_webview, reload_cyber_webview, extract_cyber_dom, eval_cyber_webview
+            navigate_cyber_webview, reload_cyber_webview, extract_cyber_dom, eval_cyber_webview,
+            save_server_config, set_model_path, get_model_path
         ])
         .run(tauri::generate_context!())
         .expect("error");
