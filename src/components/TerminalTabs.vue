@@ -32,6 +32,7 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
         <div v-for="t in tabs" :key="t.id" 
              class="terminal-wrapper"
              v-show="t.id === activeTabId"
+             @click="terminalManager.focus(t.id)"
              @contextmenu.prevent="$emit('terminal-context', { e: $event, id: t.id })">
           <TerminalView :id="t.id" :active="t.id === activeTabId" />
         </div>
@@ -51,9 +52,10 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
   position: relative; 
 }
 
-.tab-bar { background: #0c0c0e; border-bottom: 1px solid #1a1a1c; display: flex; align-items: center; padding: 0 10px; height: 32px; flex-shrink: 0; z-index: 10; }
-.tab-item { padding: 0 15px; height: 100%; display: flex; align-items: center; font-size: 11px; color: #71717a; border-right: 1px solid #1a1a1c; cursor: pointer; position: relative; min-width: 80px; }
-.tab-item.active { background: #1a192f; color: #6366f1; border-top: 2px solid #6366f1; }
+.tab-bar { background: #09090b; border-bottom: 1px solid #27272a; display: flex; align-items: center; padding: 0 10px; height: 32px; flex-shrink: 0; z-index: 10; }
+.tab-item { padding: 0 15px; height: 100%; display: flex; align-items: center; font-size: 11px; color: #71717a; border-right: 1px solid #27272a; cursor: pointer; position: relative; min-width: 80px; transition: all 0.2s; }
+.tab-item.active { background: #18181b; color: #6366f1; border-top: 2px solid #6366f1; }
+.tab-item:hover:not(.active) { background: rgba(255, 255, 255, 0.04); color: #a1a1aa; }
 .tab-item .btn-close { margin-left: 10px; background: transparent; border: none; color: #444; cursor: pointer; visibility: hidden; font-size: 14px; }
 .tab-item:hover .btn-close { visibility: visible; }
 .btn-new-tab { background: transparent; border: none; color: #52525b; padding: 0 10px; cursor: pointer; font-size: 18px; line-height: 1; }

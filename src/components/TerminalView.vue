@@ -64,11 +64,15 @@ onUnmounted(() => {
   }
 });
 
-watch(() => props.active, (isActive) => {
+watch(() => props.active, async (isActive) => {
   if (isActive) {
     console.log(`[TerminalView] Terminal ${props.id} became active`);
+    // 【核心修复】：必须等待 Vue 把 v-show 的 display:none 移除，DOM 真正渲染后，再执行聚焦！
+    await nextTick(); 
+    
     const { term, fit } = terminalManager.getOrCreate(props.id);
-    nextTick(() => {
+    // 给一点缓冲时间让容器彻底撑开
+    requestAnimationFrame(() => {
       if (terminalRef.value && terminalRef.value.offsetWidth > 0) {
         fit.fit();
         term.focus();
@@ -94,14 +98,10 @@ watch(() => props.active, (isActive) => {
 }
 
 /* 
- * CRITICAL: Hide the xterm.js focus capture box. 
- * This prevents the 'left-corner white box' from showing up.
+ * CRITICAL: Ensure xterm.js handles its helper textarea natively for correct IME placement.
  */
 .xterm-helper-textarea {
-  position: absolute !important;
   opacity: 0 !important;
-  left: -9999px !important;
-  pointer-events: none !important;
 }
 
 .terminal-view-container .xterm {

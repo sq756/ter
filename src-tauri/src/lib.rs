@@ -23,7 +23,9 @@ struct BackendLogger;
 
 impl log::Log for BackendLogger {
     fn enabled(&self, metadata: &log::Metadata) -> bool {
-        metadata.level() <= log::Level::Info
+        // Drop to Debug for deep trace, specifically for PTY or russh. 
+        // We'll allow all debug logs to surface for the Matrix view.
+        metadata.level() <= log::Level::Debug
     }
 
     fn log(&self, record: &log::Record) {
@@ -71,17 +73,21 @@ struct AppState {
     model_path: tokio::sync::Mutex<Option<std::path::PathBuf>>,
     agent_port: Arc<tokio::sync::Mutex<Option<u16>>>,
     vnc_port: Arc<tokio::sync::Mutex<Option<u16>>>,
+    dynamic_port: Arc<tokio::sync::Mutex<Option<u16>>>,
     agent_abort: Arc<tokio::sync::Mutex<Option<tokio::task::AbortHandle>>>,
     vnc_abort: Arc<tokio::sync::Mutex<Option<tokio::task::AbortHandle>>>,
+    dynamic_abort: Arc<tokio::sync::Mutex<Option<tokio::task::AbortHandle>>>,
 }
 
 #[tauri::command]
 async fn get_active_ports(state: State<'_, AppState>) -> Result<serde_json::Value, String> {
     let agent = state.agent_port.lock().await;
     let vnc = state.vnc_port.lock().await;
+    let dynamic = state.dynamic_port.lock().await;
     Ok(serde_json::json!({
         "agent": *agent,
-        "vnc": *vnc
+        "vnc": *vnc,
+        "dynamic": *dynamic
     }))
 }
 
@@ -318,12 +324,14 @@ async fn connect_to_ssh(host: String, port: u16, user: String, pass: String, app
                     }
                 }
                 Some(data) = rx.recv() => {
+                    log::info!("[PTY TX] 🔐 Encrypting & Sending {} bytes: {:?}", data.len(), String::from_utf8_lossy(data.as_bytes()));
                     let _ = channel.data(data.as_bytes()).await;
                 }
                 msg = channel.wait() => {
                     if let Some(msg) = msg {
                         match msg {
                             russh::ChannelMsg::Data { data } => {
+                                log::info!("[PTY RX] 🔓 Decrypted {} bytes from remote PTY", data.len());
                                 let _ = app_handle_clone.emit("pty-data", data.to_vec());
                             }
                             russh::ChannelMsg::ExitStatus { .. } => break,
@@ -800,13 +808,79 @@ async fn ai_audit_ui() -> Result<String, String> {
     perform_ui_audit().await
 }
 
+#[tauri::command]
+async fn open_dynamic_tunnel(remote_port: u16, app_handle: AppHandle, state: State<'_, AppState>) -> Result<u16, String> {
+    log::info!("Request to open dynamic tunnel for remote port: {}", remote_port);
+    
+    let session_guard = state.session.lock().await;
+    let session_arc = session_guard.as_ref().ok_or("No active SSH session")?.clone();
+    
+    // Cancel previous dynamic tunnel task
+    let abort_field = state.dynamic_abort.clone();
+    {
+        let mut abort_guard = abort_field.lock().await;
+        if let Some(handle) = abort_guard.take() { handle.abort(); }
+    }
+
+    let dynamic_port_clone = state.dynamic_port.clone();
+    let app_handle_clone = app_handle.clone();
+
+    let (tx_port, rx_port) = tokio::sync::oneshot::channel();
+
+    let task = tokio::spawn(async move {
+        match TcpListener::bind("127.0.0.1:0").await {
+            Ok(listener) => {
+                let local_port = listener.local_addr().unwrap().port();
+                log::info!("Dynamic Tunnel listening on 127.0.0.1:{} -> remote 127.0.0.1:{}", local_port, remote_port);
+                
+                *dynamic_port_clone.lock().await = Some(local_port);
+                let _ = tx_port.send(local_port);
+                let _ = app_handle_clone.emit("dynamic-tunnel-opened", local_port);
+
+                while let Ok((mut stream, _)) = listener.accept().await {
+                    let session_inner = session_arc.clone();
+                    tokio::spawn(async move {
+                        match session_inner.channel_open_direct_tcpip("127.0.0.1", remote_port as u32, "127.0.0.1", local_port as u32).await {
+                            Ok(channel) => {
+                                let (mut reader, mut writer) = stream.split();
+                                let (mut chan_reader, mut chan_writer) = tokio::io::split(channel.into_stream());
+                                let _ = tokio::join!(
+                                    tokio::io::copy(&mut reader, &mut chan_writer),
+                                    tokio::io::copy(&mut chan_reader, &mut writer)
+                                );
+                            }
+                            Err(e) => log::error!("Dynamic tunnel error: {}", e),
+                        }
+                    });
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to bind to dynamic tunnel port: {}", e);
+                let _ = tx_port.send(0);
+            }
+        }
+    });
+
+    {
+        let mut abort_guard = abort_field.lock().await;
+        *abort_guard = Some(task.abort_handle());
+    }
+
+    let assigned_port = rx_port.await.map_err(|e| e.to_string())?;
+    if assigned_port == 0 {
+        return Err("Failed to bind local port".to_string());
+    }
+
+    Ok(assigned_port)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // Initialize our custom logger
     if let Err(e) = log::set_logger(&LOGGER) {
         eprintln!("Failed to set logger: {}", e);
     } else {
-        log::set_max_level(log::LevelFilter::Info);
+        log::set_max_level(log::LevelFilter::Debug);
     }
 
     tauri::Builder::default()
@@ -821,8 +895,10 @@ pub fn run() {
             model_path: tokio::sync::Mutex::new(None),
             agent_port: Arc::new(tokio::sync::Mutex::new(None)),
             vnc_port: Arc::new(tokio::sync::Mutex::new(None)),
+            dynamic_port: Arc::new(tokio::sync::Mutex::new(None)),
             agent_abort: Arc::new(tokio::sync::Mutex::new(None)),
             vnc_abort: Arc::new(tokio::sync::Mutex::new(None)),
+            dynamic_abort: Arc::new(tokio::sync::Mutex::new(None)),
         })
         .register_uri_scheme_protocol("ter-model", |_, request| {
             // In Tauri v2, we can't easily get state from the first closure param if it's UriSchemeContext
@@ -973,7 +1049,8 @@ pub fn run() {
             load_remote_skills,
             upload_ui_snapshot,
             write_remote_text,
-            get_active_ports
+            get_active_ports,
+            open_dynamic_tunnel
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

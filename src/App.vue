@@ -22,7 +22,9 @@ const isLocked = ref(false);
 const cyberMode = ref(0); 
 const agentToken = ref('');
 const currentAgentPort = ref<number | null>(null);
+const previewUrl = ref('http://localhost:5173');
 const backendLogs = ref<string[]>([]);
+const logsContainerRef = ref<HTMLElement | null>(null);
 const savedServers = ref<any[]>([]);
 const host = ref('Remote Server');
 const currentPath = ref('/');
@@ -228,11 +230,9 @@ const captureAndUpload = async (auto = false) => {
     const lastLogs = backendLogs.value.slice(-10).join('\n');
     await invoke('write_remote_text', { text: lastLogs, remotePath: '/tmp/current_logs.json' });
 
-    const msg = auto 
-      ? `[SYSTEM] Audit Done: ${remotePath} + Logs Sync` 
-      : `Manual audit completed. Snapshot: ${remotePath}, Logs: /tmp/current_logs.json`;
-    
-    await invoke('write_pty', { data: msg + "\n" });
+    const prompt = ` @../../../../../tmp/current_ui.png 请作为前端专家，看一眼这张刚刚截取的系统UI图。有没有什么明显的错位、报错或者需要优化的地方？`;
+    const payload = `\x1b[200~${prompt}\x1b[201~\r`;
+    await invoke('write_pty', { data: payload });
   } catch (e) { 
     console.error("Capture Failed:", e); 
     backendLogs.value.push(`[ERROR] Visual Audit failed: ${e}`);
@@ -258,7 +258,9 @@ const runSkill = async (skill: any) => {
     if (rpc.includes('audit') || rpc.toLowerCase().includes('gemini') || rpc.includes('ter')) {
       isAutoPilot.value = true;
     }
-    invoke('write_pty', { data: rpc.endsWith('\n') ? rpc : rpc + "\r\n" });
+    const cleanRpc = rpc.trim();
+    const payload = `\x1b[200~${cleanRpc}\x1b[201~\r`;
+    invoke('write_pty', { data: payload });
   }
 };
 
@@ -304,11 +306,15 @@ const loadServers = async () => { savedServers.value = await invoke('list_server
 
 let unlistenLog: any, unlistenPty: any;
 onMounted(async () => {
-  unlistenLog = await listen<string>('backend-log', (e) => { 
-    backendLogs.value.push(e.payload); 
-    if (backendLogs.value.length > 100) backendLogs.value.shift(); 
-  });
-  window.addEventListener('keydown', (e) => { 
+  unlistenLog = await listen<string>('backend-log', (e) => {
+    backendLogs.value.push(e.payload);
+    if (backendLogs.value.length > 500) backendLogs.value.shift();
+    nextTick(() => {
+      if (logsContainerRef.value) {
+        logsContainerRef.value.scrollTop = logsContainerRef.value.scrollHeight;
+      }
+    });
+  });  window.addEventListener('keydown', (e) => { 
     if (e.altKey && e.key.toLowerCase() === 'l') {
       isLocked.value = !isLocked.value;
       if (!isLocked.value) nextTick(() => { initCharts(); terminalManager.fitAll(); });
@@ -393,7 +399,7 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
             <div class="cyber-container">
               <div class="cyber-logs-view">
                 <header><span class="title">Cyber Logs</span></header>
-                <div class="logs-container">
+                <div class="logs-container" ref="logsContainerRef">
                   <div v-for="(log, i) in backendLogs" :key="i" class="log-line">
                     <span class="line-num">{{ i + 1 }}</span> {{ log }}
                   </div>
@@ -401,7 +407,7 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
               </div>
               <div class="cyber-divider"></div>
               <div class="cyber-webview-wrapper">
-                <CyberWebview ref="webviewRef" :url="`http://localhost:${currentAgentPort || 5173}`" />
+                <CyberWebview ref="webviewRef" :url="previewUrl" />
               </div>
             </div>
           </section>
@@ -417,18 +423,18 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
 .app-shell { height: 100vh; background: #050505; color: #e4e4e7; font-family: 'Inter', system-ui; overflow: hidden; }
 .main-view { display: flex; height: 100%; width: 100%; }
 .workspace { flex: 1; display: flex; flex-direction: column; background: #000; overflow: hidden; min-width: 0; }
-.tool-bar { height: 45px; background: #0c0c0e; border-bottom: 1px solid #1a1a1c; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; }
+.tool-bar { height: 45px; background: #09090b; border-bottom: 1px solid #27272a; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; }
 .workspace-body { flex: 1; display: flex; overflow: hidden; }
 .terminal-pane { flex: 1; height: 100%; min-width: 0; }
-.cyber-pane { width: 380px; height: 100%; border-left: 1px solid #1a1a1c; background: #000; overflow: hidden; }
+.cyber-pane { width: 380px; height: 100%; border-left: 1px solid #27272a; background: #000; overflow: hidden; }
 .cyber-container { display: flex; flex-direction: column; height: 100%; }
-.cyber-logs-view { flex: 0 0 40%; display: flex; flex-direction: column; background: #0a0a0a; border-bottom: 1px solid #1a1a1c; overflow: hidden; }
-.cyber-logs-view header { padding: 8px 12px; background: #0c0c0e; border-bottom: 1px solid #1a1a1c; }
+.cyber-logs-view { flex: 0 0 40%; display: flex; flex-direction: column; background: #050505; border-bottom: 1px solid #27272a; overflow: hidden; }
+.cyber-logs-view header { padding: 8px 12px; background: #09090b; border-bottom: 1px solid #27272a; }
 .cyber-logs-view .title { font-size: 10px; color: #6366f1; font-weight: bold; text-transform: uppercase; }
-.logs-container { flex: 1; padding: 10px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #a1a1aa; }
+.logs-container { flex: 1; padding: 10px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #a1a1aa; scroll-behavior: smooth; }
 .log-line { margin-bottom: 2px; white-space: pre-wrap; word-break: break-all; }
 .line-num { color: #3f3f46; margin-right: 8px; }
-.cyber-divider { height: 1px; background: #1a1a1c; }
+.cyber-divider { height: 1px; background: #27272a; }
 .cyber-webview-wrapper { flex: 1; background: #000; position: relative; }
 .context-menu { position: fixed; z-index: 100000; background: #18181b; border: 1px solid #3f3f46; border-radius: 6px; padding: 4px; min-width: 150px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
 .menu-item { padding: 8px 12px; font-size: 11px; color: #d4d4d8; cursor: pointer; border-radius: 4px; }

@@ -15,6 +15,12 @@ body {
   overflow: hidden;
 }
 
+/* Global Scrollbar Reset */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #52525b; }
+
 #app {
   width: 100vw;
   height: 100vh;
@@ -22,14 +28,7 @@ body {
   padding: 0;
 }
 
-/* 
- * CRITICAL: Hide the xterm.js focus capture box. 
- * This prevents the 'left-corner white box' from showing up if mounting is delayed.
- */
+/* Ensure xterm.js handles its helper textarea natively for correct IME placement. */
 .xterm-helper-textarea {
   opacity: 0 !important;
-  pointer-events: none !important;
-  position: absolute !important;
-  left: -9999px !important;
-  top: -9999px !important;
 }
