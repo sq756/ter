@@ -22,6 +22,12 @@ const showContextMenu = ref(false), menuX = ref(0), menuY = ref(0), contextMenuT
 const terminalTabs = ref<any[]>([]), activeTabId = ref<string | null>(null);
 const backgroundTabs = computed(() => terminalTabs.value.filter(t => t.isBackground)), storageKey = computed(() => `ter_tabs_${host.value.replace(/\s+/g, '_')}`);
 
+// v2.3.11: Fix P0-1 Timer Leak
+let statsIntervalId: any = null;
+
+const showAddServerForm = ref(false);
+const newServer = ref({ label: '', host: '', port: 22, user: 'root', password_enc: '' });
+
 watch(terminalTabs, (val) => { if (isConnected.value) localStorage.setItem(storageKey.value, JSON.stringify(val)); }, { deep: true });
 watch(activeTriggers, (val) => { localStorage.setItem('ter_active_triggers', JSON.stringify(val)); }, { deep: true });
 
@@ -79,7 +85,13 @@ const onConnected = async () => {
     terminalManager.write(id, bytes);
   });
   const ps: any = await invoke('get_active_ports'); if (ps.agent) currentAgentPort.value = ps.agent;
-  setTimeout(() => { refreshExplorer(); invoke('load_remote_skills').then((s: any) => skills.value = s); nextTick(() => { initCharts(); setInterval(fetchStats, 3000); }); }, 1000);
+  
+  // v2.3.11: P0-1 Clear existing interval before starting new one
+  if (statsIntervalId) clearInterval(statsIntervalId);
+  setTimeout(() => { 
+    refreshExplorer(); invoke('load_remote_skills').then((s: any) => skills.value = s); 
+    nextTick(() => { initCharts(); statsIntervalId = setInterval(fetchStats, 3000); }); 
+  }, 1000);
 };
 const refreshExplorer = async () => { if (isConnected.value) realFiles.value = await invoke('ls_remote', { path: currentPath.value }); };
 const changeDir = (p: string) => {
@@ -102,24 +114,16 @@ const possibleLetters = computed(() => {
 });
 const handleMorseMouse = (e: MouseEvent) => {
   if (e.button === 1) { onMorseMacro(e); return; }
-  isMorsePressed.value = true;
-  setTimeout(() => { isMorsePressed.value = false; }, 100);
-  if (e.button === 0) morseSequence.value += '.';
-  else if (e.button === 2) morseSequence.value += '-';
-  if (morseTimer.value) clearTimeout(morseTimer.value);
-  morseTimer.value = setTimeout(commitMorse, 800);
+  isMorsePressed.value = true; setTimeout(() => { isMorsePressed.value = false; }, 100);
+  if (e.button === 0) morseSequence.value += '.'; else if (e.button === 2) morseSequence.value += '-';
+  if (morseTimer.value) clearTimeout(morseTimer.value); morseTimer.value = setTimeout(commitMorse, 800);
 };
 const handleMorseWheel = (e: WheelEvent) => {
-  if (activeTabId.value) {
-    if (e.deltaY < 0) invoke('write_pty', { tabId: activeTabId.value, data: "\r" });
-    else invoke('write_pty', { tabId: activeTabId.value, data: "\x7f" });
-  }
+  if (activeTabId.value) { if (e.deltaY < 0) invoke('write_pty', { tabId: activeTabId.value, data: "\r" }); else invoke('write_pty', { tabId: activeTabId.value, data: "\x7f" }); }
 };
 const commitMorse = async () => {
-  const char = morseMap[morseSequence.value];
-  if (char && activeTabId.value) { morseText.value += char; await invoke('write_pty', { tabId: activeTabId.value, data: char }); }
-  morseSequence.value = '';
-  setTimeout(() => { if (!morseSequence.value) morseText.value = ''; }, 2000);
+  const char = morseMap[morseSequence.value]; if (char && activeTabId.value) { morseText.value += char; await invoke('write_pty', { tabId: activeTabId.value, data: char }); }
+  morseSequence.value = ''; setTimeout(() => { if (!morseSequence.value) morseText.value = ''; }, 2000);
 };
 
 const onMorseMacro = (e: MouseEvent) => { calculateMenuPosition(e, 200); showMorseMacro.value = true; };
@@ -129,6 +133,13 @@ const copyTabIdAction = async () => { if (contextMenuTabId.value) await navigato
 const diagnoseSelection = async () => { const id = contextMenuTabId.value || activeTabId.value; if (id) { const s = terminalManager.getSelection(id); if (activeTabId.value) await invoke('write_pty', { tabId: activeTabId.value, data: `\x1b[200~帮我诊断并给方案：\n\n\`\`\`\n${s}\n\`\`\`\x1b[201~\r` }); } showContextMenu.value = false; };
 const captureAndUpload = async () => { await invoke('ai_audit_ui'); };
 const runSkill = async (s: any) => { backendLogs.value.push(`[SKILL] Exec: ${s.name}`); };
+
+const saveNewServer = async () => {
+  if (!newServer.value.host || !newServer.value.user) return;
+  await invoke('save_server_config', { config: { id: 'node-' + Math.random().toString(36).substr(2, 9), ...newServer.value } });
+  showAddServerForm.value = false; loadServers();
+};
+
 const cpuChartRef = ref<HTMLElement | null>(null), memChartRef = ref<HTMLElement | null>(null);
 let cpuChart: any, memChart: any; const cpuHistory = ref<number[]>([]), memHistory = ref<number[]>([]);
 const currentCpuUsage = computed(() => cpuHistory.value.length > 0 ? cpuHistory.value[cpuHistory.value.length - 1] : 0);
@@ -138,29 +149,85 @@ const getChartOpt = (d: any[], c: string) => ({ grid: { top: 5, bottom: 0, left:
 const masterPasswordStr = ref('');
 const setMasterPass = async () => { await invoke('set_master_password', { password: masterPasswordStr.value }); isMasterPasswordSet.value = true; loadServers(); };
 const loadServers = async () => { savedServers.value = await invoke('list_server_configs'); };
+
 let unlistenLog: any, unlistenPty: any;
+const preventDefaultContextMenu = (e: MouseEvent) => e.preventDefault();
+const handleGlobalKeyDown = (e: KeyboardEvent) => { if (e.altKey && e.key.toLowerCase() === 'l') isLocked.value = !isLocked.value; };
+
 onMounted(async () => {
-  window.addEventListener('contextmenu', (e) => e.preventDefault());
+  window.addEventListener('contextmenu', preventDefaultContextMenu);
+  window.addEventListener('keydown', handleGlobalKeyDown);
   const st = localStorage.getItem('ter_active_triggers'); if (st) try { activeTriggers.value = JSON.parse(st); } catch(e){}
   const sm = localStorage.getItem('ter_macros'); if (sm) try { activeMacros.value = JSON.parse(sm); } catch(e){}
   unlistenLog = await listen<string>('backend-log', (e) => { backendLogs.value.push(e.payload); if (backendLogs.value.length > 500) backendLogs.value.shift(); });
-  window.addEventListener('keydown', (e) => { if (e.altKey && e.key.toLowerCase() === 'l') isLocked.value = !isLocked.value; });
 });
-onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty(); });
+
+// v2.3.11: Fix P1-2 Event Leak
+onUnmounted(() => {
+  window.removeEventListener('contextmenu', preventDefaultContextMenu);
+  window.removeEventListener('keydown', handleGlobalKeyDown);
+  if (unlistenLog) unlistenLog();
+  if (unlistenPty) unlistenPty();
+  if (statsIntervalId) clearInterval(statsIntervalId);
+  if (morseTimer.value) clearTimeout(morseTimer.value);
+});
 </script>
 
 <template>
   <div class="app-shell" @click="showContextMenu = false; showMorseMacro = false">
-    <div v-if="!isMasterPasswordSet" class="modal-overlay"><div class="auth-card"><h2>🔒 Unlock Vault</h2><input v-model="masterPasswordStr" type="password" @keyup.enter="setMasterPass" /><button @click="setMasterPass" class="btn-primary">Unlock</button></div></div>
-    <div v-else-if="!isConnected" class="workspace-setup">
-      <div class="vault-container" :class="{ 'connecting': isConnecting }">
-        <header><h3>Server Vault</h3><button @click="savedServers.push({ id: 'dummy', label: 'Local Host', user: 'root', host: '127.0.0.1' })" class="btn-add">+</button></header>
-        <div class="server-list"><div v-for="s in savedServers" :key="s.id" class="server-card" @click="connectWithId(s.id)"><div class="icon-box">SSH</div><div class="info"><b>{{ s.label }}</b><br/><small>{{ s.user }}@{{ s.host }}</small></div></div></div>
+    <div v-if="!isMasterPasswordSet" class="modal-overlay">
+      <div class="auth-card cyber-card">
+        <h2 class="cyber-title">SYSTEM OVERRIDE</h2>
+        <div class="cyber-subtitle">/// AUTHENTICATION_REQUIRED</div>
+        <input v-model="masterPasswordStr" type="password" placeholder="ENTER ACCESS KEY..." @keyup.enter="setMasterPass" class="cyber-input" />
+        <button @click="setMasterPass" class="btn-primary">INITIALIZE</button>
       </div>
     </div>
+
+    <div v-else-if="!isConnected" class="workspace-setup">
+      <div class="vault-container cyber-card" :class="{ 'connecting': isConnecting }">
+        <header>
+          <h2 class="cyber-title">AUTHORIZED NODES</h2>
+          <button @click="showAddServerForm = true" class="btn-add">+</button>
+        </header>
+        
+        <div v-if="showAddServerForm" class="add-server-overlay">
+          <div class="cyber-form">
+            <input v-model="newServer.label" placeholder="LABEL" class="cyber-input" />
+            <div class="row">
+              <input v-model="newServer.host" placeholder="HOST" class="cyber-input" />
+              <input v-model.number="newServer.port" placeholder="PORT" class="cyber-input small" />
+            </div>
+            <input v-model="newServer.user" placeholder="USER" class="cyber-input" />
+            <input v-model="newServer.password_enc" type="password" placeholder="PASSWORD" class="cyber-input" />
+            <div class="actions">
+              <button @click="saveNewServer" class="btn-primary mini">SAVE</button>
+              <button @click="showAddServerForm = false" class="btn-primary mini danger">CANCEL</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="server-list">
+          <div v-for="s in savedServers" :key="s.id" class="server-card" @click="connectWithId(s.id)">
+            <div class="icon-box">NODE</div>
+            <div class="info"><b>{{ (s.label || 'UNTITLED').toUpperCase() }}</b><br/><small>{{ s.user }}@{{ s.host }}</small></div>
+          </div>
+          <div v-if="savedServers.length === 0" class="empty-nodes">NO AUTHORIZED NODES FOUND</div>
+        </div>
+      </div>
+    </div>
+
     <div v-else class="main-view">
       <SettingsPanel :isOpen="showSettings" @close="showSettings = false" @update-macros="(m) => activeMacros = m" />
-      <SidebarPanel :files="realFiles" :currentPath="currentPath" :bgTabs="backgroundTabs" :skills="skills" :cpuChartRef="(el: any) => cpuChartRef = el" :memChartRef="(el: any) => memChartRef = el" v-model:isAutoPilot="isAutoPilot" @switch-tab="bringToForeground" @switch-mode="(mode: number) => cyberMode = mode" @view-history="viewHistory" @proc-context="(p: any) => onTerminalContextMenu({e: p.event, id: p.tab.id})" @run-skill="runSkill" @change-dir="changeDir" @open-trigger-settings="showSettings = true" @fast-access="onFastAccess" />
+      <SidebarPanel 
+        :files="realFiles" :currentPath="currentPath" :bgTabs="backgroundTabs" :skills="skills"
+        :cpuChartRef="(el: any) => cpuChartRef = el" :memChartRef="(el: any) => memChartRef = el"
+        v-model:isAutoPilot="isAutoPilot"
+        @switch-tab="bringToForeground" @switch-mode="(mode: number) => cyberMode = mode"
+        @view-history="viewHistory" @proc-context="(p: any) => onTerminalContextMenu({e: p.event, id: p.tab.id})" @run-skill="runSkill"
+        @change-dir="changeDir" @open-trigger-settings="showSettings = true" @fast-access="onFastAccess"
+      />
+
       <main class="workspace" ref="workspaceRef" @click="activeTabId && terminalManager.focus(activeTabId)">
         <div v-if="showContextMenu" class="context-menu" :style="{ top: menuY + 'px', left: menuX + 'px' }">
           <header class="menu-header">TERMINAL ACTIONS</header>
@@ -198,7 +265,7 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
           </section>
         </div>
         <footer class="status-bar">
-          <div class="status-left stealth-zone" @mousedown.prevent="handleMorseMouse" @wheel.prevent="handleMorseWheel">
+          <div class="status-left stealth-zone" @mousedown.prevent="handleMorseMouse" @wheel.prevent="handleMorseWheel" @contextmenu.prevent="onMorseMacro">
             <div class="tiny-dot" :class="{ 'active': isMorsePressed }"></div>
             <span class="item">1 | Agent: Active</span>
           </div>
@@ -215,63 +282,82 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
 </template>
 
 <style scoped>
-.app-shell { height: 100vh; background: #09090b; color: #d4d4d8; font-family: 'Inter', system-ui; overflow: hidden; }
+.app-shell { height: 100vh; background: #000; color: #d4d4d8; font-family: 'JetBrains Mono', monospace; overflow: hidden; }
 .main-view { display: flex; height: 100%; width: 100%; }
-.workspace { flex: 1; display: flex; flex-direction: column; background: #09090b; overflow: hidden; min-width: 0; }
-.tool-bar { height: 36px; background: #09090b; border-bottom: 1px solid #27272a; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; }
-.status-bar { height: 24px; background: #09090b; border-top: 1px solid #18181b; color: #52525b; display: flex; justify-content: space-between; align-items: center; padding: 0 10px; font-size: 10px; z-index: 100; flex-shrink: 0; }
-.status-left, .status-right { display: flex; align-items: center; gap: 15px; }
-.stealth-zone { display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 0 4px; height: 100%; transition: opacity 0.2s; }
-.stealth-zone:hover { opacity: 0.8; }
+.workspace { flex: 1; display: flex; flex-direction: column; background: #000; overflow: hidden; min-width: 0; }
+.cyber-card { background: #09090b !important; border: 1px solid #22c55e !important; box-shadow: 0 0 15px rgba(34, 197, 94, 0.2) !important; border-radius: 0 !important; }
+.cyber-title { color: #22c55e !important; font-family: 'JetBrains Mono', monospace; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 5px; }
+.cyber-subtitle { font-size: 10px; color: #166534; margin-bottom: 20px; letter-spacing: 1px; }
+.cyber-input { background: #000 !important; border: 1px solid #27272a !important; color: #22c55e !important; font-family: 'JetBrains Mono', monospace !important; border-radius: 0 !important; outline: none !important; padding: 10px !important; margin-bottom: 15px; }
+.cyber-input:focus { border-color: #22c55e !important; box-shadow: 0 0 5px rgba(34, 197, 94, 0.3); }
+.btn-primary { background: transparent !important; border: 1px solid #22c55e !important; color: #22c55e !important; font-family: 'JetBrains Mono', monospace !important; text-transform: uppercase; letter-spacing: 1px; border-radius: 0 !important; transition: all 0.2s ease !important; cursor: pointer; padding: 12px; font-weight: bold; }
+.btn-primary:hover { background: rgba(34, 197, 94, 0.2) !important; box-shadow: 0 0 10px rgba(34, 197, 94, 0.5) !important; }
+.btn-primary.mini { padding: 6px 12px; font-size: 11px; }
+.btn-primary.danger { border-color: #ef4444 !important; color: #ef4444 !important; }
+.btn-primary.danger:hover { background: rgba(239, 68, 68, 0.2) !important; box-shadow: 0 0 10px rgba(239, 68, 68, 0.5) !important; }
+
+.workspace-setup { height: 100%; display: flex; align-items: center; justify-content: center; background: #000; }
+.vault-container { width: 520px; padding: 40px; position: relative; }
+.vault-container header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; border-bottom: 1px solid #27272a; padding-bottom: 15px; }
+.btn-add { background: transparent; border: 1px solid #22c55e; color: #22c55e; width: 28px; height: 28px; cursor: pointer; font-size: 20px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+.btn-add:hover { background: #22c55e; color: #000; }
+
+.add-server-overlay { margin-bottom: 30px; padding: 20px; background: rgba(34, 197, 94, 0.05); border: 1px dashed #22c55e; }
+.cyber-form { display: flex; flex-direction: column; }
+.cyber-form .row { display: flex; gap: 10px; }
+.cyber-form .row .small { width: 100px; }
+.cyber-form .actions { display: flex; gap: 10px; margin-top: 10px; }
+
+.server-list { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+.server-card { background: #050505; border: 1px solid #18181b; padding: 15px; display: flex; align-items: center; cursor: pointer; transition: all 0.2s; gap: 15px; }
+.server-card:hover { border-color: #22c55e; transform: translateY(-2px); box-shadow: 0 5px 15px rgba(34, 197, 94, 0.1); }
+.server-card .icon-box { background: rgba(34, 197, 94, 0.1); color: #22c55e; padding: 4px 8px; font-size: 10px; font-weight: bold; border: 1px solid rgba(34, 197, 94, 0.3); }
+.server-card small { color: #52525b; font-size: 11px; }
+.empty-nodes { grid-column: span 2; text-align: center; color: #3f3f46; font-size: 12px; padding: 40px; border: 1px dashed #18181b; }
+
+.status-bar { height: 24px; background: #000; border-top: 1px solid #18181b; color: #52525b; display: flex; justify-content: space-between; align-items: center; padding: 0 10px; font-size: 10px; }
 .tiny-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; transition: all 0.1s; }
 .tiny-dot.active { transform: scale(1.1); box-shadow: 0 0 8px #22c55e; filter: brightness(1.5); }
-.status-btn { background: transparent; border: none; color: #52525b; cursor: pointer; font-size: 10px; padding: 2px 6px; border-radius: 4px; transition: all 0.2s; }
-.status-btn:hover { color: #fff; }
-.status-toggle { display: flex; align-items: center; gap: 8px; font-size: 10px; color: #52525b; }
+.stealth-zone { display: flex; align-items: center; gap: 8px; cursor: pointer; height: 100%; padding: 0 5px; }
+.stealth-zone:hover { background: rgba(34, 197, 94, 0.05); }
+
+.workspace-body { flex: 1; display: flex; overflow: hidden; position: relative; }
+.terminal-pane { flex: 1; height: 100%; min-width: 0; position: relative; display: flex; flex-direction: column; overflow: hidden; }
+.cyber-pane { width: 420px; height: 100%; border-left: 1px solid #27272a; background: #000; overflow: hidden; display: flex; flex-direction: column; }
+.cyber-container { display: flex; flex-direction: column; height: 100%; flex: 1; overflow: hidden; }
+.cyber-logs-view { flex: 0 0 30%; display: flex; flex-direction: column; background: #000; border-bottom: 1px solid #27272a; overflow: hidden; }
+.logs-container { flex: 1; padding: 10px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #a1a1aa; }
+.cyber-webview-wrapper { flex: 1; background: #000; display: flex; flex-direction: column; overflow: hidden; }
+.webview-address-bar { height: 32px; border-bottom: 1px solid #27272a; display: flex; align-items: center; padding: 0 8px; gap: 8px; }
+.address-input-wrapper { flex: 1; background: #050505; border: 1px solid #18181b; height: 24px; animation: breathing-border 3s infinite; display: flex; align-items: center; padding: 0 8px; }
+@keyframes breathing-border { 0% { border-color: #18181b; } 50% { border-color: #22c55e; } 100% { border-color: #18181b; } }
+.address-bar-input { background: transparent; border: none; color: #22c55e; font-size: 10px; width: 100%; outline: none; font-family: 'JetBrains Mono', monospace; }
+.extract-btn { background: rgba(168, 85, 247, 0.1); border: 1px solid #a855f7; color: #a855f7; font-size: 10px; padding: 2px 8px; cursor: pointer; font-family: 'JetBrains Mono', monospace; }
+.extract-btn:hover { background: rgba(168, 85, 247, 0.2); box-shadow: 0 0 10px #a855f7; }
+.context-menu { position: fixed; z-index: 1000000; background: #09090b; border: 1px solid #22c55e; padding: 4px; min-width: 160px; box-shadow: 0 10px 25px rgba(0,0,0,0.8); }
+.menu-header { padding: 6px 12px; font-size: 9px; color: #166534; border-bottom: 1px solid #18181b; margin-bottom: 4px; }
+.menu-item { padding: 8px 12px; font-size: 11px; color: #d4d4d8; cursor: pointer; }
+.menu-item:hover { background: #22c55e; color: #000; }
+.menu-item.danger { color: #ef4444; }
+.menu-item.danger:hover { background: #ef4444; color: #000; }
+.morse-preview-overlay { position: absolute; bottom: 40px; left: 10px; background: rgba(0, 0, 0, 0.9); border: 1px solid #22c55e; padding: 10px 20px; z-index: 1000; display: flex; flex-direction: column; align-items: center; pointer-events: none; }
+.morse-preview-overlay .sequence { font-size: 24px; color: #22c55e; letter-spacing: 4px; }
+.morse-preview-overlay .candidates { font-size: 9px; color: #166534; margin-top: 5px; }
+.modal-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.9); display: flex; align-items: center; justify-content: center; z-index: 10000; backdrop-filter: blur(8px); }
+.auth-card { width: 360px; padding: 40px; }
+.tool-bar { height: 36px; background: #000; border-bottom: 1px solid #18181b; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; }
+.btn-tool { background: transparent; border: 1px solid #27272a; color: #52525b; padding: 3px 10px; font-size: 10px; cursor: pointer; text-transform: uppercase; }
+.btn-tool:hover { border-color: #ef4444; color: #ef4444; }
+.status-chip { font-size: 11px; color: #52525b; display: flex; align-items: center; gap: 8px; }
+.pulse.purple { width: 6px; height: 6px; background: #a855f7; border-radius: 50%; box-shadow: 0 0 5px #a855f7; }
 .mini-switch { position: relative; display: inline-block; width: 24px; height: 12px; }
 .mini-switch input { opacity: 0; width: 0; height: 0; }
 .slider { position: absolute; cursor: pointer; inset: 0; background-color: #27272a; transition: .4s; border-radius: 12px; }
 .slider:before { position: absolute; content: ""; height: 8px; width: 8px; left: 2px; bottom: 2px; background-color: white; transition: .4s; border-radius: 50%; }
 input:checked + .slider { background-color: #3b82f6; }
 input:checked + .slider:before { transform: translateX(12px); }
-.workspace-body { flex: 1; display: flex; overflow: hidden; position: relative; }
-.terminal-pane { flex: 1; height: 100%; min-width: 0; position: relative; display: flex; flex-direction: column; overflow: hidden; }
-.cyber-pane { width: 420px; height: 100%; border-left: 1px solid #27272a; background: #09090b; overflow: hidden; display: flex; flex-direction: column; }
-.cyber-container { display: flex; flex-direction: column; height: 100%; flex: 1; overflow: hidden; }
-.cyber-logs-view { flex: 0 0 30%; display: flex; flex-direction: column; background: #09090b; border-bottom: 1px solid #27272a; overflow: hidden; }
-.cyber-logs-view header { padding: 8px 12px; border-bottom: 1px solid #27272a; }
-.cyber-logs-view .title { font-size: 10px; color: #3b82f6; font-weight: bold; text-transform: uppercase; }
-.logs-container { flex: 1; padding: 10px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #a1a1aa; }
-.log-line { margin-bottom: 2px; white-space: pre-wrap; word-break: break-all; }
-.line-num { color: #3f3f46; margin-right: 8px; }
-.cyber-divider { height: 1px; background: #27272a; }
-.cyber-webview-wrapper { flex: 1; background: #09090b; display: flex; flex-direction: column; overflow: hidden; }
-.webview-address-bar { height: 32px; border-bottom: 1px solid #27272a; display: flex; align-items: center; padding: 0 8px; gap: 8px; }
-.address-input-wrapper { flex: 1; background: #18181b; border: 1px solid #27272a; border-radius: 6px; display: flex; align-items: center; padding: 0 8px; height: 24px; animation: breathing-border 3s infinite; }
-@keyframes breathing-border { 0% { border-color: #27272a; } 50% { border-color: #3b82f6; } 100% { border-color: #27272a; } }
-.address-bar-input { background: transparent; border: none; color: #a1a1aa; font-size: 10px; width: 100%; outline: none; }
-.refresh-btn { background: transparent; border: none; color: #3b82f6; cursor: pointer; }
-.refresh-btn.spinning { animation: spinning 1s linear infinite; }
-@keyframes spinning { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-.extract-btn { background: rgba(168, 85, 247, 0.15); border: 1px solid rgba(168, 85, 247, 0.4); color: #a855f7; font-size: 10px; padding: 2px 8px; border-radius: 4px; cursor: pointer; }
-.extract-btn:hover { background: rgba(168, 85, 247, 0.3); box-shadow: 0 0 10px rgba(168, 85, 247, 0.4); }
-.context-menu { position: fixed; z-index: 1000000; background: #18181b; border: 1px solid #3f3f46; border-radius: 6px; padding: 4px; min-width: 150px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
-.menu-header { padding: 6px 12px; font-size: 9px; color: #52525b; border-bottom: 1px solid #27272a; }
-.menu-item { padding: 8px 12px; font-size: 11px; color: #d4d4d8; cursor: pointer; border-radius: 4px; }
-.menu-item:hover { background: #3b82f6; color: #fff; }
-.menu-item.danger { color: #ef4444; }
-.menu-item.danger:hover { background: #ef4444; color: #fff; }
-.morse-preview-overlay { position: absolute; bottom: 40px; left: 10px; background: rgba(0, 0, 0, 0.8); border: 1px solid #22c55e; padding: 10px 20px; border-radius: 8px; z-index: 1000; display: flex; flex-direction: column; align-items: center; pointer-events: none; }
-.morse-preview-overlay .sequence { font-size: 24px; color: #22c55e; letter-spacing: 4px; font-family: 'JetBrains Mono', monospace; }
-.morse-preview-overlay .text { font-size: 14px; color: #fafafa; margin-top: 4px; font-family: 'JetBrains Mono', monospace; }
-.morse-preview-overlay .candidates { font-size: 9px; color: #71717a; margin-top: 6px; font-family: 'JetBrains Mono', monospace; }
-.modal-overlay { position: fixed; inset: 0; background: rgba(9, 9, 11, 0.9); display: flex; align-items: center; justify-content: center; z-index: 10000; backdrop-filter: blur(4px); }
-.auth-card { background: #18181b; padding: 30px; border-radius: 12px; border: 1px solid #27272a; width: 320px; }
-.btn-primary { width: 100%; padding: 12px; background: #3b82f6; border: none; color: #fff; border-radius: 6px; cursor: pointer; }
-.workspace-setup { height: 100%; display: flex; align-items: center; justify-content: center; background: #09090b; }
-.vault-container { width: 480px; background: #18181b; border: 1px solid #27272a; border-radius: 12px; padding: 30px; }
-.server-list { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.server-card { background: #09090b; border: 1px solid #27272a; padding: 15px; border-radius: 10px; display: flex; align-items: center; cursor: pointer; gap: 12px; }
-.icon-box { background: #27272a; padding: 6px 8px; border-radius: 6px; font-size: 10px; color: #a1a1aa; }
-.menu-divider { height: 1px; background: #27272a; margin: 4px 0; }
+.status-toggle { display: flex; align-items: center; gap: 8px; font-size: 10px; color: #52525b; }
+.status-btn { background: transparent; border: none; color: #52525b; cursor: pointer; font-size: 10px; padding: 2px 6px; border-radius: 4px; transition: all 0.2s; }
+.status-btn:hover { color: #fff; }
+.menu-divider { height: 1px; background: #18181b; margin: 4px 0; }
 </style>
