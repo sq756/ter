@@ -16,6 +16,7 @@ import { useMorse } from './composables/useMorse';
 import { useTabs } from './composables/useTabs';
 import { useStats } from './composables/useStats';
 import { useExplorer } from './composables/useExplorer';
+import { useExplorerContextMenu } from './composables/useExplorerContextMenu';
 import { useCyber } from './composables/useCyber';
 import { useContextMenu } from './composables/useContextMenu';
 import { usePtyListener } from './composables/usePtyListener';
@@ -53,6 +54,11 @@ const {
 const {
   currentPath, realFiles, refreshExplorer, changeDir, onFastAccess
 } = useExplorer(isConnected, activeTabId);
+
+const {
+  showExplorerMenu, explorerMenuX, explorerMenuY, selectedFile,
+  onExplorerContextMenu, explorerActionCd, explorerActionCat, explorerActionVim, explorerActionCopyPath, explorerActionRun
+} = useExplorerContextMenu(activeTabId, currentPath);
 
 const {
   previewUrl, isWebviewLoading, refreshWebview, handleExtractDOM, onDomExtracted, captureAndUpload
@@ -191,7 +197,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="app-shell" @click="showContextMenu = false; showMorseMacro = false">
+  <div class="app-shell" @click="showContextMenu = false; showMorseMacro = false; showExplorerMenu = false">
     <CyberGate v-if="!isConnected" @connected="onConnected" />
     
     <div v-else class="main-view">
@@ -203,6 +209,7 @@ onUnmounted(() => {
         @switch-tab="bringToForeground" @switch-mode="(mode: number) => cyberMode = mode"
         @view-history="viewHistory" @proc-context="(p: any) => onTerminalContextMenu({e: p.event, id: p.tab.id})" @run-skill="runSkill"
         @change-dir="changeDir" @open-trigger-settings="showSettings = true" @fast-access="onFastAccess"
+        @explorer-context="onExplorerContextMenu"
       />
 
       <main class="workspace" ref="workspaceRef" @click="activeTabId && terminalManager.focus(activeTabId)">
@@ -213,6 +220,23 @@ onUnmounted(() => {
           <div class="menu-item" @click="renameTabAction">✏️ Rename Tab</div><div class="menu-item" @click="copyTabIdAction">🆔 Copy ID</div><div class="menu-item" @click="sendToBackground(contextMenuTabId)">🚀 Background</div>
           <div class="menu-divider"></div><div class="menu-item" @click="copySelectedText">📋 Copy</div><div class="menu-item" @click="pasteFromClipboard">📥 Paste</div>
           <div class="menu-divider"></div><div class="menu-item danger" @click="closeTab(contextMenuTabId!)">❌ Force Close</div>
+        </div>
+
+        <!-- Explorer Context Menu -->
+        <div v-if="showExplorerMenu" class="context-menu" :style="{ top: explorerMenuY + 'px', left: explorerMenuX + 'px' }">
+          <header class="menu-header">FILE ACTIONS</header>
+          <template v-if="selectedFile?.is_dir">
+            <div class="menu-item" @click="explorerActionCd">📂 CD into folder</div>
+            <div class="menu-item" @click="explorerActionCopyPath">📋 Copy Path</div>
+          </template>
+          <template v-else>
+            <div class="menu-item" @click="explorerActionRun">🚀 Run Executable</div>
+            <div class="menu-item" @click="explorerActionCat">👁️ Cat File</div>
+            <div class="menu-item" @click="explorerActionVim">✏️ Edit (Vim)</div>
+            <div class="menu-divider"></div>
+            <div class="menu-item" @click="explorerActionCd">📂 CD to parent dir</div>
+            <div class="menu-item" @click="explorerActionCopyPath">📋 Copy Path</div>
+          </template>
         </div>
 
         <!-- Morse Macros -->

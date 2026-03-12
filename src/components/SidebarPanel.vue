@@ -11,7 +11,7 @@ const props = defineProps<{
   isAutoPilot: boolean;
 }>();
 
-const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill', 'change-dir', 'view-history', 'open-trigger-settings', 'fast-access', 'morse-down', 'morse-up', 'morse-context']);
+const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill', 'change-dir', 'view-history', 'open-trigger-settings', 'fast-access', 'morse-down', 'morse-up', 'morse-context', 'explorer-context']);
 
 // v2.2.11: Track last visited directories for FAST ACCESS
 const lastVisited = computed(() => {
@@ -108,13 +108,13 @@ const onFastAccessClick = (path: string) => {
         <div class="current-path">{{ currentPath }}</div>
       </header>
       <ul class="data-list">
-        <li @click="$emit('change-dir', '..')" class="file-item">
+        <li @click="$emit('change-dir', '..')" @contextmenu.prevent="$emit('explorer-context', { e: $event, file: { name: '..', is_dir: true } })" class="file-item">
           <span class="file-icon">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
           </span>
           <span class="file-name">..</span>
         </li>
-        <li v-for="f in sortedFiles" :key="f.name" @click="onItemClick(f)" class="file-item">
+        <li v-for="f in sortedFiles" :key="f.name" @click="onItemClick(f)" @contextmenu.prevent="$emit('explorer-context', { e: $event, file: f })" class="file-item">
           <span class="file-icon">
             <svg v-if="f.is_dir" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
             <svg v-else viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
