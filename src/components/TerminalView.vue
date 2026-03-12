@@ -35,6 +35,14 @@ const initTerminal = async () => {
     if (props.active && terminalRef.value && terminalRef.value.offsetWidth > 0) {
       console.log(`[TerminalView] Fitting terminal ${props.id}`);
       fit.fit();
+      
+      // Sync size with backend PTY
+      const { cols, rows } = term;
+      import('@tauri-apps/api/core').then(({ invoke }) => {
+        invoke('resize_pty', { tabId: props.id, cols, rows }).catch(e => {
+          console.warn(`[TerminalView] Failed to resize PTY ${props.id}:`, e);
+        });
+      });
     }
   };
 

@@ -518,15 +518,21 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
     tauri::async_runtime::spawn(async move {
         loop {
             tokio::select! {
-                Some(ctrl) = ctrl_rx.recv() => {
-                    match ctrl {
-                        PtyControl::Resize(cols, rows) => {
+                ctrl_msg = ctrl_rx.recv() => {
+                    match ctrl_msg {
+                        Some(PtyControl::Resize(cols, rows)) => {
                             let _ = channel.window_change(cols, rows, 0, 0).await;
                         }
+                        None => break,
                     }
                 }
-                Some(data) = rx.recv() => {
-                    let _ = channel.data(data.as_bytes()).await;
+                data_msg = rx.recv() => {
+                    match data_msg {
+                        Some(data) => {
+                            let _ = channel.data(data.as_bytes()).await;
+                        }
+                        None => break,
+                    }
                 }
                 msg = channel.wait() => {
                     if let Some(msg) = msg {

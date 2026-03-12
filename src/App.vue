@@ -23,6 +23,7 @@ const cyberMode = ref(0);
 const agentToken = ref('');
 const currentAgentPort = ref<number | null>(null);
 const previewUrl = ref('http://localhost:5173');
+const isWebviewLoading = ref(false);
 const backendLogs = ref<string[]>([]);
 const logsContainerRef = ref<HTMLElement | null>(null);
 const savedServers = ref<any[]>([]);
@@ -34,6 +35,7 @@ const showContextMenu = ref(false);
 const menuX = ref(0);
 const menuY = ref(0);
 const contextMenuTabId = ref<string | null>(null);
+const hasErrorSelection = ref(false);
 
 // Tabs State
 const terminalTabs = ref<any[]>([]);
@@ -172,7 +174,26 @@ const onTerminalContextMenu = (payload: { e: MouseEvent, id: string }) => {
   contextMenuTabId.value = payload.id;
   menuX.value = payload.e.clientX;
   menuY.value = payload.e.clientY;
+  
+  // Fancy Logic: Check for Errors in selection
+  const selection = terminalManager.getSelection(payload.id);
+  hasErrorSelection.value = selection.toLowerCase().includes('error') || 
+                            selection.toLowerCase().includes('exception') ||
+                            selection.includes('\x1b[31m'); // Red ANSI
+                            
   showContextMenu.value = true;
+};
+
+const diagnoseSelection = async () => {
+  const selection = terminalManager.getSelection(contextMenuTabId.value || activeTabId.value || '');
+  if (!selection) return;
+  
+  const prompt = `请帮我诊断以下报错信息，并给出修复方案：\n\n\`\`\`\n${selection}\n\`\`\``;
+  const payload = `\x1b[200~${prompt}\x1b[201~\r`;
+  if (activeTabId.value) {
+    await invoke('write_pty', { tabId: activeTabId.value, data: payload });
+  }
+  showContextMenu.value = false;
 };
 
 // Handle right-click from sidebar processes
@@ -388,6 +409,7 @@ const refreshWebview = async () => {
   const match = urlStr.match(/(?:localhost|127\.0\.0\.1):(\d+)/);
   if (match && match[1]) {
     const remotePort = parseInt(match[1]);
+    isWebviewLoading.value = true;
     try {
       backendLogs.value.push(`[INFO] Requesting tunnel for port ${remotePort}...`);
       const localPort = await invoke<number>('open_dynamic_tunnel', { remotePort });
@@ -396,6 +418,8 @@ const refreshWebview = async () => {
     } catch (e) {
       console.error("Failed to open dynamic tunnel:", e);
       backendLogs.value.push(`[ERROR] Tunnel failed: ${e}`);
+    } finally {
+      isWebviewLoading.value = false;
     }
   }
 };
@@ -505,6 +529,7 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
 
       <main class="workspace" ref="workspaceRef" @click="activeTabId && terminalManager.focus(activeTabId)">
         <div v-if="showContextMenu" class="context-menu" :style="{ top: menuY + 'px', left: menuX + 'px' }">
+          <div v-if="hasErrorSelection" class="menu-item highlight" @click="diagnoseSelection">🤖 Diagnose Error</div>
           <div class="menu-item" @click="sendToBackground">🚀 Background Task</div>
           <div class="menu-divider"></div>
           <div class="menu-item" :class="{ disabled: !contextMenuTabId || !terminalManager.hasSelection(contextMenuTabId) }" @click="copySelectedText">📋 Copy Selection</div>
@@ -552,7 +577,9 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
                       placeholder="Enter remote URL (e.g. localhost:3000)"
                     />
                   </div>
-                  <button class="refresh-btn" @click="refreshWebview">⚡</button>
+                  <button class="refresh-btn" @click="refreshWebview" :class="{ spinning: isWebviewLoading }">
+                    {{ isWebviewLoading ? '⏳' : '⚡' }}
+                  </button>
                 </nav>
                 <CyberWebview ref="webviewRef" :url="previewUrl" />
               </div>
@@ -653,11 +680,16 @@ input:checked + .slider:before { transform: translateX(12px); }
 .address-input-wrapper { flex: 1; background: #18181b; border: 1px solid #27272a; border-radius: 6px; display: flex; align-items: center; padding: 0 8px; height: 24px; }
 .secure-icon { font-size: 10px; opacity: 0.5; margin-right: 6px; }
 .address-bar-input { background: transparent; border: none; color: #a1a1aa; font-size: 10px; width: 100%; outline: none; font-family: 'JetBrains Mono', monospace; }
-.refresh-btn { background: transparent; border: none; color: #3b82f6; cursor: pointer; font-size: 12px; padding: 2px 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center; }
+.refresh-btn { background: transparent; border: none; color: #3b82f6; cursor: pointer; font-size: 12px; padding: 2px 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center; transition: transform 0.2s; }
 .refresh-btn:hover { background: rgba(59, 130, 246, 0.1); }
+.refresh-btn.spinning { animation: spinning 1s linear infinite; pointer-events: none; }
+@keyframes spinning { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
 .context-menu { position: fixed; z-index: 100000; background: #18181b; border: 1px solid #3f3f46; border-radius: 6px; padding: 4px; min-width: 150px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
 .menu-item { padding: 8px 12px; font-size: 11px; color: #d4d4d8; cursor: pointer; border-radius: 4px; }
 .menu-item:hover { background: #3b82f6; color: #fff; }
+.menu-item.highlight { color: #f87171; border-bottom: 1px solid #27272a; margin-bottom: 4px; font-weight: bold; }
+.menu-item.highlight:hover { background: #f87171; color: #fff; }
 .menu-item.disabled { color: #52525b; cursor: not-allowed; }
 .menu-divider { height: 1px; background: #27272a; margin: 4px 0; }
 .status-chip { font-size: 11px; color: #a1a1aa; display: flex; align-items: center; font-family: 'JetBrains Mono', monospace; }
