@@ -3,32 +3,56 @@ import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import * as echarts from 'echarts';
+
 import { terminalManager } from './TerminalManager';
 import MatrixScreen from './components/MatrixScreen.vue';
 import SidebarPanel from './components/SidebarPanel.vue';
 import TerminalTabs from './components/TerminalTabs.vue';
 import CyberWebview from './components/CyberWebview.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
+import CyberGate from './components/CyberGate.vue';
 
-const isConnected = ref(false), isConnecting = ref(false), isMasterPasswordSet = ref(false);
-const isAutoPilot = ref(false), lastAutoPilotTime = ref(0), connectionStatus = ref<'connected' | 'busy' | 'disconnected'>('disconnected');
+import { useMorse } from './composables/useMorse';
+
+// ==========================================
+// --- GLOBAL STATE ---
+// ==========================================
+const isConnected = ref(false);
+const host = ref('Remote Server');
+const isAutoPilot = ref(false);
+const lastAutoPilotTime = ref(0);
+const connectionStatus = ref<'connected' | 'busy' | 'disconnected'>('disconnected');
 const activeTriggers = ref<string[]>(['Allow execution of:', '1. Allow once']);
-const showSettings = ref(false), activeMacros = ref<{name: string, cmd: string}[]>([]);
-const morseSequence = ref(''), morseText = ref(''), showMorseMacro = ref(false), morseTimer = ref<any>(null), isMorsePressed = ref(false);
-const morseMap: Record<string, string> = { '.-': 'A', '-...': 'B', '-.-.': 'C', '-..': 'D', '.': 'E', '..-.': 'F', '--.': 'G', '....': 'H', '..': 'I', '.---': 'J', '-.-': 'K', '.-..': 'L', '--': 'M', '-.': 'N', '---': 'O', '.--.': 'P', '--.-': 'Q', '.-.': 'R', '...': 'S', '-': 'T', '..-': 'U', '...-': 'V', '.--': 'W', '-..-': 'X', '-.--': 'Y', '--..': 'Z', '-----': '0', '.----': '1', '..---': '2', '...--': '3', '....-': '4', '.....': '5', '-....': '6', '--...': '7', '---..': '8', '----.': '9' };
-const isLocked = ref(false), cyberMode = ref(0), agentToken = ref(''), currentAgentPort = ref<number | null>(null), previewUrl = ref('http://localhost:5173'), isWebviewLoading = ref(false);
-const backendLogs = ref<string[]>([]), savedServers = ref<any[]>([]), host = ref('Remote Server'), currentPath = ref('/'), realFiles = ref<any[]>([]), skills = ref<any[]>([]);
-const showContextMenu = ref(false), menuX = ref(0), menuY = ref(0), contextMenuTabId = ref<string | null>(null), hasErrorSelection = ref(false);
-const terminalTabs = ref<any[]>([]), activeTabId = ref<string | null>(null);
-const backgroundTabs = computed(() => terminalTabs.value.filter(t => t.isBackground)), storageKey = computed(() => `ter_tabs_${host.value.replace(/\s+/g, '_')}`);
+const showSettings = ref(false);
+const activeMacros = ref<{name: string, cmd: string}[]>([]);
+
+const isLocked = ref(false);
+const cyberMode = ref(0); 
+const agentToken = ref('');
+const currentAgentPort = ref<number | null>(null);
+const previewUrl = ref('http://localhost:5173');
+const isWebviewLoading = ref(false);
+const backendLogs = ref<string[]>([]);
+const currentPath = ref('/');
+const realFiles = ref<any[]>([]);
+const skills = ref<any[]>([]);
+
+const showContextMenu = ref(false);
+const menuX = ref(0);
+const menuY = ref(0);
+const contextMenuTabId = ref<string | null>(null);
+const hasErrorSelection = ref(false);
+
+const terminalTabs = ref<any[]>([]);
+const activeTabId = ref<string | null>(null);
+const backgroundTabs = computed(() => terminalTabs.value.filter(t => t.isBackground));
+const storageKey = computed(() => `ter_tabs_${host.value.replace(/\s+/g, '_')}`);
 
 let statsIntervalId: any = null;
-const showAddServerForm = ref(false);
-const newServer = ref({ label: '', host: '', port: 22, user: 'root', password_enc: '' });
 
-watch(terminalTabs, (val) => { if (isConnected.value) localStorage.setItem(storageKey.value, JSON.stringify(val)); }, { deep: true });
-watch(activeTriggers, (val) => { localStorage.setItem('ter_active_triggers', JSON.stringify(val)); }, { deep: true });
-
+// ==========================================
+// --- COMPOSABLES ---
+// ==========================================
 const calculateMenuPosition = (e: MouseEvent, estimatedHeight = 250, estimatedWidth = 160) => {
   let x = e.clientX, y = e.clientY;
   if (y + estimatedHeight > window.innerHeight) y = window.innerHeight - estimatedHeight - 10;
@@ -36,6 +60,20 @@ const calculateMenuPosition = (e: MouseEvent, estimatedHeight = 250, estimatedWi
   menuX.value = x; menuY.value = y;
 };
 
+const { 
+  morseSequence, morseText, showMorseMacro, isMorsePressed, possibleLetters,
+  handleMorseMouse, handleMorseWheel, onMorseMacro
+} = useMorse(activeTabId, calculateMenuPosition);
+
+// ==========================================
+// --- WATCHERS ---
+// ==========================================
+watch(terminalTabs, (val) => { if (isConnected.value) localStorage.setItem(storageKey.value, JSON.stringify(val)); }, { deep: true });
+watch(activeTriggers, (val) => { localStorage.setItem('ter_active_triggers', JSON.stringify(val)); }, { deep: true });
+
+// ==========================================
+// --- METHODS ---
+// ==========================================
 const createNewTab = async (title = "Shell", skipPty = false, existingId?: string) => {
   const id = existingId || 'tab-' + Math.random().toString(36).substr(2, 9);
   terminalManager.setOnDataCallback(id, (tid, data) => { if (!skipPty && isConnected.value) invoke('write_pty', { tabId: tid, data }); });
@@ -66,11 +104,12 @@ const sendToBackground = () => { const tid = contextMenuTabId.value || activeTab
 const bringToForeground = (id: string) => { const t = terminalTabs.value.find(t => t.id === id); if (t) { t.isBackground = false; activeTabId.value = id; } };
 const onTerminalContextMenu = (p: { e: MouseEvent, id: string }) => { contextMenuTabId.value = p.id; calculateMenuPosition(p.e); const s = terminalManager.getSelection(p.id); hasErrorSelection.value = s.toLowerCase().includes('error') || s.toLowerCase().includes('exception') || s.includes('\x1b[31m'); showContextMenu.value = true; };
 
-const connectWithId = async (id: string) => { if (isConnecting.value) return; isConnecting.value = true; connectionStatus.value = 'busy'; const s = savedServers.value.find(s => s.id === id); if (s) host.value = s.label || s.host; invoke('connect_with_id', { id }).then(async () => { isConnecting.value = false; await onConnected(); }).catch(e => { isConnecting.value = false; connectionStatus.value = 'disconnected'; alert("Fail: " + e); }); };
-
-const onConnected = async () => {
-  isConnected.value = true; connectionStatus.value = 'connected';
+const onConnected = async (hostLabel: string) => {
+  host.value = hostLabel;
+  isConnected.value = true;
+  connectionStatus.value = 'connected';
   try { agentToken.value = await invoke('get_agent_token'); } catch(e){}
+  
   const saved = localStorage.getItem(storageKey.value);
   if (saved) {
     try {
@@ -79,6 +118,7 @@ const onConnected = async () => {
       activeTabId.value = ts.find((t: any) => !t.isBackground)?.id || ts[0]?.id;
     } catch (e) { await createNewTab("Main Shell", false, "tab-1"); }
   } else if (terminalTabs.value.length === 0) { await createNewTab("Main Shell", false, "tab-1"); }
+
   if (statsIntervalId) clearInterval(statsIntervalId);
   setTimeout(() => {
     refreshExplorer(); invoke('load_remote_skills').then((s: any) => skills.value = s).catch(()=>{});
@@ -99,38 +139,12 @@ const refreshWebview = async (fUrl?: string) => {
 const handleExtractDOM = async () => { backendLogs.value.push(`[INFO] Extracting DOM...`); await invoke('extract_cyber_dom'); };
 const onDomExtracted = async (md: string) => { if (activeTabId.value) { await invoke('write_pty', { tabId: activeTabId.value, data: `\x1b[200~${md}\x1b[201~\r` }); backendLogs.value.push(`[INFO] Snapshot injected.`); } };
 
-const possibleLetters = computed(() => {
-  if (!morseSequence.value) return "";
-  const candidates = Object.entries(morseMap).filter(([code]) => code.startsWith(morseSequence.value)).slice(0, 5).map(([code, char]) => `${char}(${code})`);
-  return candidates.length ? "Next: " + candidates.join(" ") : "";
-});
-const handleMorseMouse = (e: MouseEvent) => {
-  if (e.button === 1) { onMorseMacro(e); return; }
-  isMorsePressed.value = true; setTimeout(() => { isMorsePressed.value = false; }, 100);
-  if (e.button === 0) morseSequence.value += '.'; else if (e.button === 2) morseSequence.value += '-';
-  if (morseTimer.value) clearTimeout(morseTimer.value); morseTimer.value = setTimeout(commitMorse, 800);
-};
-const handleMorseWheel = (e: WheelEvent) => {
-  if (activeTabId.value) { if (e.deltaY < 0) invoke('write_pty', { tabId: activeTabId.value, data: "\r" }); else invoke('write_pty', { tabId: activeTabId.value, data: "\x7f" }); }
-};
-const commitMorse = async () => {
-  const char = morseMap[morseSequence.value]; if (char && activeTabId.value) { morseText.value += char; await invoke('write_pty', { tabId: activeTabId.value, data: char }); }
-  morseSequence.value = ''; setTimeout(() => { if (!morseSequence.value) morseText.value = ''; }, 2000);
-};
-
-const onMorseMacro = (e: MouseEvent) => { calculateMenuPosition(e, 200); showMorseMacro.value = true; };
 const runMacro = async (c: string) => { if (activeTabId.value) await invoke('write_pty', { tabId: activeTabId.value, data: c + '\n' }); showMorseMacro.value = false; };
 const renameTabAction = () => { const id = contextMenuTabId.value; if (id) { const n = prompt("New name:"); if (n) { const t = terminalTabs.value.find(x => x.id === id); if (t) t.title = n; } } showContextMenu.value = false; };
 const copyTabIdAction = async () => { if (contextMenuTabId.value) await navigator.clipboard.writeText(contextMenuTabId.value); showContextMenu.value = false; };
 const diagnoseSelection = async () => { const id = contextMenuTabId.value || activeTabId.value; if (id) { const s = terminalManager.getSelection(id); if (activeTabId.value) await invoke('write_pty', { tabId: activeTabId.value, data: `\x1b[200~帮我诊断并给方案：\n\n\`\`\`\n${s}\n\`\`\`\x1b[201~\r` }); } showContextMenu.value = false; };
 const captureAndUpload = async () => { await invoke('ai_audit_ui'); };
 const runSkill = async (s: any) => { backendLogs.value.push(`[SKILL] Exec: ${s.name}`); };
-
-const saveNewServer = async () => {
-  if (!newServer.value.host || !newServer.value.user) return;
-  await invoke('save_server_config', { config: { id: 'node-' + Math.random().toString(36).substr(2, 9), ...newServer.value } });
-  showAddServerForm.value = false; loadServers();
-};
 
 const cpuChartRef = ref<HTMLElement | null>(null), memChartRef = ref<HTMLElement | null>(null);
 let cpuChart: any, memChart: any; const cpuHistory = ref<number[]>([]), memHistory = ref<number[]>([]);
@@ -147,9 +161,6 @@ const fetchStats = async () => {
   } catch (e) {}
 };
 const getChartOpt = (d: any[], c: string) => ({ grid: { top: 5, bottom: 0, left: 0, right: 0 }, xAxis: { type: 'category', show: false }, yAxis: { type: 'value', min: 0, max: 100, show: false }, series: [{ data: d, type: 'line', smooth: true, areaStyle: { color: c }, itemStyle: { color: c }, showSymbol: false }], animation: false });
-const masterPasswordStr = ref('');
-const setMasterPass = async () => { await invoke('set_master_password', { password: masterPasswordStr.value }); isMasterPasswordSet.value = true; loadServers(); };
-const loadServers = async () => { savedServers.value = await invoke('list_server_configs'); };
 
 let unlistenLog: any, unlistenPty: any;
 const preventDefaultContextMenu = (e: MouseEvent) => e.preventDefault();
@@ -187,54 +198,14 @@ onUnmounted(() => {
   window.removeEventListener('contextmenu', preventDefaultContextMenu);
   window.removeEventListener('keydown', handleGlobalKeyDown);
   if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty();
-  if (statsIntervalId) clearInterval(statsIntervalId); if (morseTimer.value) clearTimeout(morseTimer.value);
+  if (statsIntervalId) clearInterval(statsIntervalId);
 });
 </script>
 
 <template>
   <div class="app-shell" @click="showContextMenu = false; showMorseMacro = false">
-    <div v-if="!isMasterPasswordSet" class="modal-overlay">
-      <div class="auth-card cyber-card">
-        <h2 class="cyber-title">SYSTEM OVERRIDE</h2>
-        <div class="cyber-subtitle">/// AUTHENTICATION_REQUIRED</div>
-        <input v-model="masterPasswordStr" type="password" placeholder="ENTER ACCESS KEY..." @keyup.enter="setMasterPass" class="cyber-input" />
-        <button @click="setMasterPass" class="btn-primary">INITIALIZE</button>
-      </div>
-    </div>
-
-    <div v-else-if="!isConnected" class="workspace-setup">
-      <div class="vault-container cyber-card" :class="{ 'connecting': isConnecting }">
-        <header>
-          <h2 class="cyber-title">AUTHORIZED NODES</h2>
-          <button @click="showAddServerForm = true" class="btn-add">+</button>
-        </header>
-        
-        <div v-if="showAddServerForm" class="add-server-overlay">
-          <div class="cyber-form">
-            <input v-model="newServer.label" placeholder="LABEL" class="cyber-input" />
-            <div class="row">
-              <input v-model="newServer.host" placeholder="HOST" class="cyber-input" />
-              <input v-model.number="newServer.port" placeholder="PORT" class="cyber-input small" />
-            </div>
-            <input v-model="newServer.user" placeholder="USER" class="cyber-input" />
-            <input v-model="newServer.password_enc" type="password" placeholder="PASSWORD" class="cyber-input" />
-            <div class="actions">
-              <button @click="saveNewServer" class="btn-primary mini">SAVE</button>
-              <button @click="showAddServerForm = false" class="btn-primary mini danger">CANCEL</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="server-list">
-          <div v-for="s in savedServers" :key="s.id" class="server-card" @click="connectWithId(s.id)">
-            <div class="icon-box">NODE</div>
-            <div class="info"><b>{{ (s.label || 'UNTITLED').toUpperCase() }}</b><br/><small>{{ s.user }}@{{ s.host }}</small></div>
-          </div>
-          <div v-if="savedServers.length === 0" class="empty-nodes">NO AUTHORIZED NODES FOUND</div>
-        </div>
-      </div>
-    </div>
-
+    <CyberGate v-if="!isConnected" @connected="onConnected" />
+    
     <div v-else class="main-view">
       <SettingsPanel :isOpen="showSettings" @close="showSettings = false" @update-macros="(m) => activeMacros = m" />
       <SidebarPanel 
@@ -303,37 +274,16 @@ onUnmounted(() => {
 .app-shell { height: 100vh; background: #000; color: #d4d4d8; font-family: 'JetBrains Mono', monospace; overflow: hidden; }
 .main-view { display: flex; height: 100%; width: 100%; }
 .workspace { flex: 1; display: flex; flex-direction: column; background: #000; overflow: hidden; min-width: 0; }
-.cyber-card { background: #09090b !important; border: 1px solid #22c55e !important; box-shadow: 0 0 15px rgba(34, 197, 94, 0.2) !important; border-radius: 0 !important; }
-.cyber-title { color: #22c55e !important; font-family: 'JetBrains Mono', monospace; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 5px; }
-.cyber-subtitle { font-size: 10px; color: #166534; margin-bottom: 20px; letter-spacing: 1px; }
-.cyber-input { background: #000 !important; border: 1px solid #27272a !important; color: #22c55e !important; font-family: 'JetBrains Mono', monospace !important; border-radius: 0 !important; outline: none !important; padding: 10px !important; margin-bottom: 15px; }
-.cyber-input:focus { border-color: #22c55e !important; box-shadow: 0 0 5px rgba(34, 197, 94, 0.3); }
-.btn-primary { background: transparent !important; border: 1px solid #22c55e !important; color: #22c55e !important; font-family: 'JetBrains Mono', monospace !important; text-transform: uppercase; letter-spacing: 1px; border-radius: 0 !important; transition: all 0.2s ease !important; cursor: pointer; padding: 12px; font-weight: bold; }
-.btn-primary:hover { background: rgba(34, 197, 94, 0.2) !important; box-shadow: 0 0 10px rgba(34, 197, 94, 0.5) !important; }
-.btn-primary.mini { padding: 6px 12px; font-size: 11px; }
-.btn-primary.danger { border-color: #ef4444 !important; color: #ef4444 !important; }
-.btn-primary.danger:hover { background: rgba(239, 68, 68, 0.2) !important; box-shadow: 0 0 10px rgba(239, 68, 68, 0.5) !important; }
 
-.workspace-setup { height: 100%; display: flex; align-items: center; justify-content: center; background: #000; }
-.vault-container { width: 520px; padding: 40px; position: relative; }
-.vault-container header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; border-bottom: 1px solid #27272a; padding-bottom: 15px; }
-.btn-add { background: transparent; border: 1px solid #22c55e; color: #22c55e; width: 28px; height: 28px; cursor: pointer; font-size: 20px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
-.btn-add:hover { background: #22c55e; color: #000; }
+.context-menu { position: fixed; z-index: 1000000; background: #09090b; border: 1px solid #22c55e; padding: 4px; min-width: 160px; box-shadow: 0 10px 25px rgba(0,0,0,0.8); }
+.menu-header { padding: 6px 12px; font-size: 9px; color: #166534; border-bottom: 1px solid #18181b; margin-bottom: 4px; }
+.menu-item { padding: 8px 12px; font-size: 11px; color: #d4d4d8; cursor: pointer; }
+.menu-item:hover { background: #22c55e; color: #000; }
+.menu-item.danger { color: #ef4444; }
+.menu-item.danger:hover { background: #ef4444; color: #000; }
+.menu-divider { height: 1px; background: #18181b; margin: 4px 0; }
 
-.add-server-overlay { margin-bottom: 30px; padding: 20px; background: rgba(34, 197, 94, 0.05); border: 1px dashed #22c55e; }
-.cyber-form { display: flex; flex-direction: column; }
-.cyber-form .row { display: flex; gap: 10px; }
-.cyber-form .row .small { width: 100px; }
-.cyber-form .actions { display: flex; gap: 10px; margin-top: 10px; }
-
-.server-list { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
-.server-card { background: #050505; border: 1px solid #18181b; padding: 15px; display: flex; align-items: center; cursor: pointer; transition: all 0.2s; gap: 15px; }
-.server-card:hover { border-color: #22c55e; transform: translateY(-2px); box-shadow: 0 5px 15px rgba(34, 197, 94, 0.1); }
-.server-card .icon-box { background: rgba(34, 197, 94, 0.1); color: #22c55e; padding: 4px 8px; font-size: 10px; font-weight: bold; border: 1px solid rgba(34, 197, 94, 0.3); }
-.server-card small { color: #52525b; font-size: 11px; }
-.empty-nodes { grid-column: span 2; text-align: center; color: #3f3f46; font-size: 12px; padding: 40px; border: 1px dashed #18181b; }
-
-.status-bar { height: 24px; background: #000; border-top: 1px solid #18181b; color: #52525b; display: flex; justify-content: space-between; align-items: center; padding: 0 10px; font-size: 10px; }
+.status-bar { height: 24px; background: #000; border-top: 1px solid #18181b; color: #52525b; display: flex; justify-content: space-between; align-items: center; padding: 0 10px; font-size: 10px; z-index: 100; flex-shrink: 0; }
 .tiny-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; transition: all 0.1s; }
 .tiny-dot.active { transform: scale(1.1); box-shadow: 0 0 8px #22c55e; filter: brightness(1.5); }
 .stealth-zone { display: flex; align-items: center; gap: 8px; cursor: pointer; height: 100%; padding: 0 5px; }
@@ -352,22 +302,17 @@ onUnmounted(() => {
 .address-bar-input { background: transparent; border: none; color: #22c55e; font-size: 10px; width: 100%; outline: none; font-family: 'JetBrains Mono', monospace; }
 .extract-btn { background: rgba(168, 85, 247, 0.1); border: 1px solid #a855f7; color: #a855f7; font-size: 10px; padding: 2px 8px; cursor: pointer; font-family: 'JetBrains Mono', monospace; }
 .extract-btn:hover { background: rgba(168, 85, 247, 0.2); box-shadow: 0 0 10px #a855f7; }
-.context-menu { position: fixed; z-index: 1000000; background: #09090b; border: 1px solid #22c55e; padding: 4px; min-width: 160px; box-shadow: 0 10px 25px rgba(0,0,0,0.8); }
-.menu-header { padding: 6px 12px; font-size: 9px; color: #166534; border-bottom: 1px solid #18181b; margin-bottom: 4px; }
-.menu-item { padding: 8px 12px; font-size: 11px; color: #d4d4d8; cursor: pointer; }
-.menu-item:hover { background: #22c55e; color: #000; }
-.menu-item.danger { color: #ef4444; }
-.menu-item.danger:hover { background: #ef4444; color: #000; }
+
 .morse-preview-overlay { position: absolute; bottom: 40px; left: 10px; background: rgba(0, 0, 0, 0.9); border: 1px solid #22c55e; padding: 10px 20px; z-index: 1000; display: flex; flex-direction: column; align-items: center; pointer-events: none; }
 .morse-preview-overlay .sequence { font-size: 24px; color: #22c55e; letter-spacing: 4px; }
 .morse-preview-overlay .candidates { font-size: 9px; color: #166534; margin-top: 5px; }
-.modal-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.9); display: flex; align-items: center; justify-content: center; z-index: 10000; backdrop-filter: blur(8px); }
-.auth-card { width: 360px; padding: 40px; }
+
 .tool-bar { height: 36px; background: #000; border-bottom: 1px solid #18181b; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; }
 .btn-tool { background: transparent; border: 1px solid #27272a; color: #52525b; padding: 3px 10px; font-size: 10px; cursor: pointer; text-transform: uppercase; }
 .btn-tool:hover { border-color: #ef4444; color: #ef4444; }
 .status-chip { font-size: 11px; color: #52525b; display: flex; align-items: center; gap: 8px; }
 .pulse.purple { width: 6px; height: 6px; background: #a855f7; border-radius: 50%; box-shadow: 0 0 5px #a855f7; }
+
 .mini-switch { position: relative; display: inline-block; width: 24px; height: 12px; }
 .mini-switch input { opacity: 0; width: 0; height: 0; }
 .slider { position: absolute; cursor: pointer; inset: 0; background-color: #27272a; transition: .4s; border-radius: 12px; }
@@ -377,5 +322,4 @@ input:checked + .slider:before { transform: translateX(12px); }
 .status-toggle { display: flex; align-items: center; gap: 8px; font-size: 10px; color: #52525b; }
 .status-btn { background: transparent; border: none; color: #52525b; cursor: pointer; font-size: 10px; padding: 2px 6px; border-radius: 4px; transition: all 0.2s; }
 .status-btn:hover { color: #fff; }
-.menu-divider { height: 1px; background: #18181b; margin: 4px 0; }
 </style>

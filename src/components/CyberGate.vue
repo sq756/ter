@@ -1,0 +1,138 @@
+<script setup lang="ts">
+import { ref, onMounted } from 'vue';
+import { invoke } from '@tauri-apps/api/core';
+
+const emit = defineEmits(['connected']);
+
+const isMasterPasswordSet = ref(false);
+const masterPasswordStr = ref('');
+const isConnecting = ref(false);
+const savedServers = ref<any[]>([]);
+const showAddServerForm = ref(false);
+const newServer = ref({ label: '', host: '', port: 22, user: 'root', password_enc: '' });
+
+const loadServers = async () => {
+  savedServers.value = await invoke('list_server_configs');
+};
+
+const setMasterPass = async () => {
+  await invoke('set_master_password', { password: masterPasswordStr.value });
+  isMasterPasswordSet.value = true;
+  loadServers();
+};
+
+const connectWithId = async (id: string) => {
+  if (isConnecting.value) return;
+  isConnecting.value = true;
+  
+  const s = savedServers.value.find(s => s.id === id);
+  const hostLabel = s ? (s.label || s.host) : 'Remote';
+
+  invoke('connect_with_id', { id }).then(async () => {
+    isConnecting.value = false;
+    emit('connected', hostLabel);
+  }).catch(e => {
+    isConnecting.value = false;
+    alert("Fail: " + e);
+  });
+};
+
+const saveNewServer = async () => {
+  if (!newServer.value.host || !newServer.value.user) return;
+  await invoke('save_server_config', { 
+    config: { 
+      id: 'node-' + Math.random().toString(36).substr(2, 9), 
+      ...newServer.value 
+    } 
+  });
+  showAddServerForm.value = false;
+  loadServers();
+};
+
+onMounted(() => {
+  // Check if master password already set in this session (handled by backend state)
+  // or just wait for user input.
+});
+</script>
+
+<template>
+  <div class="cyber-gate-wrapper">
+    <div v-if="!isMasterPasswordSet" class="modal-overlay">
+      <div class="auth-card cyber-card">
+        <h2 class="cyber-title">SYSTEM OVERRIDE</h2>
+        <div class="cyber-subtitle">/// AUTHENTICATION_REQUIRED</div>
+        <input v-model="masterPasswordStr" type="password" placeholder="ENTER ACCESS KEY..." @keyup.enter="setMasterPass" class="cyber-input" />
+        <button @click="setMasterPass" class="btn-primary">INITIALIZE</button>
+      </div>
+    </div>
+
+    <div v-else class="workspace-setup">
+      <div class="vault-container cyber-card" :class="{ 'connecting': isConnecting }">
+        <header>
+          <h2 class="cyber-title">AUTHORIZED NODES</h2>
+          <button @click="showAddServerForm = true" class="btn-add">+</button>
+        </header>
+        
+        <div v-if="showAddServerForm" class="add-server-overlay">
+          <div class="cyber-form">
+            <input v-model="newServer.label" placeholder="LABEL" class="cyber-input" />
+            <div class="row">
+              <input v-model="newServer.host" placeholder="HOST" class="cyber-input" />
+              <input v-model.number="newServer.port" placeholder="PORT" class="cyber-input small" />
+            </div>
+            <input v-model="newServer.user" placeholder="USER" class="cyber-input" />
+            <input v-model="newServer.password_enc" type="password" placeholder="PASSWORD" class="cyber-input" />
+            <div class="actions">
+              <button @click="saveNewServer" class="btn-primary mini">SAVE</button>
+              <button @click="showAddServerForm = false" class="btn-primary mini danger">CANCEL</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="server-list">
+          <div v-for="s in savedServers" :key="s.id" class="server-card" @click="connectWithId(s.id)">
+            <div class="icon-box">NODE</div>
+            <div class="info"><b>{{ (s.label || 'UNTITLED').toUpperCase() }}</b><br/><small>{{ s.user }}@{{ s.host }}</small></div>
+          </div>
+          <div v-if="savedServers.length === 0" class="empty-nodes">NO AUTHORIZED NODES FOUND</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.cyber-gate-wrapper { height: 100vh; width: 100vw; background: #000; }
+.cyber-card { background: #09090b !important; border: 1px solid #22c55e !important; box-shadow: 0 0 15px rgba(34, 197, 94, 0.2) !important; border-radius: 0 !important; }
+.cyber-title { color: #22c55e !important; font-family: 'JetBrains Mono', monospace; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 5px; }
+.cyber-subtitle { font-size: 10px; color: #166534; margin-bottom: 20px; letter-spacing: 1px; }
+.cyber-input { background: #000 !important; border: 1px solid #27272a !important; color: #22c55e !important; font-family: 'JetBrains Mono', monospace !important; border-radius: 0 !important; outline: none !important; padding: 10px !important; margin-bottom: 15px; width: 100%; box-sizing: border-box; }
+.cyber-input:focus { border-color: #22c55e !important; box-shadow: 0 0 5px rgba(34, 197, 94, 0.3); }
+.btn-primary { background: transparent !important; border: 1px solid #22c55e !important; color: #22c55e !important; font-family: 'JetBrains Mono', monospace !important; text-transform: uppercase; letter-spacing: 1px; border-radius: 0 !important; transition: all 0.2s ease !important; cursor: pointer; padding: 12px; font-weight: bold; width: 100%; }
+.btn-primary:hover { background: rgba(34, 197, 94, 0.2) !important; box-shadow: 0 0 10px rgba(34, 197, 94, 0.5) !important; }
+.btn-primary.mini { padding: 6px 12px; font-size: 11px; width: auto; }
+.btn-primary.danger { border-color: #ef4444 !important; color: #ef4444 !important; }
+.btn-primary.danger:hover { background: rgba(239, 68, 68, 0.2) !important; box-shadow: 0 0 10px rgba(239, 68, 68, 0.5) !important; }
+
+.workspace-setup { height: 100%; display: flex; align-items: center; justify-content: center; background: #000; }
+.vault-container { width: 520px; padding: 40px; position: relative; }
+.vault-container header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; border-bottom: 1px solid #27272a; padding-bottom: 15px; }
+.btn-add { background: transparent; border: 1px solid #22c55e; color: #22c55e; width: 28px; height: 28px; cursor: pointer; font-size: 20px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+.btn-add:hover { background: #22c55e; color: #000; }
+
+.add-server-overlay { margin-bottom: 30px; padding: 20px; background: rgba(34, 197, 94, 0.05); border: 1px dashed #22c55e; }
+.cyber-form { display: flex; flex-direction: column; }
+.cyber-form .row { display: flex; gap: 10px; }
+.cyber-form .row .small { width: 100px; }
+.cyber-form .actions { display: flex; gap: 10px; margin-top: 10px; }
+
+.server-list { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+.server-card { background: #050505; border: 1px solid #18181b; padding: 15px; display: flex; align-items: center; cursor: pointer; transition: all 0.2s; gap: 15px; }
+.server-card:hover { border-color: #22c55e; transform: translateY(-2px); box-shadow: 0 5px 15px rgba(34, 197, 94, 0.1); }
+.server-card .icon-box { background: rgba(34, 197, 94, 0.1); color: #22c55e; padding: 4px 8px; font-size: 10px; font-weight: bold; border: 1px solid rgba(34, 197, 94, 0.3); }
+.server-card small { color: #52525b; font-size: 11px; }
+.empty-nodes { grid-column: span 2; text-align: center; color: #3f3f46; font-size: 12px; padding: 40px; border: 1px dashed #18181b; }
+
+.modal-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.9); display: flex; align-items: center; justify-content: center; z-index: 10000; backdrop-filter: blur(8px); }
+.auth-card { width: 360px; padding: 40px; }
+</style>
