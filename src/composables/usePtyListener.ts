@@ -70,7 +70,7 @@ export function usePtyListener(
       }
       
       // AutoPilot Logic
-      if (isAutoPilot.value && id === activeTabId.value) {
+      if (isAutoPilot.value) {
         const pt = text.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
         const actionMatch = pt.match(/\[TER_ACTION:\s*(click|type)\((\d+)(?:,\s*"(.*?)")?\)\]/);
         
