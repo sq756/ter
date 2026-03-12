@@ -11,7 +11,8 @@ export function usePtyListener(
   lastAutoPilotTime: Ref<number>,
   activeTriggers: Ref<string[]>,
   captureAndUpload: (auto: boolean) => Promise<void>,
-  refreshWebview: (url?: string) => Promise<void>
+  refreshWebview: (url?: string) => Promise<void>,
+  currentAgentPort: Ref<number | null>
 ) {
   let unlistenPty: any;
   const decoder = new TextDecoder('utf-8', { fatal: false });
@@ -79,7 +80,11 @@ export function usePtyListener(
           invoke('eval_cyber_webview', { code });
         } else if (!pt.includes('tab-') && (Date.now() - lastAutoPilotTime.value) > 500) {
           const lm = pt.match(/http:\/\/localhost:(\d+)/); 
-          if (lm && lm[1]) refreshWebview(`http://localhost:${lm[1]}`);
+          if (lm && lm[1]) {
+            const port = parseInt(lm[1]);
+            currentAgentPort.value = port;
+            refreshWebview(`http://localhost:${port}`);
+          }
           
           if (activeTriggers.value.some(t => pt.includes(t))) { 
             lastAutoPilotTime.value = Date.now(); 

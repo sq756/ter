@@ -255,8 +255,8 @@ async fn ls_remote(path: String, state: State<'_, AppState>) -> Result<Vec<Remot
         if name == "." || name == ".." {
             continue;
         }
-        let is_dir = entry.file_type().unwrap_or(std::fs::FileType::from(0)).is_dir();
-        let size = entry.metadata().len;
+        let is_dir = entry.file_type() == russh_sftp::protocol::FileType::Dir;
+        let size = entry.metadata().len();
         files.push(RemoteFile {
             name: name.to_string(),
             is_dir,
@@ -269,8 +269,69 @@ async fn ls_remote(path: String, state: State<'_, AppState>) -> Result<Vec<Remot
 async fn open_dynamic_tunnel(_: u16, _: AppHandle, _: State<'_, AppState>) -> Result<u16, String> { Ok(0) }
 #[tauri::command]
 async fn ai_audit_ui() -> Result<String, String> { Ok("".to_string()) }
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+struct ContextRequirement {
+    require_screenshot: Option<bool>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+struct Skill {
+    id: String,
+    name: String,
+    description: String,
+    icon: Option<String>,
+    rpc: Option<String>,
+    trigger: Option<String>,
+    context_requirement: Option<ContextRequirement>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+struct SkillManifest {
+    skills: Vec<Skill>,
+}
+
 #[tauri::command]
-async fn load_remote_skills(_: State<'_, AppState>) -> Result<Vec<Skill>, String> { Ok(Vec::new()) }
+async fn load_remote_skills(state: State<'_, AppState>) -> Result<Vec<Skill>, String> {
+    let session_guard = state.session.lock().await;
+    let session = session_guard.as_ref().ok_or("No active SSH session")?;
+
+    let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
+    channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
+    let sftp = SftpSession::new(channel.into_stream()).await.map_err(|e| e.to_string())?;
+
+    let skills_path = ".ter/skills.json";
+    
+    // Safety check: verify file size before reading to prevent OOM
+    if let Ok(metadata) = sftp.metadata(skills_path).await {
+        if let Some(size) = metadata.size {
+            if size > 1024 * 1024 { // 1MB limit
+                return Err(format!("skills.json is too large: {} bytes (max 1MB)", size));
+            }
+        }
+    }
+
+    // Check if file exists by attempting to open it
+    match sftp.open(skills_path).await {
+        Ok(mut remote_file) => {
+            let mut content = Vec::new();
+            tokio::io::AsyncReadExt::read_to_end(&mut remote_file, &mut content).await.map_err(|e| e.to_string())?;
+            
+            // Try to parse as SkillManifest first, then fallback to Vec<Skill>
+            if let Ok(manifest) = serde_json::from_slice::<SkillManifest>(&content) {
+                Ok(manifest.skills)
+            } else if let Ok(skills) = serde_json::from_slice::<Vec<Skill>>(&content) {
+                Ok(skills)
+            } else {
+                Err("Failed to parse skills.json as either Manifest or List".to_string())
+            }
+        }
+        Err(_) => {
+            // File doesn't exist or other error, return empty list gracefully
+            log::info!("No skills.json found at {}", skills_path);
+            Ok(Vec::new())
+        }
+    }
+}
 
 #[derive(serde::Serialize)]
 struct RemoteFile { name: String, is_dir: bool, size: u64 }
