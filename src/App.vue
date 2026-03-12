@@ -287,11 +287,9 @@ const onConnected = async () => {
         const linkMatch = plainText.match(/http:\/\/localhost:(\d+)/);
         if (linkMatch && linkMatch[1]) {
           const remotePort = parseInt(linkMatch[1]);
-          console.log(`[Auto-Pilot] Detected link for port ${remotePort}. Syncing...`);
-          // Quietly trigger tunnel without full loading UI if possible
-          invoke<number>('open_dynamic_tunnel', { remotePort }).then(localPort => {
-            previewUrl.value = `http://localhost:${localPort}`;
-          }).catch(() => {});
+          console.log(`[Auto-Pilot] Detected link for port ${remotePort}. Auto-syncing CyberView...`);
+          // v2.2.11: Immediate refresh
+          refreshWebview(`http://localhost:${remotePort}`);
         }
 
         // [v2.2.9 ARCH UPGRADE]: Iterate over active triggers for Cross-Model compatibility
@@ -376,6 +374,21 @@ const changeDir = (path: string) => {
   } else {
     currentPath.value = (currentPath.value === '/' ? '' : currentPath.value) + '/' + path;
   }
+  
+  // v2.2.11: Track FAST ACCESS
+  const saved = localStorage.getItem('ter_fast_access');
+  let list = saved ? JSON.parse(saved) : [];
+  list = [currentPath.value, ...list.filter((p: string) => p !== currentPath.value)].slice(0, 5);
+  localStorage.setItem('ter_fast_access', JSON.stringify(list));
+
+  refreshExplorer();
+};
+
+const onFastAccess = async (path: string) => {
+  currentPath.value = path;
+  if (activeTabId.value) {
+    await invoke('write_pty', { tabId: activeTabId.value, data: `cd "${path}"\r` });
+  }
   refreshExplorer();
 };
 
@@ -447,9 +460,17 @@ const runSkill = async (skill: any) => {
   }
 };
 
-const refreshWebview = async () => {
-  const urlStr = previewUrl.value.trim();
+const refreshWebview = async (forcedUrl?: string) => {
+  if (forcedUrl) previewUrl.value = forcedUrl;
+  
+  let urlStr = previewUrl.value.trim();
   if (!urlStr) return;
+
+  // v2.2.11: Auto-complete for pure port numbers
+  if (/^\d+$/.test(urlStr)) {
+    urlStr = `http://localhost:${urlStr}`;
+    previewUrl.value = urlStr;
+  }
 
   const match = urlStr.match(/(?:localhost|127\.0\.0\.1):(\d+)/);
   if (match && match[1]) {
@@ -511,6 +532,9 @@ const loadServers = async () => { savedServers.value = await invoke('list_server
 
 let unlistenLog: any, unlistenPty: any;
 onMounted(async () => {
+  // v2.2.11: Disable default context menu
+  window.addEventListener('contextmenu', (e) => e.preventDefault());
+
   const savedTriggers = localStorage.getItem('ter_active_triggers');
   if (savedTriggers) {
     try {
@@ -601,6 +625,7 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
         @run-skill="runSkill"
         @change-dir="changeDir"
         @open-trigger-settings="showTriggerConfig = true"
+        @fast-access="onFastAccess"
       />
 
       <main class="workspace" ref="workspaceRef" @click="activeTabId && terminalManager.focus(activeTabId)">
@@ -648,13 +673,13 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
                     <span class="secure-icon">🔒</span>
                     <input 
                       v-model="previewUrl" 
-                      @keyup.enter="refreshWebview" 
+                      @keyup.enter="refreshWebview()" 
                       @focus="($event.target as HTMLInputElement).select()"
                       class="address-bar-input" 
                       placeholder="Enter remote URL (e.g. localhost:3000)"
                     />
                   </div>
-                  <button class="refresh-btn" @click="refreshWebview" :class="{ spinning: isWebviewLoading }">
+                  <button class="refresh-btn" @click="refreshWebview()" :class="{ spinning: isWebviewLoading }">
                     {{ isWebviewLoading ? '⏳' : '⚡' }}
                   </button>
                 </nav>
@@ -742,7 +767,7 @@ input:checked + .slider { background-color: #3b82f6; }
 input:checked + .slider:before { transform: translateX(12px); }
 
 .workspace-body { flex: 1; display: flex; overflow: hidden; position: relative; }
-.terminal-pane { flex: 1; height: 100%; min-width: 0; position: relative; display: flex; flex-direction: column; }
+.terminal-pane { flex: 1; height: 100%; min-width: 0; position: relative; display: flex; flex-direction: column; overflow: hidden; }
 .cyber-pane { width: 420px; height: 100%; border-left: 1px solid #27272a; background: #09090b; overflow: hidden; display: flex; flex-direction: column; }
 .cyber-container { display: flex; flex-direction: column; height: 100%; flex: 1; overflow: hidden; }
 .cyber-logs-view { flex: 0 0 30%; display: flex; flex-direction: column; background: #09090b; border-bottom: 1px solid #27272a; overflow: hidden; }
@@ -777,7 +802,7 @@ input:checked + .slider:before { transform: translateX(12px); }
   100% { border-color: #27272a; box-shadow: 0 0 0px rgba(59, 130, 246, 0); }
 }
 .secure-icon { font-size: 10px; opacity: 0.5; margin-right: 6px; }
-.address-bar-input { background: transparent; border: none; color: #a1a1aa; font-size: 10px; width: 100%; outline: none; font-family: 'JetBrains Mono', monospace; }
+.address-bar-input { background: transparent; border: none; color: #a1a1aa; font-size: 10px; width: 100%; outline: none; font-family: 'JetBrains Mono', monospace; pointer-events: auto !important; z-index: 999; }
 .refresh-btn { background: transparent; border: none; color: #3b82f6; cursor: pointer; font-size: 12px; padding: 2px 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center; transition: transform 0.2s; }
 .refresh-btn:hover { background: rgba(59, 130, 246, 0.1); }
 .refresh-btn.spinning { animation: spinning 1s linear infinite; pointer-events: none; }

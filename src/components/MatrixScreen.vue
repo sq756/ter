@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, onUnmounted } from 'vue';
+import { ref, watch, nextTick, onUnmounted, onMounted } from 'vue';
 
 const props = defineProps<{
   isLocked: boolean;
@@ -9,11 +9,21 @@ const props = defineProps<{
 
 const matrixCanvas = ref<HTMLCanvasElement | null>(null);
 let matrixInterval: any = null;
+const systemTime = ref(new Date().toLocaleTimeString());
+const bitrate = ref((Math.random() * 1000 + 500).toFixed(2));
+const isTyping = ref(false);
+
+onMounted(() => {
+  setInterval(() => {
+    systemTime.value = new Date().toLocaleTimeString();
+    bitrate.value = (Math.random() * 1000 + 500).toFixed(2);
+  }, 1000);
+});
 
 const startMatrix = () => {
   const canvas = matrixCanvas.value;
   if (!canvas) return;
-  const ctx = canvas.getContext('2d', { alpha: false })!; // Alpha false for performance
+  const ctx = canvas.getContext('2d', { alpha: false })!; 
   
   const setCanvasSize = () => {
     canvas.width = window.innerWidth;
@@ -33,7 +43,6 @@ const startMatrix = () => {
   }
 
   const draw = () => {
-    // Persistent Black Background with slight trail (Dynamic trail length)
     ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -50,30 +59,28 @@ const startMatrix = () => {
       const yPos = dropY * fontSize;
       const brightness = Math.max(0.05, 1 - (yPos / canvas.height));
       
-      // Feature: Randomly highlight actual logs with glowing white/green
       const isRealLog = logLine.startsWith("[") || logLine.includes("DEBUG");
       
       if (isRealLog && Math.random() > 0.98) {
         ctx.fillStyle = '#fff';
         ctx.shadowBlur = 12;
-        ctx.shadowColor = '#0f0';
+        ctx.shadowColor = '#22c55e';
       } else {
-        ctx.fillStyle = `rgba(0, 255, 70, ${brightness})`;
+        ctx.fillStyle = `rgba(34, 197, 94, ${brightness})`;
         ctx.shadowBlur = 0;
       }
 
       ctx.fillText(char, i * fontSize, yPos);
 
-      // Dynamic Speed based on CPU usage (Turbo mode when high load)
-      const speed = 0.5 + (props.cpuUsage / 100) * 3.0;
+      // v2.2.11: Speed up by 5x if typing (simulating crack)
+      const baseSpeed = 0.5 + (props.cpuUsage / 100) * 3.0;
+      const speed = isTyping.value ? baseSpeed * 5 : baseSpeed;
       
       if (yPos > canvas.height && Math.random() > 0.975) {
         drops[i] = 0;
-        // Inject recent logs into columns
         if (props.logs.length > 0 && Math.random() > 0.4) {
           const rawLog = props.logs[Math.floor(Math.random() * props.logs.length)];
           if (rawLog) {
-            // Clean up ANSI and pick a slice
             columnLogs[i] = rawLog.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '').substring(0, 60);
           } else {
             columnLogs[i] = "NODE_TRACE_NULL";
@@ -91,6 +98,26 @@ const startMatrix = () => {
   matrixInterval = setInterval(draw, 33);
 };
 
+const handleKeyDown = (e: KeyboardEvent) => {
+  isTyping.value = true;
+  setTimeout(() => isTyping.value = false, 100);
+  if (e.key === 'Enter' || e.key === 'Escape') {
+    emit('unlock');
+  }
+};
+
+watch(() => props.isLocked, (val) => {
+  if (val) {
+    nextTick(() => startMatrix());
+    window.addEventListener('resize', handleResize);
+    window.addEventListener('keydown', handleKeyDown);
+  } else {
+    if (matrixInterval) clearInterval(matrixInterval);
+    window.removeEventListener('resize', handleResize);
+    window.removeEventListener('keydown', handleKeyDown);
+  }
+});
+
 const handleResize = () => {
   if (props.isLocked) {
     const canvas = matrixCanvas.value;
@@ -101,35 +128,22 @@ const handleResize = () => {
   }
 };
 
-watch(() => props.isLocked, (val) => {
-  if (val) {
-    nextTick(() => startMatrix());
-    window.addEventListener('resize', handleResize);
-    window.addEventListener('keydown', handleUnlock);
-  } else {
-    if (matrixInterval) clearInterval(matrixInterval);
-    window.removeEventListener('resize', handleResize);
-    window.removeEventListener('keydown', handleUnlock);
-  }
-});
-
 const emit = defineEmits(['unlock']);
-const handleUnlock = () => emit('unlock');
 
 onUnmounted(() => {
   if (matrixInterval) clearInterval(matrixInterval);
   window.removeEventListener('resize', handleResize);
-  window.removeEventListener('keydown', handleUnlock);
+  window.removeEventListener('keydown', handleKeyDown);
 });
 </script>
 
 <template>
   <Transition name="fade">
-    <div v-if="isLocked" class="matrix-container" @click="handleUnlock">
+    <div v-if="isLocked" class="matrix-container">
       <canvas ref="matrixCanvas"></canvas>
       
+      <div class="blur-overlay"></div>
       <div class="scanlines"></div>
-      <div class="noise"></div>
 
       <div class="matrix-overlay">
         <div class="security-barrier">
@@ -138,7 +152,6 @@ onUnmounted(() => {
           </div>
           <div class="barrier-sub">LEVEL 7 CLEARANCE DETECTED // ENCRYPTING TRACE</div>
           
-          <!-- Live CyberLog Viewer -->
           <div class="live-logs-window">
              <div v-for="(log, idx) in logs.slice(-5)" :key="idx" class="log-entry">
                <span class="timestamp">[{{ new Date().toLocaleTimeString() }}]</span>
@@ -154,6 +167,11 @@ onUnmounted(() => {
         
         <div class="decrypt-prompt">
           <span class="pulse-text">PRESS ANY KEY TO DECRYPT</span>
+        </div>
+
+        <div class="system-stats-corner top-left">
+          <div class="stat-item">SYSTEM_CLOCK: <span class="highlight">{{ systemTime }}</span></div>
+          <div class="stat-item">ENCRYPTION: <span class="highlight">{{ bitrate }} bits/s</span></div>
         </div>
 
         <div class="status-monitor">
@@ -181,12 +199,18 @@ onUnmounted(() => {
   z-index: 999999;
   background: #000;
   overflow: hidden;
-  cursor: none;
+}
+
+.blur-overlay {
+  position: absolute;
+  inset: 0;
+  backdrop-filter: blur(15px);
+  z-index: 5;
+  pointer-events: none;
 }
 
 canvas {
   display: block;
-  filter: blur(0.4px);
 }
 
 .scanlines {
@@ -208,15 +232,6 @@ canvas {
   to { background-position: 0 100%; }
 }
 
-.noise {
-  position: absolute;
-  inset: 0;
-  background: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADIAAAAyBAMAAADsEZWCAAAAGFBMVEUAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAs697FAAAACHRSTlMA7v7+/v7+/v7+U88qAAAANUlEQVQ4y2NgQAX8DIyMTIwMDEwMDIyMTIyMDEwMDIyMTIyMDEwMDIyMTIyMDEwMDIyMTIyMTAwAtSADf99S99EAAAAASUVORK5CYII=');
-  opacity: 0.04;
-  pointer-events: none;
-  z-index: 11;
-}
-
 .matrix-overlay {
   position: absolute;
   inset: 0;
@@ -226,28 +241,30 @@ canvas {
   justify-content: center;
   z-index: 20;
   background: radial-gradient(circle at center, transparent 20%, rgba(0, 0, 0, 0.7) 100%);
-  pointer-events: none;
 }
 
 .security-barrier {
   text-align: center;
-  border: 1px solid rgba(0, 255, 70, 0.4);
+  border: 1px solid #22c55e;
   padding: 50px 80px;
-  background: rgba(0, 10, 0, 0.45);
-  backdrop-filter: blur(15px) saturate(180%);
+  background: rgba(0, 10, 0, 0.4);
   position: relative;
-  box-shadow: 
-    0 0 50px rgba(0, 255, 70, 0.1),
-    inset 0 0 20px rgba(0, 255, 70, 0.05);
-  border-radius: 4px;
+  box-shadow: 0 0 30px rgba(34, 197, 94, 0.3);
+  border-radius: 8px;
+  animation: breathing-glow 4s infinite ease-in-out;
+}
+
+@keyframes breathing-glow {
+  0%, 100% { box-shadow: 0 0 20px rgba(34, 197, 94, 0.2); }
+  50% { box-shadow: 0 0 40px rgba(34, 197, 94, 0.5); }
 }
 
 .live-logs-window {
   margin-top: 30px;
   text-align: left;
   font-family: 'JetBrains Mono', monospace;
-  background: rgba(0, 0, 0, 0.6);
-  border: 1px solid rgba(0, 255, 70, 0.2);
+  background: rgba(0, 0, 0, 0.8);
+  border: 1px solid rgba(34, 197, 94, 0.2);
   padding: 15px;
   border-radius: 4px;
   height: 110px;
@@ -255,89 +272,36 @@ canvas {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.8);
 }
 
 .log-entry {
   font-size: 11px;
-  color: rgba(0, 255, 70, 0.7);
+  color: #22c55e;
   white-space: nowrap;
-  animation: log-slide 0.3s ease-out;
 }
 
 .log-entry .timestamp {
-  color: #333;
+  color: #166534;
   margin-right: 10px;
   font-size: 10px;
 }
 
 .log-entry .content {
-  color: #0f0;
-  text-shadow: 0 0 5px rgba(0, 255, 70, 0.5);
-}
-
-@keyframes log-slide {
-  from { opacity: 0; transform: translateY(5px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.glitch-wrapper {
-  position: relative;
-  display: inline-block;
+  color: #22c55e;
+  text-shadow: 0 0 5px rgba(34, 197, 94, 0.5);
 }
 
 .glitch-text {
   font-size: 42px;
   font-weight: 800;
-  color: #fff;
+  color: #22c55e;
   letter-spacing: 16px;
   font-family: 'JetBrains Mono', monospace;
-  text-shadow: 0 0 15px rgba(0, 255, 70, 0.9);
-}
-
-.glitch-text::before,
-.glitch-text::after {
-  content: attr(data-text);
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: transparent;
-}
-
-.glitch-text::before {
-  left: 2px;
-  text-shadow: -2px 0 #ff003c;
-  clip: rect(44px, 450px, 56px, 0);
-  animation: glitch-anim 5s infinite linear alternate-reverse;
-}
-
-.glitch-text::after {
-  left: -2px;
-  text-shadow: -2px 0 #00fff9;
-  clip: rect(0, 450px, 20px, 0);
-  animation: glitch-anim2 3s infinite linear alternate-reverse;
-}
-
-@keyframes glitch-anim {
-  0% { clip: rect(10px, 9999px, 20px, 0); }
-  20% { clip: rect(40px, 9999px, 50px, 0); }
-  40% { clip: rect(80px, 9999px, 90px, 0); }
-  60% { clip: rect(20px, 9999px, 30px, 0); }
-  80% { clip: rect(60px, 9999px, 70px, 0); }
-  100% { clip: rect(90px, 9999px, 100px, 0); }
-}
-
-@keyframes glitch-anim2 {
-  0% { clip: rect(85px, 9999px, 95px, 0); }
-  30% { clip: rect(5px, 9999px, 15px, 0); }
-  60% { clip: rect(45px, 9999px, 55px, 0); }
-  90% { clip: rect(25px, 9999px, 35px, 0); }
+  text-shadow: 0 0 15px rgba(34, 197, 94, 0.8);
 }
 
 .barrier-sub {
-  color: #0f0;
+  color: #22c55e;
   font-size: 11px;
   margin-top: 15px;
   letter-spacing: 6px;
@@ -346,29 +310,15 @@ canvas {
   text-transform: uppercase;
 }
 
-.security-lines {
-  position: absolute;
-  bottom: -2px;
-  left: 0;
-  width: 100%;
-  height: 2px;
-  display: flex;
-  justify-content: space-between;
-}
-
 .security-lines .line {
   height: 100%;
   width: 40%;
-  background: #0f0;
-  box-shadow: 0 0 10px #0f0;
-}
-
-.decrypt-prompt {
-  margin-top: 60px;
+  background: #22c55e;
+  box-shadow: 0 0 10px #22c55e;
 }
 
 .pulse-text {
-  color: #333;
+  color: #166534;
   font-size: 14px;
   text-transform: uppercase;
   letter-spacing: 6px;
@@ -377,8 +327,25 @@ canvas {
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 0.2; color: #333; }
-  50% { opacity: 0.8; color: #0f0; text-shadow: 0 0 8px #0f0; }
+  0%, 100% { opacity: 0.2; color: #166534; }
+  50% { opacity: 0.8; color: #22c55e; text-shadow: 0 0 8px #22c55e; }
+}
+
+.system-stats-corner {
+  position: absolute;
+  top: 40px;
+  left: 40px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: #166534;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stat-item .highlight {
+  color: #22c55e;
+  text-shadow: 0 0 5px #22c55e;
 }
 
 .status-monitor {
@@ -387,28 +354,21 @@ canvas {
   right: 50px;
   text-align: right;
   font-family: 'JetBrains Mono', monospace;
-  border-right: 2px solid #0f0;
-  padding-right: 20px;
-  background: rgba(0, 0, 0, 0.3);
-  padding: 15px;
+  border-right: 2px solid #22c55e;
+  padding: 15px 20px;
+  background: rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(5px);
-}
-
-.monitor-item {
-  margin-bottom: 5px;
 }
 
 .monitor-item .label {
   font-size: 10px;
-  color: #666;
-  margin-right: 12px;
+  color: #166534;
 }
 
 .monitor-item .value {
   font-size: 14px;
-  color: #fff;
-  text-shadow: 0 0 10px #0f0;
-  font-weight: bold;
+  color: #22c55e;
+  text-shadow: 0 0 10px #22c55e;
 }
 
 .fade-enter-active,

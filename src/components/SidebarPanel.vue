@@ -11,20 +11,21 @@ const props = defineProps<{
   isAutoPilot: boolean;
 }>();
 
-const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill', 'change-dir', 'view-history', 'open-trigger-settings']);
+const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill', 'change-dir', 'view-history', 'open-trigger-settings', 'fast-access']);
+
+// v2.2.11: Track last visited directories for FAST ACCESS
+const lastVisited = computed(() => {
+  const saved = localStorage.getItem('ter_fast_access');
+  if (saved) return JSON.parse(saved).slice(0, 5);
+  return [];
+});
 
 const sortedFiles = computed(() => {
-  // 1. Filter out '..' if it exists in the original list (we add it manually if not at root)
   const baseFiles = props.files.filter(f => f.name !== '..');
-  
-  // 2. Sort logic
   const sorted = [...baseFiles].sort((a, b) => {
-    // Directories first
     if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
-    // Alphabetical case-insensitive
     return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
   });
-
   return sorted;
 });
 
@@ -32,6 +33,10 @@ const onItemClick = (f: any) => {
   if (f.is_dir) {
     emit('change-dir', f.name);
   }
+};
+
+const onFastAccessClick = (path: string) => {
+  emit('fast-access', path);
 };
 </script>
 
@@ -72,15 +77,16 @@ const onItemClick = (f: any) => {
       </ul>
     </div>
 
+    <!-- v2.2.11: FAST ACCESS instead of Session History -->
     <div class="module scroller history">
-      <header>Session History</header>
+      <header>FAST ACCESS</header>
       <ul class="data-list">
-        <li v-for="t in bgTabs" :key="'hist-' + t.id" @click="$emit('view-history', t.id)">
-          <span class="icon">📜</span>
-          <span class="name">{{ t.title }} Logs</span>
-          <span class="val">VIEW</span>
+        <li v-for="path in lastVisited" :key="path" @click="onFastAccessClick(path)">
+          <span class="icon">🚀</span>
+          <span class="name">{{ path.split('/').pop() || '/' }}</span>
+          <span class="val">GOTO</span>
         </li>
-        <li v-if="bgTabs.length === 0" class="empty-hint">No history available</li>
+        <li v-if="lastVisited.length === 0" class="empty-hint">No recent paths</li>
       </ul>
     </div>
 
@@ -90,7 +96,6 @@ const onItemClick = (f: any) => {
         <div class="current-path">{{ currentPath }}</div>
       </header>
       <ul class="data-list">
-        <!-- Always '..' for navigation unless root? (Backend handles root logic) -->
         <li @click="$emit('change-dir', '..')" class="file-item">
           <span class="file-icon">📁</span>
           <span class="file-name">..</span>
@@ -180,7 +185,6 @@ const onItemClick = (f: any) => {
 
 .data-list { list-style: none; padding: 0; margin: 0; }
 
-/* Refactored File Item */
 .file-item, .data-list li { 
   display: flex; 
   align-items: center;
@@ -192,13 +196,19 @@ const onItemClick = (f: any) => {
   cursor: pointer;
   color: #d4d4d8;
   font-size: 13px;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
   border-bottom: none;
 }
 
 .file-item:hover, .data-list li:hover { 
-  background: rgba(255, 255, 255, 0.08); 
-  color: #ffffff; 
+  background: rgba(34, 197, 94, 0.08); 
+  color: #22c55e; 
+  transform: scale(1.02);
+}
+
+.file-item:active, .data-list li:active {
+  transform: scale(0.98);
+  opacity: 0.7;
 }
 
 .file-name, .data-list .name { 
@@ -219,9 +229,9 @@ const onItemClick = (f: any) => {
 
 .data-list .val.active { color: #22c55e; font-weight: bold; font-size: 9px; }
 .data-list .val { 
-  color: #6366f1; 
+  color: #22c55e; 
   font-size: 8px; 
-  border: 1px solid rgba(99, 102, 241, 0.4); 
+  border: 1px solid rgba(34, 197, 94, 0.4); 
   padding: 0px 4px; 
   border-radius: 3px;
   margin-left: auto;
