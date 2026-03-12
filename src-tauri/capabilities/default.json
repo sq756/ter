@@ -9,6 +9,12 @@
     "core:default",
     "dialog:default",
     "shell:default",
-    "log:default"
+    "log:default",
+    "webview:allow-create-webview",
+    "webview:allow-navigate",
+    "webview:allow-javascript-eval",
+    "window:allow-create-window",
+    "window:allow-set-size",
+    "window:allow-set-position"
   ]
 }

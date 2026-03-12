@@ -1,48 +1,103 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, watch, onMounted, onUnmounted } from 'vue';
 import { open } from '@tauri-apps/plugin-shell';
+import { Webview } from '@tauri-apps/api/webview';
+import { getCurrentWindow, PhysicalSize, PhysicalPosition } from '@tauri-apps/api/window';
+import { invoke } from '@tauri-apps/api/core';
 
 const props = defineProps<{
   url: string;
 }>();
 
-const iframeRef = ref<HTMLIFrameElement | null>(null);
-const currentDisplayUrl = ref(props.url);
+const containerRef = ref<HTMLElement | null>(null);
+let webview: Webview | null = null;
+const isWebviewReady = ref(false);
 
-watch(() => props.url, (newUrl) => {
-  currentDisplayUrl.value = newUrl;
+const syncWebviewBounds = async () => {
+  if (!webview || !containerRef.value) return;
+  
+  const rect = containerRef.value.getBoundingClientRect();
+  
+  // v2.3.0: Bounds sync logic
+  await webview.setSize(new PhysicalSize(
+    Math.round(rect.width * window.devicePixelRatio),
+    Math.round(rect.height * window.devicePixelRatio)
+  ));
+  
+  await webview.setPosition(new PhysicalPosition(
+    Math.round(rect.left * window.devicePixelRatio),
+    Math.round(rect.top * window.devicePixelRatio)
+  ));
+};
+
+onMounted(async () => {
+  if (!containerRef.value) return;
+
+  const currentWin = getCurrentWindow();
+  const rect = containerRef.value.getBoundingClientRect();
+
+  // Create Native Webview
+  webview = new Webview(currentWin, 'cyber-native-view', {
+    url: props.url,
+    x: Math.round(rect.left * window.devicePixelRatio),
+    y: Math.round(rect.top * window.devicePixelRatio),
+    width: Math.round(rect.width * window.devicePixelRatio),
+    height: Math.round(rect.height * window.devicePixelRatio),
+  });
+
+  webview.once('tauri://created', () => {
+    isWebviewReady.value = true;
+    console.log("[CyberWebview] Native Webview Created");
+  });
+
+  webview.once('tauri://error', (e) => {
+    console.error("[CyberWebview] Failed to create Webview:", e);
+  });
+
+  // Track size/position changes
+  const resizeObserver = new ResizeObserver(() => syncWebviewBounds());
+  resizeObserver.observe(containerRef.value);
+
+  onUnmounted(async () => {
+    resizeObserver.disconnect();
+    if (webview) {
+      await webview.close();
+      webview = null;
+    }
+  });
 });
 
-const reload = () => {
-  if (iframeRef.value) {
-    iframeRef.value.src = iframeRef.value.src;
+watch(() => props.url, async (newUrl) => {
+  if (isWebviewReady.value) {
+    // v2.3.0: Update location via Rust Bridge
+    await invoke('navigate_cyber_webview', { url: newUrl });
+  }
+});
+
+const reload = async () => {
+  if (isWebviewReady.value) {
+    await invoke('reload_cyber_webview');
   }
 };
 
 const openInBrowser = async () => {
   try {
-    await open(currentDisplayUrl.value);
+    await open(props.url);
   } catch (e) {
     console.error("Failed to open system browser:", e);
   }
 };
 
-// Expose refresh for parent (RPC)
 defineExpose({ reload });
 </script>
 
 <template>
-  <div class="cyber-webview">
-    <div class="iframe-container">
-      <iframe 
-        ref="iframeRef" 
-        :src="currentDisplayUrl" 
-        frameborder="0" 
-        allow="cross-origin-isolated"
-      ></iframe>
-      <div class="tunnel-hint" v-if="currentDisplayUrl.includes('localhost')">⚡ SSH Tunnel Active</div>
-      <button class="os-browser-btn" @click="openInBrowser" title="Open in System Browser">🌍</button>
+  <div class="cyber-webview" ref="containerRef">
+    <div class="native-placeholder" v-if="!isWebviewReady">
+      <div class="loader">INITIALIZING_NATIVE_WEBVIEW...</div>
     </div>
+    <div class="tunnel-hint" v-if="url.includes('localhost')">⚡ Native Proxy Active</div>
+    <button class="os-browser-btn" @click="openInBrowser" title="Open in System Browser">🌍</button>
   </div>
 </template>
 
@@ -53,19 +108,27 @@ defineExpose({ reload });
   height: 100%;
   width: 100%;
   background: #000;
-}
-
-.iframe-container {
-  flex: 1;
   position: relative;
-  overflow: hidden;
-  background: #000;
 }
 
-iframe {
-  width: 100%;
-  height: 100%;
-  background: #fff;
+.native-placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #09090b;
+  color: #22c55e;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+}
+
+.loader {
+  animation: blink 1s infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
 }
 
 .tunnel-hint {
