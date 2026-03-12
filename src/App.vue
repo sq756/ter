@@ -47,12 +47,25 @@ const skills = ref<any[]>([]);
 // ==========================================
 // --- TAB MANAGEMENT ---
 // ==========================================
-const createNewTab = (title = "Shell") => {
+const createNewTab = async (title = "Shell") => {
   const id = 'tab-' + Math.random().toString(36).substr(2, 9);
-  terminalManager.setOnDataCallback(id, (data) => {
-    if (isConnected.value) invoke('write_pty', { data });
+  
+  // 1. Setup local Terminal instance
+  terminalManager.setOnDataCallback(id, (tid, data) => {
+    if (isConnected.value) invoke('write_pty', { tabId: tid, data });
   });
   terminalManager.getOrCreate(id);
+  
+  // 2. Spawn remote PTY if connected
+  if (isConnected.value) {
+    try {
+      await invoke('spawn_new_pty', { tabId: id });
+    } catch (e) {
+      console.error("Failed to spawn remote PTY:", e);
+      backendLogs.value.push(`[ERROR] Failed to spawn PTY: ${e}`);
+    }
+  }
+
   terminalTabs.value.push({ id, title, isBackground: false });
   activeTabId.value = id;
   return id;
@@ -63,6 +76,7 @@ const closeTab = (id: string) => {
   if (index !== -1) {
     terminalTabs.value.splice(index, 1);
     terminalManager.remove(id);
+    // Note: Rust side channel will eventually close on next read/write fail or we could add 'close_pty' command
     if (activeTabId.value === id) {
       activeTabId.value = terminalTabs.value[0]?.id || null;
     }
@@ -131,29 +145,29 @@ const connectWithId = async (id: string) => {
 const onConnected = async () => {
   isConnected.value = true;
   agentToken.value = await invoke('get_agent_token');
-  createNewTab("Main Shell");
+  await createNewTab("Main Shell");
 
   if (unlistenPty) unlistenPty();
-  unlistenPty = await listen<number[]>('pty-data', (event) => {
-    let data = new Uint8Array(event.payload);
-    const text = new TextDecoder().decode(data);
+  unlistenPty = await listen<any>('pty-data', (event) => {
+    const { id, data } = event.payload;
+    const bytes = new Uint8Array(data);
+    const text = new TextDecoder().decode(bytes);
 
     // [Auto-Pilot]: 自动检测并同意 Gemini CLI 的 Action Required 弹窗
-    if (isAutoPilot.value) {
+    if (isAutoPilot.value && id === activeTabId.value) {
       // 去除 ANSI 控制字符以便于精准匹配纯文本
       const plainText = text.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
       if (plainText.includes('Allow execution of:') || plainText.includes('1. Allow once')) {
-        console.log("[Auto-Pilot] Detected Action Required. Auto-approving with random delay...");
-        // 随机延迟 200-500ms 模拟人类输入，确保 CLI 已经准备好接收按键
+        console.log("[Auto-Pilot] Detected Action Required. Auto-approving...");
         const randomDelay = Math.floor(Math.random() * 301) + 200;
         setTimeout(() => {
-          invoke('write_pty', { data: "\r" });
+          invoke('write_pty', { tabId: id, data: "\r" });
         }, randomDelay);
       }
     }
 
-    // [反向控制]: 拦截来自 AI 的 [TER_RPC] 指令
-    if (text.includes('[TER_RPC]')) {
+    // [反向控制]: 拦截来自 AI 的 [TER_RPC] 指令 (仅对活跃 Tab 有效，避免干扰)
+    if (text.includes('[TER_RPC]') && id === activeTabId.value) {
       const rpcRegex = /\[TER_RPC\]\s*({.*?})/g;
       let match;
       let cleanedText = text;
@@ -182,11 +196,12 @@ const onConnected = async () => {
 
       if (foundRpc) {
         if (cleanedText.trim() === '') return; // Fully consumed
-        data = new TextEncoder().encode(cleanedText);
+        terminalManager.write(id, new TextEncoder().encode(cleanedText));
+        return;
       }
     }
 
-    terminalManager.broadcast(data);
+    terminalManager.write(id, bytes);
   });
 
   const ports: any = await invoke('get_active_ports');
@@ -274,7 +289,9 @@ const runSkill = async (skill: any) => {
     }
     const cleanRpc = rpc.trim();
     const payload = `\x1b[200~${cleanRpc}\x1b[201~\r`;
-    invoke('write_pty', { data: payload });
+    if (activeTabId.value) {
+      invoke('write_pty', { tabId: activeTabId.value, data: payload });
+    }
   }
 };
 

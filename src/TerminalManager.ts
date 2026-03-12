@@ -14,9 +14,9 @@ export interface TerminalInstance {
  */
 class TerminalManager {
   private instances: Map<string, TerminalInstance> = new Map();
-  private callbacks: Map<string, (data: string) => void> = new Map();
+  private callbacks: Map<string, (id: string, data: string) => void> = new Map();
 
-  public setOnDataCallback(id: string, cb: (data: string) => void) {
+  public setOnDataCallback(id: string, cb: (id: string, data: string) => void) {
     this.callbacks.set(id, cb);
   }
 
@@ -28,7 +28,7 @@ class TerminalManager {
       cursorBlink: true,
       fontSize: 14,
       fontFamily: "'JetBrains Mono', monospace",
-      theme: { background: '#000000', foreground: '#fafafa' },
+      theme: { background: '#09090b', foreground: '#d4d4d8' },
       allowTransparency: false,
       ...options
     });
@@ -39,7 +39,7 @@ class TerminalManager {
     // Atomic data binding
     term.onData((data) => {
       const cb = this.callbacks.get(id);
-      if (cb) cb(data);
+      if (cb) cb(id, data);
     });
 
     const instance: TerminalInstance = { id, term, fit };

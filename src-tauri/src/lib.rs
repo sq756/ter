@@ -58,25 +58,28 @@ impl client::Handler for Client {
     }
 }
 
+use std::collections::HashMap;
+use tokio::sync::Mutex as TokioMutex;
+
 enum PtyControl {
     Resize(u32, u32),
 }
 
 struct AppState {
-    pty_tx: tokio::sync::Mutex<Option<mpsc::Sender<String>>>,
-    ctrl_tx: tokio::sync::Mutex<Option<mpsc::Sender<PtyControl>>>,
-    session: tokio::sync::Mutex<Option<Arc<client::Handle<Client>>>>,
-    agent_token: tokio::sync::Mutex<String>,
+    pty_channels: TokioMutex<HashMap<String, mpsc::Sender<String>>>,
+    ctrl_channels: TokioMutex<HashMap<String, mpsc::Sender<PtyControl>>>,
+    session: TokioMutex<Option<Arc<client::Handle<Client>>>>,
+    agent_token: TokioMutex<String>,
     db: tokio::sync::OnceCell<Db>,
-    db_error: tokio::sync::Mutex<Option<String>>,
-    crypto: tokio::sync::Mutex<Option<Crypto>>,
-    model_path: tokio::sync::Mutex<Option<std::path::PathBuf>>,
-    agent_port: Arc<tokio::sync::Mutex<Option<u16>>>,
-    vnc_port: Arc<tokio::sync::Mutex<Option<u16>>>,
-    dynamic_port: Arc<tokio::sync::Mutex<Option<u16>>>,
-    agent_abort: Arc<tokio::sync::Mutex<Option<tokio::task::AbortHandle>>>,
-    vnc_abort: Arc<tokio::sync::Mutex<Option<tokio::task::AbortHandle>>>,
-    dynamic_abort: Arc<tokio::sync::Mutex<Option<tokio::task::AbortHandle>>>,
+    db_error: TokioMutex<Option<String>>,
+    crypto: TokioMutex<Option<Crypto>>,
+    model_path: TokioMutex<Option<std::path::PathBuf>>,
+    agent_port: Arc<TokioMutex<Option<u16>>>,
+    vnc_port: Arc<TokioMutex<Option<u16>>>,
+    dynamic_port: Arc<TokioMutex<Option<u16>>>,
+    agent_abort: Arc<TokioMutex<Option<tokio::task::AbortHandle>>>,
+    vnc_abort: Arc<TokioMutex<Option<tokio::task::AbortHandle>>>,
+    dynamic_abort: Arc<TokioMutex<Option<tokio::task::AbortHandle>>>,
 }
 
 #[tauri::command]
@@ -297,53 +300,7 @@ async fn connect_to_ssh(host: String, port: u16, user: String, pass: String, app
     deploy_agent(&session, &token, &app_handle).await?;
     log::info!("Agent deployed and started.");
 
-    let mut channel = session.channel_open_session().await.map_err(|e| {
-        log::error!("Failed to open channel: {}", e);
-        e.to_string()
-    })?;
-    channel.request_pty(true, "xterm-256color", 80, 24, 0, 0, &[]).await.map_err(|e| e.to_string())?;
-    channel.request_shell(true).await.map_err(|e| e.to_string())?;
-    log::info!("Shell session requested.");
-
-    let (tx, mut rx) = mpsc::channel::<String>(100);
-    let (ctrl_tx, mut ctrl_rx) = mpsc::channel::<PtyControl>(10);
-    
-    *state.pty_tx.lock().await = Some(tx);
-    *state.ctrl_tx.lock().await = Some(ctrl_tx);
     *state.session.lock().await = Some(Arc::new(session));
-
-    let app_handle_clone = app_handle.clone();
-    tauri::async_runtime::spawn(async move {
-        loop {
-            tokio::select! {
-                Some(ctrl) = ctrl_rx.recv() => {
-                    match ctrl {
-                        PtyControl::Resize(cols, rows) => {
-                            let _ = channel.window_change(cols, rows, 0, 0).await;
-                        }
-                    }
-                }
-                Some(data) = rx.recv() => {
-                    log::info!("[PTY TX] 🔐 Encrypting & Sending {} bytes: {:?}", data.len(), String::from_utf8_lossy(data.as_bytes()));
-                    let _ = channel.data(data.as_bytes()).await;
-                }
-                msg = channel.wait() => {
-                    if let Some(msg) = msg {
-                        match msg {
-                            russh::ChannelMsg::Data { data } => {
-                                log::info!("[PTY RX] 🔓 Decrypted {} bytes from remote PTY", data.len());
-                                let _ = app_handle_clone.emit("pty-data", data.to_vec());
-                            }
-                            russh::ChannelMsg::ExitStatus { .. } => break,
-                            _ => {}
-                        }
-                    } else {
-                        break;
-                    }
-                }
-            }
-        }
-    });
 
     // 6. Setup Local Port Forwarding for Agent (127.0.0.1:34567)
     let session_guard = state.session.lock().await;
@@ -516,16 +473,76 @@ async fn load_remote_skills(state: State<'_, AppState>) -> Result<Vec<Skill>, St
 }
 
 #[tauri::command]
-async fn write_pty(data: String, state: State<'_, AppState>) -> Result<(), String> {
-    if let Some(tx) = state.pty_tx.lock().await.as_ref() {
+async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let session_guard = state.session.lock().await;
+    let session = session_guard.as_ref().ok_or("No active SSH session")?.clone();
+    drop(session_guard);
+
+    let mut channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
+    channel.request_pty(true, "xterm-256color", 80, 24, 0, 0, &[]).await.map_err(|e| e.to_string())?;
+    channel.request_shell(true).await.map_err(|e| e.to_string())?;
+
+    let (tx, mut rx) = mpsc::channel::<String>(100);
+    let (ctrl_tx, mut ctrl_rx) = mpsc::channel::<PtyControl>(10);
+    
+    // Store in global state
+    state.pty_channels.lock().await.insert(tab_id.clone(), tx);
+    state.ctrl_channels.lock().await.insert(tab_id.clone(), ctrl_tx);
+
+    let app_handle_clone = app_handle.clone();
+    let tid_clone = tab_id.clone();
+
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::select! {
+                Some(ctrl) = ctrl_rx.recv() => {
+                    match ctrl {
+                        PtyControl::Resize(cols, rows) => {
+                            let _ = channel.window_change(cols, rows, 0, 0).await;
+                        }
+                    }
+                }
+                Some(data) = rx.recv() => {
+                    let _ = channel.data(data.as_bytes()).await;
+                }
+                msg = channel.wait() => {
+                    if let Some(msg) = msg {
+                        match msg {
+                            russh::ChannelMsg::Data { data } => {
+                                let payload = serde_json::json!({
+                                    "id": tid_clone,
+                                    "data": data.to_vec()
+                                });
+                                let _ = app_handle_clone.emit("pty-data", payload);
+                            }
+                            russh::ChannelMsg::ExitStatus { .. } => break,
+                            _ => {}
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+        log::info!("PTY Channel for Tab {} closed.", tid_clone);
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
+async fn write_pty(tab_id: String, data: String, state: State<'_, AppState>) -> Result<(), String> {
+    let channels = state.pty_channels.lock().await;
+    if let Some(tx) = channels.get(&tab_id) {
         let _ = tx.send(data).await;
     }
     Ok(())
 }
 
 #[tauri::command]
-async fn resize_pty(cols: u32, rows: u32, state: State<'_, AppState>) -> Result<(), String> {
-    if let Some(tx) = state.ctrl_tx.lock().await.as_ref() {
+async fn resize_pty(tab_id: String, cols: u32, rows: u32, state: State<'_, AppState>) -> Result<(), String> {
+    let channels = state.ctrl_channels.lock().await;
+    if let Some(tx) = channels.get(&tab_id) {
         let _ = tx.send(PtyControl::Resize(cols, rows)).await;
     }
     Ok(())
@@ -885,20 +902,20 @@ pub fn run() {
 
     tauri::Builder::default()
         .manage(AppState {
-            pty_tx: tokio::sync::Mutex::new(None),
-            ctrl_tx: tokio::sync::Mutex::new(None),
-            session: tokio::sync::Mutex::new(None),
-            agent_token: tokio::sync::Mutex::new(String::new()),
+            pty_channels: TokioMutex::new(HashMap::new()),
+            ctrl_channels: TokioMutex::new(HashMap::new()),
+            session: TokioMutex::new(None),
+            agent_token: TokioMutex::new(String::new()),
             db: tokio::sync::OnceCell::new(),
-            db_error: tokio::sync::Mutex::new(None),
-            crypto: tokio::sync::Mutex::new(Option::None),
-            model_path: tokio::sync::Mutex::new(None),
-            agent_port: Arc::new(tokio::sync::Mutex::new(None)),
-            vnc_port: Arc::new(tokio::sync::Mutex::new(None)),
-            dynamic_port: Arc::new(tokio::sync::Mutex::new(None)),
-            agent_abort: Arc::new(tokio::sync::Mutex::new(None)),
-            vnc_abort: Arc::new(tokio::sync::Mutex::new(None)),
-            dynamic_abort: Arc::new(tokio::sync::Mutex::new(None)),
+            db_error: TokioMutex::new(Option::None),
+            crypto: TokioMutex::new(None),
+            model_path: TokioMutex::new(None),
+            agent_port: Arc::new(TokioMutex::new(None)),
+            vnc_port: Arc::new(TokioMutex::new(None)),
+            dynamic_port: Arc::new(TokioMutex::new(None)),
+            agent_abort: Arc::new(TokioMutex::new(None)),
+            vnc_abort: Arc::new(TokioMutex::new(None)),
+            dynamic_abort: Arc::new(TokioMutex::new(None)),
         })
         .register_uri_scheme_protocol("ter-model", |_, request| {
             // In Tauri v2, we can't easily get state from the first closure param if it's UriSchemeContext
@@ -1029,6 +1046,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             connect_to_ssh, 
+            spawn_new_pty,
             write_pty, 
             resize_pty, 
             get_agent_token,
