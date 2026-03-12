@@ -34,7 +34,7 @@ const handleUrlEnter = async () => {
 
   // Pattern: localhost:PORT or 127.0.0.1:PORT
   const match = urlStr.match(/(?:localhost|127\.0\.0\.1):(\d+)/);
-  if (match) {
+  if (match && match[1]) {
     const remotePort = parseInt(match[1]);
     try {
       console.log(`[CyberView] Requesting dynamic tunnel for port ${remotePort}...`);

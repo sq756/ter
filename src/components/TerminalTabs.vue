@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import TerminalView from './TerminalView.vue';
+import { terminalManager } from '../TerminalManager';
 
 const props = defineProps<{
   tabs: any[];

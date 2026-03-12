@@ -138,6 +138,20 @@ const onConnected = async () => {
     let data = new Uint8Array(event.payload);
     const text = new TextDecoder().decode(data);
 
+    // [Auto-Pilot]: 自动检测并同意 Gemini CLI 的 Action Required 弹窗
+    if (isAutoPilot.value) {
+      // 去除 ANSI 控制字符以便于精准匹配纯文本
+      const plainText = text.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
+      if (plainText.includes('Allow execution of:') || plainText.includes('1. Allow once')) {
+        console.log("[Auto-Pilot] Detected Action Required. Auto-approving with random delay...");
+        // 随机延迟 200-500ms 模拟人类输入，确保 CLI 已经准备好接收按键
+        const randomDelay = Math.floor(Math.random() * 301) + 200;
+        setTimeout(() => {
+          invoke('write_pty', { data: "\r" });
+        }, randomDelay);
+      }
+    }
+
     // [反向控制]: 拦截来自 AI 的 [TER_RPC] 指令
     if (text.includes('[TER_RPC]')) {
       const rpcRegex = /\[TER_RPC\]\s*({.*?})/g;
@@ -153,7 +167,7 @@ const onConnected = async () => {
           foundRpc = true;
 
           if (rpc.action === 'screenshot') {
-            captureAndUpload(true);
+            captureAndUpload();
           } else if (rpc.action === 'notify') {
             backendLogs.value.push(`[🔔 NOTIFY] ${rpc.msg || rpc.message || 'New message from AI'}`);
           } else if (rpc.action === 'chart') {
@@ -206,7 +220,7 @@ const changeDir = (path: string) => {
 const workspaceRef = ref<HTMLElement | null>(null);
 const cyberPaneRef = ref<HTMLElement | null>(null);
 
-const captureAndUpload = async (auto = false) => {
+const captureAndUpload = async () => {
   const target = (cyberPaneRef.value && cyberPaneRef.value.offsetParent !== null)
       ? cyberPaneRef.value
       : workspaceRef.value;
@@ -226,7 +240,7 @@ const captureAndUpload = async (auto = false) => {
     });
     
     const base64Data = canvas.toDataURL('image/png');
-    const remotePath = await invoke<string>('upload_ui_snapshot', { base64Data });
+    await invoke<string>('upload_ui_snapshot', { base64Data });
     const lastLogs = backendLogs.value.slice(-10).join('\n');
     await invoke('write_remote_text', { text: lastLogs, remotePath: '/tmp/current_logs.json' });
 
@@ -246,7 +260,7 @@ const runSkill = async (skill: any) => {
   if (skill.context_requirement?.require_screenshot) {
     backendLogs.value.push(`[SYSTEM] Skill "${skill.name}" requires UI context. Synchronizing...`);
     try {
-      await captureAndUpload(true);
+      await captureAndUpload();
     } catch (e) {
       console.error("Vision-Loop sync failed:", e);
     }
