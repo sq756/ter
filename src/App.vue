@@ -283,6 +283,17 @@ const onConnected = async () => {
       const canTrigger = (now - lastAutoPilotTime.value) > 500;
 
       if (!isTmuxNoise && canTrigger) {
+        // [v2.2.10]: Link Capture & Auto Tunnel
+        const linkMatch = plainText.match(/http:\/\/localhost:(\d+)/);
+        if (linkMatch && linkMatch[1]) {
+          const remotePort = parseInt(linkMatch[1]);
+          console.log(`[Auto-Pilot] Detected link for port ${remotePort}. Syncing...`);
+          // Quietly trigger tunnel without full loading UI if possible
+          invoke<number>('open_dynamic_tunnel', { remotePort }).then(localPort => {
+            previewUrl.value = `http://localhost:${localPort}`;
+          }).catch(() => {});
+        }
+
         // [v2.2.9 ARCH UPGRADE]: Iterate over active triggers for Cross-Model compatibility
         const matched = activeTriggers.value.some(t => plainText.includes(t));
         
@@ -638,6 +649,7 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
                     <input 
                       v-model="previewUrl" 
                       @keyup.enter="refreshWebview" 
+                      @focus="($event.target as HTMLInputElement).select()"
                       class="address-bar-input" 
                       placeholder="Enter remote URL (e.g. localhost:3000)"
                     />
@@ -729,11 +741,11 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
 input:checked + .slider { background-color: #3b82f6; }
 input:checked + .slider:before { transform: translateX(12px); }
 
-.workspace-body { flex: 1; display: flex; overflow: hidden; }
-.terminal-pane { flex: 1; height: 100%; min-width: 0; position: relative; }
-.cyber-pane { width: 420px; height: 100%; border-left: 1px solid #27272a; background: #09090b; overflow: hidden; }
-.cyber-container { display: flex; flex-direction: column; height: 100%; }
-.cyber-logs-view { flex: 0 0 35%; display: flex; flex-direction: column; background: #09090b; border-bottom: 1px solid #27272a; overflow: hidden; }
+.workspace-body { flex: 1; display: flex; overflow: hidden; position: relative; }
+.terminal-pane { flex: 1; height: 100%; min-width: 0; position: relative; display: flex; flex-direction: column; }
+.cyber-pane { width: 420px; height: 100%; border-left: 1px solid #27272a; background: #09090b; overflow: hidden; display: flex; flex-direction: column; }
+.cyber-container { display: flex; flex-direction: column; height: 100%; flex: 1; overflow: hidden; }
+.cyber-logs-view { flex: 0 0 30%; display: flex; flex-direction: column; background: #09090b; border-bottom: 1px solid #27272a; overflow: hidden; }
 .cyber-logs-view header { padding: 8px 12px; background: #09090b; border-bottom: 1px solid #27272a; }
 .cyber-logs-view .title { font-size: 10px; color: #3b82f6; font-weight: bold; text-transform: uppercase; letter-spacing: 0.05em; }
 .logs-container { flex: 1; padding: 10px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #a1a1aa; scroll-behavior: smooth; }
@@ -742,7 +754,28 @@ input:checked + .slider:before { transform: translateX(12px); }
 .cyber-divider { height: 1px; background: #27272a; }
 .cyber-webview-wrapper { flex: 1; background: #09090b; position: relative; display: flex; flex-direction: column; overflow: hidden; }
 .webview-address-bar { height: 32px; background: #09090b; border-bottom: 1px solid #27272a; display: flex; align-items: center; padding: 0 8px; gap: 8px; flex-shrink: 0; }
-.address-input-wrapper { flex: 1; background: #18181b; border: 1px solid #27272a; border-radius: 6px; display: flex; align-items: center; padding: 0 8px; height: 24px; }
+.address-input-wrapper { 
+  flex: 1; 
+  background: #18181b; 
+  border: 1px solid #27272a; 
+  border-radius: 6px; 
+  display: flex; 
+  align-items: center; 
+  padding: 0 8px; 
+  height: 24px; 
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  animation: breathing-border 3s infinite ease-in-out;
+}
+.address-input-wrapper:focus-within {
+  border-color: #3b82f6;
+  animation: none;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.3);
+}
+@keyframes breathing-border {
+  0% { border-color: #27272a; box-shadow: 0 0 0px rgba(59, 130, 246, 0); }
+  50% { border-color: #3b82f6; box-shadow: 0 0 4px rgba(59, 130, 246, 0.2); }
+  100% { border-color: #27272a; box-shadow: 0 0 0px rgba(59, 130, 246, 0); }
+}
 .secure-icon { font-size: 10px; opacity: 0.5; margin-right: 6px; }
 .address-bar-input { background: transparent; border: none; color: #a1a1aa; font-size: 10px; width: 100%; outline: none; font-family: 'JetBrains Mono', monospace; }
 .refresh-btn { background: transparent; border: none; color: #3b82f6; cursor: pointer; font-size: 12px; padding: 2px 4px; border-radius: 4px; display: flex; align-items: center; justify-content: center; transition: transform 0.2s; }
