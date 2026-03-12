@@ -22,9 +22,7 @@ const showContextMenu = ref(false), menuX = ref(0), menuY = ref(0), contextMenuT
 const terminalTabs = ref<any[]>([]), activeTabId = ref<string | null>(null);
 const backgroundTabs = computed(() => terminalTabs.value.filter(t => t.isBackground)), storageKey = computed(() => `ter_tabs_${host.value.replace(/\s+/g, '_')}`);
 
-// v2.3.11: Fix P0-1 Timer Leak
 let statsIntervalId: any = null;
-
 const showAddServerForm = ref(false);
 const newServer = ref({ label: '', host: '', port: 22, user: 'root', password_enc: '' });
 
@@ -42,10 +40,16 @@ const createNewTab = async (title = "Shell", skipPty = false, existingId?: strin
   const id = existingId || 'tab-' + Math.random().toString(36).substr(2, 9);
   terminalManager.setOnDataCallback(id, (tid, data) => { if (!skipPty && isConnected.value) invoke('write_pty', { tabId: tid, data }); });
   terminalManager.getOrCreate(id);
-  if (!skipPty && isConnected.value) { try { await invoke('spawn_new_pty', { tabId: id }); } catch (e) { backendLogs.value.push(`[ERROR] PTY Fail: ${e}`); } }
+  if (!skipPty && isConnected.value) {
+    try {
+      await invoke('spawn_new_pty', { tabId: id });
+      setTimeout(() => invoke('write_pty', { tabId: id, data: "\r" }), 500);
+    } catch (e) { backendLogs.value.push(`[ERROR] PTY Fail: ${e}`); }
+  }
   if (!existingId) terminalTabs.value.push({ id, title, isBackground: false });
   activeTabId.value = id; return id;
 };
+
 const viewHistory = async (originalTabId: string) => {
   const t = terminalTabs.value.find(x => x.id === originalTabId);
   const playbackId = await createNewTab(`Playback: ${t?.title || originalTabId}`, true);
@@ -54,45 +58,34 @@ const viewHistory = async (originalTabId: string) => {
     for (const chunk of logs) { terminalManager.write(playbackId, new Uint8Array(chunk)); await new Promise(r => setTimeout(r, 20)); }
   } catch (e) { terminalManager.write(playbackId, `\r\n[ERROR] History Fail: ${e}\r\n`); }
 };
+
 const closeTab = (id: string) => { const idx = terminalTabs.value.findIndex(t => t.id === id); if (idx !== -1) { terminalTabs.value.splice(idx, 1); terminalManager.remove(id); if (activeTabId.value === id) activeTabId.value = terminalTabs.value.find(t => !t.isBackground)?.id || null; } };
 const copySelectedText = async () => { const id = contextMenuTabId.value || activeTabId.value; if (id) { const s = terminalManager.getSelection(id); if (s) await navigator.clipboard.writeText(s); } showContextMenu.value = false; };
 const pasteFromClipboard = async () => { const id = contextMenuTabId.value || activeTabId.value; if (id) { try { const t = await navigator.clipboard.readText(); if (t) invoke('write_pty', { tabId: id, data: t }); } catch(e){} } showContextMenu.value = false; };
 const sendToBackground = () => { const tid = contextMenuTabId.value || activeTabId.value; if (tid) { const tab = terminalTabs.value.find(t => t.id === tid); if (tab) { const s = terminalManager.getSelection(tab.id).trim(); tab.isBackground = true; tab.title = s ? `Proc: ${s.substring(0, 20)}...` : `Task: ${tab.id.substr(0, 5)}`; if (activeTabId.value === tid) activeTabId.value = terminalTabs.value.find(t => !t.isBackground)?.id || null; } } showContextMenu.value = false; };
 const bringToForeground = (id: string) => { const t = terminalTabs.value.find(t => t.id === id); if (t) { t.isBackground = false; activeTabId.value = id; } };
 const onTerminalContextMenu = (p: { e: MouseEvent, id: string }) => { contextMenuTabId.value = p.id; calculateMenuPosition(p.e); const s = terminalManager.getSelection(p.id); hasErrorSelection.value = s.toLowerCase().includes('error') || s.toLowerCase().includes('exception') || s.includes('\x1b[31m'); showContextMenu.value = true; };
-const connectWithId = async (id: string) => { if (isConnecting.value) return; isConnecting.value = true; connectionStatus.value = 'busy'; const s = savedServers.value.find(s => s.id === id); if (s) host.value = s.label || s.host; invoke('connect_with_id', { id }).then(async () => { isConnecting.value = false; connectionStatus.value = 'connected'; await onConnected(); }).catch(e => { isConnecting.value = false; connectionStatus.value = 'disconnected'; alert("Fail: " + e); }); };
+
+const connectWithId = async (id: string) => { if (isConnecting.value) return; isConnecting.value = true; connectionStatus.value = 'busy'; const s = savedServers.value.find(s => s.id === id); if (s) host.value = s.label || s.host; invoke('connect_with_id', { id }).then(async () => { isConnecting.value = false; await onConnected(); }).catch(e => { isConnecting.value = false; connectionStatus.value = 'disconnected'; alert("Fail: " + e); }); };
+
 const onConnected = async () => {
-  isConnected.value = true; agentToken.value = await invoke('get_agent_token');
+  isConnected.value = true; connectionStatus.value = 'connected';
+  try { agentToken.value = await invoke('get_agent_token'); } catch(e){}
   const saved = localStorage.getItem(storageKey.value);
-  if (saved) { try { const ts = JSON.parse(saved); terminalTabs.value = ts; for (const t of ts) await createNewTab(t.title, false, t.id); activeTabId.value = ts.find((t: any) => !t.isBackground)?.id || ts[0]?.id; } catch (e) { await createNewTab("Main Shell"); } } else { await createNewTab("Main Shell"); }
-  if (unlistenPty) unlistenPty();
-  unlistenPty = await listen<any>('pty-data', (ev) => {
-    const { id, data } = ev.payload; const bytes = new Uint8Array(data); const text = new TextDecoder().decode(bytes);
-    if (connectionStatus.value === 'connected') { connectionStatus.value = 'busy'; setTimeout(() => { if (isConnected.value) connectionStatus.value = 'connected'; }, 200); }
-    if (isAutoPilot.value && id === activeTabId.value) {
-      const pt = text.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, ''); const now = Date.now();
-      const actionMatch = pt.match(/\[TER_ACTION:\s*(click|type)\((\d+)(?:,\s*"(.*?)")?\)\]/);
-      if (actionMatch) {
-        const action = actionMatch[1], eid = actionMatch[2], txt = actionMatch[3] || "";
-        const code = action === 'click' ? `window.TerAgent.click(${eid})` : `window.TerAgent.type(${eid}, ${JSON.stringify(txt)})`;
-        invoke('eval_cyber_webview', { code }); return;
-      }
-      if (!pt.includes('tab-') && (now - lastAutoPilotTime.value) > 500) {
-        const lm = pt.match(/http:\/\/localhost:(\d+)/); if (lm && lm[1]) refreshWebview(`http://localhost:${lm[1]}`);
-        if (activeTriggers.value.some(t => pt.includes(t))) { lastAutoPilotTime.value = now; setTimeout(() => { invoke('write_pty', { tabId: id, data: "\r" }); }, 300); }
-      }
-    }
-    terminalManager.write(id, bytes);
-  });
-  const ps: any = await invoke('get_active_ports'); if (ps.agent) currentAgentPort.value = ps.agent;
-  
-  // v2.3.11: P0-1 Clear existing interval before starting new one
+  if (saved) {
+    try {
+      const ts = JSON.parse(saved); terminalTabs.value = ts;
+      for (const t of ts) await createNewTab(t.title, false, t.id);
+      activeTabId.value = ts.find((t: any) => !t.isBackground)?.id || ts[0]?.id;
+    } catch (e) { await createNewTab("Main Shell", false, "tab-1"); }
+  } else if (terminalTabs.value.length === 0) { await createNewTab("Main Shell", false, "tab-1"); }
   if (statsIntervalId) clearInterval(statsIntervalId);
-  setTimeout(() => { 
-    refreshExplorer(); invoke('load_remote_skills').then((s: any) => skills.value = s); 
-    nextTick(() => { initCharts(); statsIntervalId = setInterval(fetchStats, 3000); }); 
+  setTimeout(() => {
+    refreshExplorer(); invoke('load_remote_skills').then((s: any) => skills.value = s).catch(()=>{});
+    nextTick(() => { initCharts(); statsIntervalId = setInterval(fetchStats, 3000); });
   }, 1000);
 };
+
 const refreshExplorer = async () => { if (isConnected.value) realFiles.value = await invoke('ls_remote', { path: currentPath.value }); };
 const changeDir = (p: string) => {
   if (p === '..') { const pts = currentPath.value.split('/').filter(x => x); pts.pop(); currentPath.value = '/' + pts.join('/'); } else { currentPath.value = (currentPath.value === '/' ? '' : currentPath.value) + '/' + p; }
@@ -106,7 +99,6 @@ const refreshWebview = async (fUrl?: string) => {
 const handleExtractDOM = async () => { backendLogs.value.push(`[INFO] Extracting DOM...`); await invoke('extract_cyber_dom'); };
 const onDomExtracted = async (md: string) => { if (activeTabId.value) { await invoke('write_pty', { tabId: activeTabId.value, data: `\x1b[200~${md}\x1b[201~\r` }); backendLogs.value.push(`[INFO] Snapshot injected.`); } };
 
-// v2.3.7 Refactored Morse System
 const possibleLetters = computed(() => {
   if (!morseSequence.value) return "";
   const candidates = Object.entries(morseMap).filter(([code]) => code.startsWith(morseSequence.value)).slice(0, 5).map(([code, char]) => `${char}(${code})`);
@@ -144,7 +136,16 @@ const cpuChartRef = ref<HTMLElement | null>(null), memChartRef = ref<HTMLElement
 let cpuChart: any, memChart: any; const cpuHistory = ref<number[]>([]), memHistory = ref<number[]>([]);
 const currentCpuUsage = computed(() => cpuHistory.value.length > 0 ? cpuHistory.value[cpuHistory.value.length - 1] : 0);
 const initCharts = () => { if (cpuChartRef.value) cpuChart = echarts.init(cpuChartRef.value); if (memChartRef.value) memChart = echarts.init(memChartRef.value); };
-const fetchStats = async () => { if (!currentAgentPort.value) return; try { const r = await fetch(`http://localhost:${currentAgentPort.value}/stats`, { headers: { 'X-Ter-Token': agentToken.value } }); const d = await r.json(); cpuHistory.value.push(d.cpu_usage); memHistory.value.push((d.mem_used / d.mem_total) * 100); if (cpuHistory.value.length > 30) { cpuHistory.value.shift(); memHistory.value.shift(); } cpuChart?.setOption(getChartOpt(cpuHistory.value, '#6366f1')); memChart?.setOption(getChartOpt(memHistory.value, '#a855f7')); } catch (e) {} };
+const fetchStats = async () => {
+  if (!currentAgentPort.value) return;
+  try {
+    const r = await fetch(`http://localhost:${currentAgentPort.value}/stats`, { headers: { 'X-Ter-Token': agentToken.value } });
+    const d = await r.json();
+    cpuHistory.value.push(d.cpu_usage); memHistory.value.push((d.mem_used / d.mem_total) * 100);
+    if (cpuHistory.value.length > 30) { cpuHistory.value.shift(); memHistory.value.shift(); }
+    cpuChart?.setOption(getChartOpt(cpuHistory.value, '#6366f1')); memChart?.setOption(getChartOpt(memHistory.value, '#a855f7'));
+  } catch (e) {}
+};
 const getChartOpt = (d: any[], c: string) => ({ grid: { top: 5, bottom: 0, left: 0, right: 0 }, xAxis: { type: 'category', show: false }, yAxis: { type: 'value', min: 0, max: 100, show: false }, series: [{ data: d, type: 'line', smooth: true, areaStyle: { color: c }, itemStyle: { color: c }, showSymbol: false }], animation: false });
 const masterPasswordStr = ref('');
 const setMasterPass = async () => { await invoke('set_master_password', { password: masterPasswordStr.value }); isMasterPasswordSet.value = true; loadServers(); };
@@ -160,16 +161,33 @@ onMounted(async () => {
   const st = localStorage.getItem('ter_active_triggers'); if (st) try { activeTriggers.value = JSON.parse(st); } catch(e){}
   const sm = localStorage.getItem('ter_macros'); if (sm) try { activeMacros.value = JSON.parse(sm); } catch(e){}
   unlistenLog = await listen<string>('backend-log', (e) => { backendLogs.value.push(e.payload); if (backendLogs.value.length > 500) backendLogs.value.shift(); });
+  
+  if (unlistenPty) unlistenPty();
+  unlistenPty = await listen<any>('pty-data', (ev) => {
+    const { id, data } = ev.payload; const bytes = new Uint8Array(data);
+    if (terminalManager) terminalManager.write(id, bytes);
+    if (connectionStatus.value === 'connected') { connectionStatus.value = 'busy'; setTimeout(() => { if (isConnected.value) connectionStatus.value = 'connected'; }, 200); }
+    if (isAutoPilot.value && id === activeTabId.value) {
+      const text = new TextDecoder().decode(bytes);
+      const pt = text.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
+      const actionMatch = pt.match(/\[TER_ACTION:\s*(click|type)\((\d+)(?:,\s*"(.*?)")?\)\]/);
+      if (actionMatch) {
+        const action = actionMatch[1], eid = actionMatch[2], txt = actionMatch[3] || "";
+        const code = action === 'click' ? `window.TerAgent.click(${eid})` : `window.TerAgent.type(${eid}, ${JSON.stringify(txt)})`;
+        invoke('eval_cyber_webview', { code });
+      } else if (!pt.includes('tab-') && (Date.now() - lastAutoPilotTime.value) > 500) {
+        const lm = pt.match(/http:\/\/localhost:(\d+)/); if (lm && lm[1]) refreshWebview(`http://localhost:${lm[1]}`);
+        if (activeTriggers.value.some(t => pt.includes(t))) { lastAutoPilotTime.value = Date.now(); setTimeout(() => { invoke('write_pty', { tabId: id, data: "\r" }); }, 300); }
+      }
+    }
+  });
 });
 
-// v2.3.11: Fix P1-2 Event Leak
 onUnmounted(() => {
   window.removeEventListener('contextmenu', preventDefaultContextMenu);
   window.removeEventListener('keydown', handleGlobalKeyDown);
-  if (unlistenLog) unlistenLog();
-  if (unlistenPty) unlistenPty();
-  if (statsIntervalId) clearInterval(statsIntervalId);
-  if (morseTimer.value) clearTimeout(morseTimer.value);
+  if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty();
+  if (statsIntervalId) clearInterval(statsIntervalId); if (morseTimer.value) clearTimeout(morseTimer.value);
 });
 </script>
 
