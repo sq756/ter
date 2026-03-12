@@ -14,7 +14,7 @@ const isConnected = ref(false), isConnecting = ref(false), isMasterPasswordSet =
 const isAutoPilot = ref(false), lastAutoPilotTime = ref(0), connectionStatus = ref<'connected' | 'busy' | 'disconnected'>('disconnected');
 const activeTriggers = ref<string[]>(['Allow execution of:', '1. Allow once']);
 const showSettings = ref(false), activeMacros = ref<{name: string, cmd: string}[]>([]);
-const morseSequence = ref(''), morseText = ref(''), morseDownTime = ref(0), showMorseMacro = ref(false), morseTimer = ref<any>(null);
+const morseSequence = ref(''), morseText = ref(''), morseDownTime = ref(0), showMorseMacro = ref(false), morseTimer = ref<any>(null), isMorsePressed = ref(false);
 const morseMap: Record<string, string> = { '.-': 'A', '-...': 'B', '-.-.': 'C', '-..': 'D', '.': 'E', '..-.': 'F', '--.': 'G', '....': 'H', '..': 'I', '.---': 'J', '-.-': 'K', '.-..': 'L', '--': 'M', '-.': 'N', '---': 'O', '.--.': 'P', '--.-': 'Q', '.-.': 'R', '...': 'S', '-': 'T', '..-': 'U', '...-': 'V', '.--': 'W', '-..-': 'X', '-.--': 'Y', '--..': 'Z', '-----': '0', '.----': '1', '..---': '2', '...--': '3', '....-': '4', '.....': '5', '-....': '6', '--...': '7', '---..': '8', '----.': '9' };
 const isLocked = ref(false), cyberMode = ref(0), agentToken = ref(''), currentAgentPort = ref<number | null>(null), previewUrl = ref('http://localhost:5173'), isWebviewLoading = ref(false);
 const backendLogs = ref<string[]>([]), savedServers = ref<any[]>([]), host = ref('Remote Server'), currentPath = ref('/'), realFiles = ref<any[]>([]), skills = ref<any[]>([]);
@@ -24,6 +24,13 @@ const backgroundTabs = computed(() => terminalTabs.value.filter(t => t.isBackgro
 
 watch(terminalTabs, (val) => { if (isConnected.value) localStorage.setItem(storageKey.value, JSON.stringify(val)); }, { deep: true });
 watch(activeTriggers, (val) => { localStorage.setItem('ter_active_triggers', JSON.stringify(val)); }, { deep: true });
+
+const calculateMenuPosition = (e: MouseEvent, estimatedHeight = 250, estimatedWidth = 160) => {
+  let x = e.clientX, y = e.clientY;
+  if (y + estimatedHeight > window.innerHeight) y = window.innerHeight - estimatedHeight - 10;
+  if (x + estimatedWidth > window.innerWidth) x = window.innerWidth - estimatedWidth - 10;
+  menuX.value = x; menuY.value = y;
+};
 
 const createNewTab = async (title = "Shell", skipPty = false, existingId?: string) => {
   const id = existingId || 'tab-' + Math.random().toString(36).substr(2, 9);
@@ -46,7 +53,7 @@ const copySelectedText = async () => { const id = contextMenuTabId.value || acti
 const pasteFromClipboard = async () => { const id = contextMenuTabId.value || activeTabId.value; if (id) { try { const t = await navigator.clipboard.readText(); if (t) invoke('write_pty', { tabId: id, data: t }); } catch(e){} } showContextMenu.value = false; };
 const sendToBackground = () => { const tid = contextMenuTabId.value || activeTabId.value; if (tid) { const tab = terminalTabs.value.find(t => t.id === tid); if (tab) { const s = terminalManager.getSelection(tab.id).trim(); tab.isBackground = true; tab.title = s ? `Proc: ${s.substring(0, 20)}...` : `Task: ${tab.id.substr(0, 5)}`; if (activeTabId.value === tid) activeTabId.value = terminalTabs.value.find(t => !t.isBackground)?.id || null; } } showContextMenu.value = false; };
 const bringToForeground = (id: string) => { const t = terminalTabs.value.find(t => t.id === id); if (t) { t.isBackground = false; activeTabId.value = id; } };
-const onTerminalContextMenu = (p: { e: MouseEvent, id: string }) => { contextMenuTabId.value = p.id; menuX.value = p.e.clientX; menuY.value = p.e.clientY; const s = terminalManager.getSelection(p.id); hasErrorSelection.value = s.toLowerCase().includes('error') || s.toLowerCase().includes('exception') || s.includes('\x1b[31m'); showContextMenu.value = true; };
+const onTerminalContextMenu = (p: { e: MouseEvent, id: string }) => { contextMenuTabId.value = p.id; calculateMenuPosition(p.e); const s = terminalManager.getSelection(p.id); hasErrorSelection.value = s.toLowerCase().includes('error') || s.toLowerCase().includes('exception') || s.includes('\x1b[31m'); showContextMenu.value = true; };
 const connectWithId = async (id: string) => { if (isConnecting.value) return; isConnecting.value = true; connectionStatus.value = 'busy'; const s = savedServers.value.find(s => s.id === id); if (s) host.value = s.label || s.host; invoke('connect_with_id', { id }).then(async () => { isConnecting.value = false; connectionStatus.value = 'connected'; await onConnected(); }).catch(e => { isConnecting.value = false; connectionStatus.value = 'disconnected'; alert("Fail: " + e); }); };
 const onConnected = async () => {
   isConnected.value = true; agentToken.value = await invoke('get_agent_token');
@@ -58,16 +65,8 @@ const onConnected = async () => {
     if (connectionStatus.value === 'connected') { connectionStatus.value = 'busy'; setTimeout(() => { if (isConnected.value) connectionStatus.value = 'connected'; }, 200); }
     if (isAutoPilot.value && id === activeTabId.value) {
       const pt = text.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, ''); const now = Date.now();
-      
-      // v2.3.2: Intercept AI Actions
       const actionMatch = pt.match(/\[TER_ACTION:\s*click\((\d+)\)\]/);
-      if (actionMatch && actionMatch[1]) {
-        const elementId = actionMatch[1];
-        console.log(`[Auto-Pilot] AI requested click on #${elementId}`);
-        invoke('eval_cyber_webview', { code: `window.TerAgent.click(${elementId})` });
-        return; // BLOCK ECHO: Prevent the action command from appearing in terminal
-      }
-
+      if (actionMatch && actionMatch[1]) { invoke('eval_cyber_webview', { code: `window.TerAgent.click(${actionMatch[1]})` }); return; }
       if (!pt.includes('tab-') && (now - lastAutoPilotTime.value) > 500) {
         const lm = pt.match(/http:\/\/localhost:(\d+)/); if (lm && lm[1]) refreshWebview(`http://localhost:${lm[1]}`);
         if (activeTriggers.value.some(t => pt.includes(t))) { lastAutoPilotTime.value = now; setTimeout(() => { invoke('write_pty', { tabId: id, data: "\r" }); }, 300); }
@@ -90,12 +89,12 @@ const refreshWebview = async (fUrl?: string) => {
 };
 const handleExtractDOM = async () => { backendLogs.value.push(`[INFO] Extracting DOM...`); await invoke('extract_cyber_dom'); };
 const onDomExtracted = async (md: string) => { if (activeTabId.value) { await invoke('write_pty', { tabId: activeTabId.value, data: `\x1b[200~${md}\x1b[201~\r` }); backendLogs.value.push(`[INFO] Snapshot injected.`); } };
-const onMorseDown = () => { morseDownTime.value = Date.now(); if (morseTimer.value) clearTimeout(morseTimer.value); };
+const onMorseDown = () => { isMorsePressed.value = true; morseDownTime.value = Date.now(); if (morseTimer.value) clearTimeout(morseTimer.value); };
 const onMorseUp = () => {
-  const d = Date.now() - morseDownTime.value; morseSequence.value += (d < 250) ? '.' : '-';
+  isMorsePressed.value = false; const d = Date.now() - morseDownTime.value; morseSequence.value += (d < 250) ? '.' : '-';
   morseTimer.value = setTimeout(async () => { const c = morseMap[morseSequence.value]; if (c && activeTabId.value) { morseText.value += c; await invoke('write_pty', { tabId: activeTabId.value, data: c }); } morseSequence.value = ''; setTimeout(() => { morseText.value = ''; }, 2000); }, 1000);
 };
-const onMorseMacro = (e: MouseEvent) => { menuX.value = e.clientX; menuY.value = e.clientY; showMorseMacro.value = true; };
+const onMorseMacro = (e: MouseEvent) => { calculateMenuPosition(e, 200); showMorseMacro.value = true; };
 const runMacro = async (c: string) => { if (activeTabId.value) await invoke('write_pty', { tabId: activeTabId.value, data: c + '\n' }); showMorseMacro.value = false; };
 const renameTabAction = () => { const id = contextMenuTabId.value; if (id) { const n = prompt("New name:"); if (n) { const t = terminalTabs.value.find(x => x.id === id); if (t) t.title = n; } } showContextMenu.value = false; };
 const copyTabIdAction = async () => { if (contextMenuTabId.value) await navigator.clipboard.writeText(contextMenuTabId.value); showContextMenu.value = false; };
@@ -135,6 +134,7 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
       <SettingsPanel :isOpen="showSettings" @close="showSettings = false" @update-macros="(m) => activeMacros = m" />
       <SidebarPanel :files="realFiles" :currentPath="currentPath" :bgTabs="backgroundTabs" :skills="skills" :cpuChartRef="(el: any) => cpuChartRef = el" :memChartRef="(el: any) => memChartRef = el" v-model:isAutoPilot="isAutoPilot" @switch-tab="bringToForeground" @switch-mode="(mode: number) => cyberMode = mode" @view-history="viewHistory" @proc-context="(p: any) => onTerminalContextMenu({e: p.event, id: p.tab.id})" @run-skill="runSkill" @change-dir="changeDir" @open-trigger-settings="showSettings = true" @fast-access="onFastAccess" @morse-down="onMorseDown" @morse-up="onMorseUp" @morse-context="onMorseMacro" />
       <main class="workspace" ref="workspaceRef" @click="activeTabId && terminalManager.focus(activeTabId)">
+        <!-- Context Menus with dynamic positioning -->
         <div v-if="showContextMenu" class="context-menu" :style="{ top: menuY + 'px', left: menuX + 'px' }">
           <header class="menu-header">TERMINAL ACTIONS</header>
           <div v-if="hasErrorSelection" class="menu-item highlight" @click="diagnoseSelection">🤖 Diagnose Error</div>
@@ -166,7 +166,17 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
             </div>
           </section>
         </div>
-        <footer class="status-bar"><div class="status-left"><span class="item">🟢 {{ host }}</span><span class="item separator">|</span><span class="item">Agent: {{ currentAgentPort ? 'Active' : 'Offline' }}</span></div><div class="status-right"><button class="status-btn" @click="captureAndUpload">📸 Audit</button><button class="status-btn" @click="cyberMode = cyberMode === 1 ? 0 : 1">{{ cyberMode === 1 ? '🖥️' : '🌐' }}</button><div class="status-toggle"><span>Auto</span><label class="mini-switch"><input type="checkbox" v-model="isAutoPilot" /><span class="slider"></span></label></div></div></footer>
+        <footer class="status-bar">
+          <div class="status-left stealth-zone" @mousedown="onMorseDown" @mouseup="onMorseUp" @contextmenu.prevent="onMorseMacro">
+            <div class="tiny-dot" :class="{ 'active': isMorsePressed }"></div>
+            <span class="item">1 | Agent: Active</span>
+          </div>
+          <div class="status-right">
+            <button class="status-btn" @click="captureAndUpload">📸 Audit</button>
+            <button class="status-btn" @click="cyberMode = cyberMode === 1 ? 0 : 1">{{ cyberMode === 1 ? '🖥️' : '🌐' }}</button>
+            <div class="status-toggle"><span>Auto</span><label class="mini-switch"><input type="checkbox" v-model="isAutoPilot" /><span class="slider"></span></label></div>
+          </div>
+        </footer>
       </main>
     </div>
     <MatrixScreen :isLocked="isLocked" :logs="backendLogs" :cpuUsage="currentCpuUsage ?? 0" @unlock="isLocked = false" />
@@ -178,14 +188,18 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
 .main-view { display: flex; height: 100%; width: 100%; }
 .workspace { flex: 1; display: flex; flex-direction: column; background: #09090b; overflow: hidden; min-width: 0; }
 .tool-bar { height: 36px; background: #09090b; border-bottom: 1px solid #27272a; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; }
-.status-bar { height: 24px; background: #18181b; border-top: 1px solid #27272a; color: #71717a; display: flex; justify-content: space-between; align-items: center; padding: 0 10px; font-size: 11px; z-index: 100; flex-shrink: 0; }
+.status-bar { height: 24px; background: #09090b; border-top: 1px solid #18181b; color: #52525b; display: flex; justify-content: space-between; align-items: center; padding: 0 10px; font-size: 10px; z-index: 100; flex-shrink: 0; }
 .status-left, .status-right { display: flex; align-items: center; gap: 15px; }
-.status-btn { background: transparent; border: none; color: #a1a1aa; cursor: pointer; font-size: 11px; padding: 2px 6px; border-radius: 4px; transition: all 0.2s; }
-.status-btn:hover { background: rgba(255, 255, 255, 0.08); color: #fff; }
-.status-toggle { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #71717a; }
+.stealth-zone { display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 0 4px; height: 100%; transition: opacity 0.2s; }
+.stealth-zone:hover { opacity: 0.8; }
+.tiny-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; transition: all 0.1s; }
+.tiny-dot.active { transform: scale(1.1); box-shadow: 0 0 8px #22c55e; filter: brightness(1.5); }
+.status-btn { background: transparent; border: none; color: #52525b; cursor: pointer; font-size: 10px; padding: 2px 6px; border-radius: 4px; transition: all 0.2s; }
+.status-btn:hover { color: #fff; }
+.status-toggle { display: flex; align-items: center; gap: 8px; font-size: 10px; color: #52525b; }
 .mini-switch { position: relative; display: inline-block; width: 24px; height: 12px; }
 .mini-switch input { opacity: 0; width: 0; height: 0; }
-.slider { position: absolute; cursor: pointer; inset: 0; background-color: #3f3f46; transition: .4s; border-radius: 12px; }
+.slider { position: absolute; cursor: pointer; inset: 0; background-color: #27272a; transition: .4s; border-radius: 12px; }
 .slider:before { position: absolute; content: ""; height: 8px; width: 8px; left: 2px; bottom: 2px; background-color: white; transition: .4s; border-radius: 50%; }
 input:checked + .slider { background-color: #3b82f6; }
 input:checked + .slider:before { transform: translateX(12px); }
@@ -210,13 +224,13 @@ input:checked + .slider:before { transform: translateX(12px); }
 @keyframes spinning { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 .extract-btn { background: rgba(168, 85, 247, 0.15); border: 1px solid rgba(168, 85, 247, 0.4); color: #a855f7; font-size: 10px; padding: 2px 8px; border-radius: 4px; cursor: pointer; }
 .extract-btn:hover { background: rgba(168, 85, 247, 0.3); box-shadow: 0 0 10px rgba(168, 85, 247, 0.4); }
-.context-menu { position: fixed; z-index: 100000; background: #18181b; border: 1px solid #3f3f46; border-radius: 6px; padding: 4px; min-width: 150px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+.context-menu { position: fixed; z-index: 1000000; background: #18181b; border: 1px solid #3f3f46; border-radius: 6px; padding: 4px; min-width: 150px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
 .menu-header { padding: 6px 12px; font-size: 9px; color: #52525b; border-bottom: 1px solid #27272a; }
 .menu-item { padding: 8px 12px; font-size: 11px; color: #d4d4d8; cursor: pointer; border-radius: 4px; }
 .menu-item:hover { background: #3b82f6; color: #fff; }
 .menu-item.danger { color: #ef4444; }
 .menu-item.danger:hover { background: #ef4444; color: #fff; }
-.morse-preview-overlay { position: absolute; bottom: 80px; left: 280px; background: rgba(0, 0, 0, 0.8); border: 1px solid #22c55e; padding: 10px 20px; border-radius: 8px; z-index: 1000; display: flex; flex-direction: column; align-items: center; pointer-events: none; }
+.morse-preview-overlay { position: absolute; bottom: 40px; left: 10px; background: rgba(0, 0, 0, 0.8); border: 1px solid #22c55e; padding: 10px 20px; border-radius: 8px; z-index: 1000; display: flex; flex-direction: column; align-items: center; pointer-events: none; }
 .morse-preview-overlay .sequence { font-size: 24px; color: #22c55e; letter-spacing: 4px; }
 .modal-overlay { position: fixed; inset: 0; background: rgba(9, 9, 11, 0.9); display: flex; align-items: center; justify-content: center; z-index: 10000; backdrop-filter: blur(4px); }
 .auth-card { background: #18181b; padding: 30px; border-radius: 12px; border: 1px solid #27272a; width: 320px; }
