@@ -15,9 +15,6 @@ use std::sync::OnceLock;
 
 static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-struct Skill { name: String, description: String }
-
 const AGENT_SCRIPT: &str = r####"
 (function() {
   window.TerAgent = {
