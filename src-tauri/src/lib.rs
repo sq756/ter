@@ -236,8 +236,35 @@ async fn write_pty(tab_id: String, data: String, state: State<'_, AppState>) -> 
 async fn resize_pty(tab_id: String, cols: u32, rows: u32, state: State<'_, AppState>) -> Result<(), String> { if let Some(tx) = state.ctrl_channels.get(&tab_id) { let _ = tx.send(PtyControl::Resize(cols, rows)).await; } Ok(()) }
 #[tauri::command]
 async fn get_agent_token(state: State<'_, AppState>) -> Result<String, String> { Ok(state.agent_token.lock().await.clone()) }
+use russh_sftp::client::SftpSession;
+
 #[tauri::command]
-async fn ls_remote(_: String, _: State<'_, AppState>) -> Result<Vec<RemoteFile>, String> { Ok(Vec::new()) }
+async fn ls_remote(path: String, state: State<'_, AppState>) -> Result<Vec<RemoteFile>, String> {
+    let session_guard = state.session.lock().await;
+    let session = session_guard.as_ref().ok_or("No active SSH session")?;
+
+    let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
+    channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
+    let sftp = SftpSession::new(channel.into_stream()).await.map_err(|e| e.to_string())?;
+
+    let entries = sftp.read_dir(&path).await.map_err(|e| e.to_string())?;
+    let mut files = Vec::new();
+    for entry in entries {
+        let name = entry.file_name();
+        // skip . and ..
+        if name == "." || name == ".." {
+            continue;
+        }
+        let is_dir = entry.file_type().unwrap_or(std::fs::FileType::from(0)).is_dir();
+        let size = entry.metadata().len;
+        files.push(RemoteFile {
+            name: name.to_string(),
+            is_dir,
+            size,
+        });
+    }
+    Ok(files)
+}
 #[tauri::command]
 async fn open_dynamic_tunnel(_: u16, _: AppHandle, _: State<'_, AppState>) -> Result<u16, String> { Ok(0) }
 #[tauri::command]
