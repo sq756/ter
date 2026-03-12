@@ -180,6 +180,14 @@ async fn load_remote_skills(_: State<'_, AppState>) -> Result<Vec<Skill>, String
 struct RemoteFile { name: String, is_dir: bool, size: u64 }
 
 #[tauri::command]
+async fn eval_cyber_webview(code: String, app_handle: AppHandle) -> Result<(), String> {
+    if let Some(wv) = app_handle.get_webview("cyber-native-view") {
+        wv.eval(&code).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 async fn connect_with_id(id: String, app_handle: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let db = get_db(&state).await?;
     let config = db.list_servers().await.map_err(|e| e.to_string())?.into_iter().find(|c| c.id == id).ok_or("Not found")?;
@@ -216,7 +224,7 @@ pub fn run() {
             set_master_password, list_server_configs, delete_server_config, connect_with_id,
             spawn_new_pty, write_pty, close_pty, resize_pty, get_terminal_logs, get_active_ports,
             get_agent_token, open_dynamic_tunnel, ls_remote, load_remote_skills, ai_audit_ui,
-            navigate_cyber_webview, reload_cyber_webview, extract_cyber_dom
+            navigate_cyber_webview, reload_cyber_webview, extract_cyber_dom, eval_cyber_webview
         ])
         .run(tauri::generate_context!())
         .expect("error");

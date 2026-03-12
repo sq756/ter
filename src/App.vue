@@ -58,6 +58,16 @@ const onConnected = async () => {
     if (connectionStatus.value === 'connected') { connectionStatus.value = 'busy'; setTimeout(() => { if (isConnected.value) connectionStatus.value = 'connected'; }, 200); }
     if (isAutoPilot.value && id === activeTabId.value) {
       const pt = text.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, ''); const now = Date.now();
+      
+      // v2.3.2: Intercept AI Actions
+      const actionMatch = pt.match(/\[TER_ACTION:\s*click\((\d+)\)\]/);
+      if (actionMatch && actionMatch[1]) {
+        const elementId = actionMatch[1];
+        console.log(`[Auto-Pilot] AI requested click on #${elementId}`);
+        invoke('eval_cyber_webview', { code: `window.TerAgent.click(${elementId})` });
+        return; // BLOCK ECHO: Prevent the action command from appearing in terminal
+      }
+
       if (!pt.includes('tab-') && (now - lastAutoPilotTime.value) > 500) {
         const lm = pt.match(/http:\/\/localhost:(\d+)/); if (lm && lm[1]) refreshWebview(`http://localhost:${lm[1]}`);
         if (activeTriggers.value.some(t => pt.includes(t))) { lastAutoPilotTime.value = now; setTimeout(() => { invoke('write_pty', { tabId: id, data: "\r" }); }, 300); }
