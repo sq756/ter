@@ -5,9 +5,10 @@ import { terminalManager } from '../TerminalManager';
 const props = defineProps<{
   tabs: any[];
   activeTabId: string | null;
+  connectionStatus: 'connected' | 'busy' | 'disconnected';
 }>();
 
-defineEmits(['switch-tab', 'close-tab', 'new-tab', 'terminal-context']);
+defineEmits(['switch-tab', 'close-tab', 'new-tab', 'terminal-context', 'rename-tab', 'pin-tab', 'copy-tab-id']);
 
 const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
 </script>
@@ -16,15 +17,23 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
   <div class="terminal-workspace">
     <!-- Multi-Terminal Tab Bar -->
     <nav class="tab-bar">
+      <!-- Status Indicator -->
+      <div class="status-indicator-zone">
+        <div class="status-dot" :class="connectionStatus"></div>
+      </div>
+
       <div v-for="t in getVisibleTabs()" 
            :key="t.id" 
            class="tab-item" 
            :class="{ 'active': t.id === activeTabId }" 
-           @click="$emit('switch-tab', t.id)">
+           @click="$emit('switch-tab', t.id)"
+           @contextmenu.prevent="$emit('terminal-context', { e: $event, id: t.id })">
+        <span class="tab-icon">🐚</span>
         <span class="title">{{ t.title }}</span>
         <button class="btn-close" @click.stop="$emit('close-tab', t.id)">×</button>
+        <div class="active-bar" v-if="t.id === activeTabId"></div>
       </div>
-      <button class="btn-new-tab" @click="$emit('new-tab')">+</button>
+      <button class="btn-new-tab" @click="$emit('new-tab')" title="New Terminal (Ctrl+T)">+</button>
     </nav>
 
     <div class="workspace-body">
@@ -33,8 +42,7 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
         <div v-for="t in tabs" :key="t.id" 
              class="terminal-wrapper"
              v-show="t.id === activeTabId"
-             @click="terminalManager.focus(t.id)"
-             @contextmenu.prevent="$emit('terminal-context', { e: $event, id: t.id })">
+             @click="terminalManager.focus(t.id)">
           <TerminalView :id="t.id" :active="t.id === activeTabId" />
         </div>
       </section>
@@ -49,17 +57,137 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
   flex-direction: column; 
   height: 100%; 
   overflow: hidden; 
-  background: #000; 
+  background: #09090b; 
   position: relative; 
 }
 
-.tab-bar { background: #09090b; border-bottom: 1px solid #27272a; display: flex; align-items: center; padding: 0 10px; height: 32px; flex-shrink: 0; z-index: 10; }
-.tab-item { padding: 0 15px; height: 100%; display: flex; align-items: center; font-size: 11px; color: #71717a; border-right: 1px solid #27272a; cursor: pointer; position: relative; min-width: 80px; transition: all 0.2s; }
-.tab-item.active { background: #18181b; color: #3b82f6; border-top: 2px solid #3b82f6; }
-.tab-item:hover:not(.active) { background: rgba(255, 255, 255, 0.04); color: #a1a1aa; }
-.tab-item .btn-close { margin-left: 10px; background: transparent; border: none; color: #444; cursor: pointer; visibility: hidden; font-size: 14px; }
-.tab-item:hover .btn-close { visibility: visible; }
-.btn-new-tab { background: transparent; border: none; color: #52525b; padding: 0 10px; cursor: pointer; font-size: 18px; line-height: 1; }
+.tab-bar { 
+  background: #09090b; 
+  border-bottom: 1px solid #27272a; 
+  display: flex; 
+  align-items: center; 
+  padding: 0; 
+  height: 36px; 
+  flex-shrink: 0; 
+  z-index: 10; 
+}
+
+.status-indicator-zone {
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  border-right: 1px solid #27272a;
+  height: 100%;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #52525b;
+  transition: all 0.3s;
+}
+
+.status-dot.connected {
+  background: #3b82f6;
+  box-shadow: 0 0 10px #3b82f6;
+  animation: pulse-blue 2s infinite;
+}
+
+.status-dot.busy {
+  background: #a855f7;
+  box-shadow: 0 0 10px #a855f7;
+  animation: pulse-purple 0.5s infinite;
+}
+
+@keyframes pulse-blue {
+  0% { opacity: 0.6; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.1); }
+  100% { opacity: 0.6; transform: scale(0.9); }
+}
+
+@keyframes pulse-purple {
+  0% { opacity: 0.8; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.2); }
+  100% { opacity: 0.8; transform: scale(1); }
+}
+
+.tab-item { 
+  padding: 0 16px; 
+  height: 100%; 
+  display: flex; 
+  align-items: center; 
+  font-size: 12px; 
+  color: #52525b; 
+  cursor: pointer; 
+  position: relative; 
+  min-width: 120px; 
+  max-width: 200px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); 
+  border-right: 1px solid #18181b;
+}
+
+.tab-icon {
+  margin-right: 8px;
+  font-size: 12px;
+  opacity: 0.5;
+}
+
+.tab-item.active { 
+  color: #fafafa; 
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.tab-item:hover:not(.active) { 
+  background: rgba(255, 255, 255, 0.04); 
+  color: #a1a1aa; 
+}
+
+.active-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: #3b82f6;
+  box-shadow: 0 0 10px #3b82f6;
+}
+
+.tab-item .btn-close { 
+  position: absolute;
+  right: 8px;
+  background: transparent; 
+  border: none; 
+  color: #52525b; 
+  cursor: pointer; 
+  opacity: 0; 
+  font-size: 14px; 
+  transition: opacity 0.2s;
+}
+
+.tab-item:hover .btn-close { 
+  opacity: 1; 
+}
+
+.tab-item .btn-close:hover {
+  color: #ef4444;
+}
+
+.btn-new-tab { 
+  background: transparent; 
+  border: none; 
+  color: #52525b; 
+  padding: 0 12px; 
+  cursor: pointer; 
+  font-size: 18px; 
+  height: 100%;
+  transition: all 0.2s;
+}
+
+.btn-new-tab:hover {
+  color: #fafafa;
+  background: rgba(255, 255, 255, 0.05);
+}
 
 .workspace-body { flex: 1; position: relative; overflow: hidden; display: flex; }
 .terminal-pane { 
@@ -74,9 +202,5 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
   inset: 0;
   width: 100%;
   height: 100%;
-}
-
-.terminal-wrapper[v-show="true"] {
-  border-top: 2px solid #3b82f6;
 }
 </style>

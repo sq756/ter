@@ -11,7 +11,7 @@ const props = defineProps<{
   isAutoPilot: boolean;
 }>();
 
-const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill', 'change-dir', 'view-history', 'open-trigger-settings', 'fast-access']);
+const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill', 'change-dir', 'view-history', 'open-trigger-settings', 'fast-access', 'morse-down', 'morse-up', 'morse-context']);
 
 // v2.2.11: Track last visited directories for FAST ACCESS
 const lastVisited = computed(() => {
@@ -105,6 +105,20 @@ const onFastAccessClick = (path: string) => {
           <span class="file-name">{{ f.name }}</span>
         </li>
       </ul>
+    </div>
+
+    <!-- v2.2.13: Bottom Morse Input System -->
+    <div class="morse-input-system">
+      <div class="morse-dot-wrapper">
+        <div class="morse-glow"></div>
+        <button 
+          class="morse-dot" 
+          @mousedown="$emit('morse-down')" 
+          @mouseup="$emit('morse-up')"
+          @contextmenu.prevent="$emit('morse-context', $event)"
+        ></button>
+      </div>
+      <div class="morse-status">MORSE_MODE</div>
     </div>
   </aside>
 </template>
@@ -240,4 +254,62 @@ const onFastAccessClick = (path: string) => {
 .empty-hint { font-size: 10px; color: #3f3f46; text-align: center; padding: 10px; }
 
 .skills-hub { max-height: 25%; }
+
+.morse-input-system {
+  padding: 20px;
+  border-top: 1px solid #27272a;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  background: linear-gradient(to top, rgba(34, 197, 94, 0.05), transparent);
+}
+
+.morse-dot-wrapper {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.morse-dot {
+  width: 16px;
+  height: 16px;
+  background: #22c55e;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 0 15px #22c55e;
+  transition: all 0.1s;
+  z-index: 2;
+}
+
+.morse-dot:active {
+  transform: scale(1.4);
+  box-shadow: 0 0 25px #22c55e;
+}
+
+.morse-glow {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background: rgba(34, 197, 94, 0.2);
+  border-radius: 50%;
+  filter: blur(10px);
+  animation: breathing 3s infinite ease-in-out;
+}
+
+@keyframes breathing {
+  0%, 100% { transform: scale(0.8); opacity: 0.3; }
+  50% { transform: scale(1.2); opacity: 0.6; }
+}
+
+.morse-status {
+  font-size: 9px;
+  color: #166534;
+  letter-spacing: 0.2em;
+  font-family: 'JetBrains Mono', monospace;
+}
 </style>

@@ -19,9 +19,21 @@ const isConnecting = ref(false);
 const isMasterPasswordSet = ref(false);
 const isAutoPilot = ref(false); 
 const lastAutoPilotTime = ref(0);
+const connectionStatus = ref<'connected' | 'busy' | 'disconnected'>('disconnected');
 const activeTriggers = ref<string[]>(['Allow execution of:', '1. Allow once']);
 const showTriggerConfig = ref(false);
 const newTriggerStr = ref('');
+
+// v2.2.13 Morse Engine State
+const morseSequence = ref('');
+const morseText = ref('');
+const morseDownTime = ref(0);
+const showMorseMacro = ref(false);
+const morseTimer = ref<any>(null);
+
+const morseMap: Record<string, string> = {
+  '.-': 'A', '-...': 'B', '-.-.': 'C', '-..': 'D', '.': 'E', '..-.': 'F', '--.': 'G', '....': 'H', '..': 'I', '.---': 'J', '-.-': 'K', '.-..': 'L', '--': 'M', '-.': 'N', '---': 'O', '.--.': 'P', '--.-': 'Q', '.-.': 'R', '...': 'S', '-': 'T', '..-': 'U', '...-': 'V', '.--': 'W', '-..-': 'X', '-.--': 'Y', '--..': 'Z', '-----': '0', '.----': '1', '..---': '2', '...--': '3', '....-': '4', '.....': '5', '-....': '6', '--...': '7', '---..': '8', '----.': '9'
+};
 
 // Persistence for Triggers
 watch(activeTriggers, (val) => {
@@ -204,6 +216,63 @@ const onTerminalContextMenu = (payload: { e: MouseEvent, id: string }) => {
   showContextMenu.value = true;
 };
 
+const onMorseDown = () => {
+  morseDownTime.value = Date.now();
+  if (morseTimer.value) clearTimeout(morseTimer.value);
+};
+
+const onMorseUp = () => {
+  const duration = Date.now() - morseDownTime.value;
+  morseSequence.value += (duration < 250) ? '.' : '-';
+  
+  // Set 1s timeout to decode
+  morseTimer.value = setTimeout(async () => {
+    const char = morseMap[morseSequence.value];
+    if (char) {
+      morseText.value += char;
+      // Send to active terminal
+      if (activeTabId.value) {
+        await invoke('write_pty', { tabId: activeTabId.value, data: char });
+      }
+    }
+    morseSequence.value = '';
+    // If long pause (2s), clear preview
+    setTimeout(() => { morseText.value = ''; }, 2000);
+  }, 1000);
+};
+
+const onMorseMacro = (e: MouseEvent) => {
+  menuX.value = e.clientX;
+  menuY.value = e.clientY;
+  showMorseMacro.value = true;
+};
+
+const runMacro = async (cmd: string) => {
+  if (activeTabId.value) {
+    await invoke('write_pty', { tabId: activeTabId.value, data: cmd + '\r' });
+  }
+  showMorseMacro.value = false;
+};
+
+const renameTabAction = () => {
+  const id = contextMenuTabId.value;
+  if (!id) return;
+  const newName = prompt("Enter new tab name:");
+  if (newName) {
+    const tab = terminalTabs.value.find(t => t.id === id);
+    if (tab) tab.title = newName;
+  }
+  showContextMenu.value = false;
+};
+
+const copyTabIdAction = async () => {
+  if (contextMenuTabId.value) {
+    await navigator.clipboard.writeText(contextMenuTabId.value);
+    backendLogs.value.push(`[INFO] Copied tab ID: ${contextMenuTabId.value}`);
+  }
+  showContextMenu.value = false;
+};
+
 const diagnoseSelection = async () => {
   const selection = terminalManager.getSelection(contextMenuTabId.value || activeTabId.value || '');
   if (!selection) return;
@@ -227,15 +296,18 @@ const onProcContext = (payload: { event: MouseEvent, tab: any }) => {
 const connectWithId = async (id: string) => { 
   if (isConnecting.value) return; 
   isConnecting.value = true;
+  connectionStatus.value = 'busy';
   const s = savedServers.value.find(s => s.id === id);
   if (s) host.value = s.label || s.host;
   
   invoke('connect_with_id', { id }).then(async () => {
     isConnecting.value = false;
+    connectionStatus.value = 'connected';
     await onConnected();
     backendLogs.value.push('[INFO] 已建立新会话。');
   }).catch(e => {
     isConnecting.value = false;
+    connectionStatus.value = 'disconnected';
     alert("Connection Failed: " + e);
   });
 };
@@ -269,6 +341,12 @@ const onConnected = async () => {
     const { id, data } = event.payload;
     const bytes = new Uint8Array(data);
     const text = new TextDecoder().decode(bytes);
+
+    // v2.2.13: Visual Feedback for activity
+    if (connectionStatus.value === 'connected') {
+      connectionStatus.value = 'busy';
+      setTimeout(() => { if (isConnected.value) connectionStatus.value = 'connected'; }, 200);
+    }
 
     // [Auto-Pilot]: 自动检测并同意 Gemini CLI 的 Action Required 弹窗
     if (isAutoPilot.value && id === activeTabId.value) {
@@ -626,15 +704,38 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
         @change-dir="changeDir"
         @open-trigger-settings="showTriggerConfig = true"
         @fast-access="onFastAccess"
+        @morse-down="onMorseDown"
+        @morse-up="onMorseUp"
+        @morse-context="onMorseMacro"
       />
 
       <main class="workspace" ref="workspaceRef" @click="activeTabId && terminalManager.focus(activeTabId)">
+        <!-- v2.2.13: Global Context Menus -->
         <div v-if="showContextMenu" class="context-menu" :style="{ top: menuY + 'px', left: menuX + 'px' }">
+          <header class="menu-header">TERMINAL ACTIONS</header>
           <div v-if="hasErrorSelection" class="menu-item highlight" @click="diagnoseSelection">🤖 Diagnose Error</div>
+          <div class="menu-item" @click="renameTabAction">✏️ Rename Tab</div>
+          <div class="menu-item" @click="copyTabIdAction">🆔 Copy Tab ID</div>
           <div class="menu-item" @click="sendToBackground">🚀 Background Task</div>
           <div class="menu-divider"></div>
           <div class="menu-item" :class="{ disabled: !contextMenuTabId || !terminalManager.hasSelection(contextMenuTabId) }" @click="copySelectedText">📋 Copy Selection</div>
           <div class="menu-item" @click="pasteFromClipboard">📥 Paste Clipboard</div>
+          <div class="menu-divider"></div>
+          <div class="menu-item danger" @click="closeTab(contextMenuTabId!)">❌ Force Close</div>
+        </div>
+
+        <div v-if="showMorseMacro" class="context-menu" :style="{ top: menuY + 'px', left: menuX + 'px' }" @click="showMorseMacro = false">
+          <header class="menu-header">QUICK MACROS</header>
+          <div class="menu-item" @click="runMacro('sudo su')">🔓 Sudo Su</div>
+          <div class="menu-item" @click="runMacro('exit')">🚪 Exit</div>
+          <div class="menu-item" @click="runMacro('top')">📊 Top</div>
+          <div class="menu-item" @click="runMacro('clear')">🧹 Clear</div>
+        </div>
+
+        <!-- Morse Preview Overlay -->
+        <div v-if="morseSequence || morseText" class="morse-preview-overlay">
+          <div class="sequence">{{ morseSequence }}</div>
+          <div class="text">{{ morseText }}</div>
         </div>
 
         <nav class="tool-bar">
@@ -649,6 +750,7 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
             <TerminalTabs 
               :tabs="terminalTabs" 
               :activeTabId="activeTabId"
+              :connectionStatus="connectionStatus"
               @switch-tab="bringToForeground"
               @close-tab="closeTab"
               @new-tab="createNewTab()"
@@ -809,10 +911,42 @@ input:checked + .slider:before { transform: translateX(12px); }
 @keyframes spinning { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
 .context-menu { position: fixed; z-index: 100000; background: #18181b; border: 1px solid #3f3f46; border-radius: 6px; padding: 4px; min-width: 150px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+.menu-header { padding: 6px 12px; font-size: 9px; color: #52525b; letter-spacing: 0.1em; border-bottom: 1px solid #27272a; margin-bottom: 4px; }
 .menu-item { padding: 8px 12px; font-size: 11px; color: #d4d4d8; cursor: pointer; border-radius: 4px; }
+
+.morse-preview-overlay {
+  position: absolute;
+  bottom: 80px;
+  left: 280px;
+  background: rgba(0, 0, 0, 0.8);
+  border: 1px solid #22c55e;
+  padding: 10px 20px;
+  border-radius: 8px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-shadow: 0 0 20px rgba(34, 197, 94, 0.2);
+  pointer-events: none;
+}
+
+.morse-preview-overlay .sequence {
+  font-size: 24px;
+  color: #22c55e;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 4px;
+}
+
+.morse-preview-overlay .text {
+  font-size: 14px;
+  color: #fafafa;
+  margin-top: 4px;
+}
 .menu-item:hover { background: #3b82f6; color: #fff; }
 .menu-item.highlight { color: #f87171; border-bottom: 1px solid #27272a; margin-bottom: 4px; font-weight: bold; }
 .menu-item.highlight:hover { background: #f87171; color: #fff; }
+.menu-item.danger { color: #ef4444; }
+.menu-item.danger:hover { background: #ef4444; color: #fff; }
 .menu-item.disabled { color: #52525b; cursor: not-allowed; }
 .menu-divider { height: 1px; background: #27272a; margin: 4px 0; }
 .status-chip { font-size: 11px; color: #a1a1aa; display: flex; align-items: center; font-family: 'JetBrains Mono', monospace; }
