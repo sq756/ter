@@ -21,6 +21,11 @@ class TerminalManager {
   constructor() {
     if (TerminalManager.instance) return TerminalManager.instance;
     TerminalManager.instance = this;
+    
+    // Global for debugging
+    if (typeof window !== 'undefined') {
+      (window as any).terminalManager = this;
+    }
   }
 
   public setOnDataCallback(id: string, cb: (id: string, data: string) => void) {
@@ -31,6 +36,7 @@ class TerminalManager {
     const existing = this.instances.get(id);
     if (existing) return existing;
 
+    console.log(`[TerminalManager] Creating terminal instance: ${id}`);
     const term = new Terminal({
       cursorBlink: true,
       fontSize: 14,
@@ -46,7 +52,11 @@ class TerminalManager {
     // Atomic data binding
     term.onData((data) => {
       const cb = this.callbacks.get(id);
-      if (cb) cb(id, data);
+      if (cb) {
+        cb(id, data);
+      } else {
+        console.warn(`[TerminalManager] No data callback for terminal ${id}`);
+      }
     });
 
     const instance: TerminalInstance = { id, term, fit };
@@ -59,22 +69,40 @@ class TerminalManager {
    * Ensures that the terminal is correctly attached and focused.
    */
   public mount(id: string, element: HTMLElement) {
+    console.log(`[TerminalManager] Mounting terminal ${id} to element`, element);
     const instance = this.getOrCreate(id);
+    
     if (instance.term.element) {
-      if (instance.term.element === element) return;
-      // If already mounted elsewhere, xterm handles relocation but we clear old parent
+      if (instance.term.element === element) {
+        console.log(`[TerminalManager] Terminal ${id} already mounted to this element`);
+        return;
+      }
+      console.log(`[TerminalManager] Terminal ${id} relocation from`, instance.term.element);
       if (instance.term.element.parentElement) {
         instance.term.element.parentElement.innerHTML = '';
       }
     }
+    
     element.innerHTML = '';
-    instance.term.open(element);
-    instance.fit.fit();
+    try {
+      instance.term.open(element);
+      // Wait for next frame to ensure DOM is ready for measurement
+      requestAnimationFrame(() => {
+        if (element.offsetWidth > 0) {
+          instance.fit.fit();
+          console.log(`[TerminalManager] Initial fit for ${id}: ${instance.term.cols}x${instance.term.rows}`);
+        } else {
+          console.warn(`[TerminalManager] Element for ${id} has 0 width during mount`);
+        }
+      });
+    } catch (e) {
+      console.error(`[TerminalManager] Failed to open terminal ${id}:`, e);
+    }
   }
 
   public fitAll() {
     this.instances.forEach((instance) => {
-      if (instance.term.element) {
+      if (instance.term.element && instance.term.element.offsetWidth > 0) {
         instance.fit.fit();
       }
     });
@@ -84,6 +112,8 @@ class TerminalManager {
     const instance = this.instances.get(id);
     if (instance) {
       instance.term.focus();
+    } else {
+      console.warn(`[TerminalManager] Cannot focus, instance ${id} not found`);
     }
   }
 
@@ -92,36 +122,20 @@ class TerminalManager {
     return instance ? instance.term.getSelection() : '';
   }
 
-  public hasSelection(id: string): boolean {
-    const instance = this.instances.get(id);
-    return instance ? instance.term.hasSelection() : false;
-  }
-
-  public getBufferText(id: string, lines: number = 50): string {
-    const instance = this.instances.get(id);
-    if (!instance) return '';
-    const term = instance.term;
-    const buffer = term.buffer.active;
-    let result = '';
-    const start = Math.max(0, buffer.baseY + buffer.cursorY - lines);
-    const end = buffer.baseY + buffer.cursorY;
-    for (let i = start; i <= end; i++) {
-      const line = buffer.getLine(i);
-      if (line) result += line.translateToString() + '\n';
-    }
-    return result.trim();
-  }
-
   public write(id: string, data: string | Uint8Array) {
     const instance = this.instances.get(id);
     if (instance) {
       instance.term.write(data);
+    } else {
+      // Very frequent logging might be noisy, but useful for diagnosis
+      // console.warn(`[TerminalManager] Cannot write, instance ${id} not found`);
     }
   }
 
   public remove(id: string) {
     const instance = this.instances.get(id);
     if (instance) {
+      console.log(`[TerminalManager] Removing terminal ${id}`);
       instance.term.dispose();
       this.instances.delete(id);
       this.callbacks.delete(id);

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue';
+import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
@@ -8,7 +8,6 @@ import { terminalManager } from './TerminalManager';
 import MatrixScreen from './components/MatrixScreen.vue';
 import SidebarPanel from './components/SidebarPanel.vue';
 import TerminalTabs from './components/TerminalTabs.vue';
-import CyberWebview from './components/CyberWebview.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
 import CyberGate from './components/CyberGate.vue';
 
@@ -16,6 +15,10 @@ import CyberGate from './components/CyberGate.vue';
 import { useMorse } from './composables/useMorse';
 import { useTabs } from './composables/useTabs';
 import { useStats } from './composables/useStats';
+import { useExplorer } from './composables/useExplorer';
+import { useCyber } from './composables/useCyber';
+import { useContextMenu } from './composables/useContextMenu';
+import { usePtyListener } from './composables/usePtyListener';
 
 // ==========================================
 // --- GLOBAL STATE ---
@@ -33,20 +36,10 @@ const isLocked = ref(false);
 const cyberMode = ref(0); 
 const agentToken = ref('');
 const currentAgentPort = ref<number | null>(null);
-const previewUrl = ref('http://localhost:5173');
-const isWebviewLoading = ref(false);
 const backendLogs = ref<string[]>([]);
-const currentPath = ref('/');
-const realFiles = ref<any[]>([]);
 const skills = ref<any[]>([]);
 
-const showContextMenu = ref(false);
-const menuX = ref(0);
-const menuY = ref(0);
-const contextMenuTabId = ref<string | null>(null);
-const hasErrorSelection = ref(false);
-
-const storageKey = computed(() => `ter_tabs_${host.value.replace(/\s+/g, '_')}`);
+const storageKey = (h: string) => `ter_tabs_${h.replace(/\s+/g, '_')}`;
 let statsIntervalId: any = null;
 
 // ==========================================
@@ -57,27 +50,44 @@ const {
   createNewTab, closeTab, sendToBackground, bringToForeground, renameTab 
 } = useTabs(isConnected, backendLogs);
 
+const {
+  currentPath, realFiles, refreshExplorer, changeDir, onFastAccess
+} = useExplorer(isConnected, activeTabId);
+
+const {
+  previewUrl, isWebviewLoading, refreshWebview, handleExtractDOM, onDomExtracted, captureAndUpload
+} = useCyber(activeTabId, backendLogs);
+
+const {
+  showContextMenu, menuX, menuY, contextMenuTabId, hasErrorSelection,
+  onTerminalContextMenu, copySelectedText, pasteFromClipboard, 
+  renameTabAction, copyTabIdAction, diagnoseSelection, calculateMenuPosition
+} = useContextMenu(activeTabId, renameTab);
+
 const { 
   cpuChartRef, memChartRef, currentCpuUsage, initCharts, fetchStats 
 } = useStats(currentAgentPort, agentToken);
-
-const calculateMenuPosition = (e: MouseEvent, estimatedHeight = 250, estimatedWidth = 160) => {
-  let x = e.clientX, y = e.clientY;
-  if (y + estimatedHeight > window.innerHeight) y = window.innerHeight - estimatedHeight - 10;
-  if (x + estimatedWidth > window.innerWidth) x = window.innerWidth - estimatedWidth - 10;
-  menuX.value = x; menuY.value = y;
-};
 
 const { 
   morseSequence, morseText, showMorseMacro, isMorsePressed, possibleLetters,
   handleMorseMouse, handleMorseWheel, onMorseMacro
 } = useMorse(activeTabId, calculateMenuPosition);
 
+usePtyListener(
+  activeTabId, connectionStatus, backendLogs, isAutoPilot, lastAutoPilotTime, 
+  activeTriggers, captureAndUpload, refreshWebview
+);
+
 // ==========================================
 // --- WATCHERS ---
 // ==========================================
-watch(terminalTabs, (val) => { if (isConnected.value) localStorage.setItem(storageKey.value, JSON.stringify(val)); }, { deep: true });
-watch(activeTriggers, (val) => { localStorage.setItem('ter_active_triggers', JSON.stringify(val)); }, { deep: true });
+watch(terminalTabs, (val) => { 
+  if (isConnected.value) localStorage.setItem(storageKey(host.value), JSON.stringify(val)); 
+}, { deep: true });
+
+watch(activeTriggers, (val) => { 
+  localStorage.setItem('ter_active_triggers', JSON.stringify(val)); 
+}, { deep: true });
 
 // ==========================================
 // --- METHODS ---
@@ -94,65 +104,39 @@ const viewHistory = async (originalTabId: string) => {
   } catch (e) { terminalManager.write(playbackId, `\r\n[ERROR] History Fail: ${e}\r\n`); }
 };
 
-const copySelectedText = async () => { 
-  const id = contextMenuTabId.value || activeTabId.value; 
-  if (id) { 
-    const s = terminalManager.getSelection(id); 
-    if (s) await navigator.clipboard.writeText(s); 
-  } 
-  showContextMenu.value = false; 
-};
-
-const pasteFromClipboard = async () => { 
-  const id = contextMenuTabId.value || activeTabId.value; 
-  if (id) { 
-    try { 
-      const t = await navigator.clipboard.readText(); 
-      if (t) invoke('write_pty', { tabId: id, data: t }); 
-    } catch(e){} 
-  } 
-  showContextMenu.value = false; 
-};
-
-const onTerminalContextMenu = (p: { e: MouseEvent, id: string }) => { 
-  contextMenuTabId.value = p.id; 
-  calculateMenuPosition(p.e); 
-  const s = terminalManager.getSelection(p.id); 
-  hasErrorSelection.value = s.toLowerCase().includes('error') || s.toLowerCase().includes('exception') || s.includes('\x1b[31m'); 
-  showContextMenu.value = true; 
-};
-
-const captureAndUpload = async (auto = false) => {
-  backendLogs.value.push(`[SYSTEM] Initiating UI sync...`);
-  try {
-    const path = await invoke<string>('ai_audit_ui');
-    if (!auto) backendLogs.value.push(`[INFO] UI Snapshot saved: ${path}`);
-  } catch (e) {
-    backendLogs.value.push(`[ERROR] Audit Fail: ${e}`);
-  }
-};
-
 const onConnected = async (hostLabel: string) => {
   host.value = hostLabel;
   isConnected.value = true;
   connectionStatus.value = 'connected';
+  console.log("[App] Connected to", hostLabel);
   try { agentToken.value = await invoke('get_agent_token'); } catch(e){}
   
-  const saved = localStorage.getItem(storageKey.value);
+  const saved = localStorage.getItem(storageKey(host.value));
   if (saved) {
     try {
       const ts = JSON.parse(saved); 
-      terminalTabs.value = ts;
-      for (const t of ts) {
-        await createNewTab(t.title, false, t.id);
+      if (!Array.isArray(ts) || ts.length === 0) {
+        await createNewTab("Main Shell", false, "tab-1");
+      } else {
+        terminalTabs.value = ts;
+        // Re-spawn PTYs for each saved tab
+        for (const t of ts) {
+          await createNewTab(t.title, false, t.id);
+        }
+        activeTabId.value = ts.find((t: any) => !t.isBackground)?.id || ts[0]?.id;
       }
-      activeTabId.value = ts.find((t: any) => !t.isBackground)?.id || ts[0]?.id;
     } catch (e) { await createNewTab("Main Shell", false, "tab-1"); }
-  } else if (terminalTabs.value.length === 0) { await createNewTab("Main Shell", false, "tab-1"); }
+  } else if (terminalTabs.value.length === 0) { 
+    await createNewTab("Main Shell", false, "tab-1"); 
+  }
 
   setTimeout(() => {
-    refreshExplorer();
-    invoke('load_remote_skills').then((s: any) => skills.value = s).catch(()=>{});
+    console.log("[App] Refreshing explorer and skills...");
+    refreshExplorer().then(() => console.log("[App] Explorer refreshed, files:", realFiles.value.length));
+    invoke('load_remote_skills').then((s: any) => {
+      skills.value = s;
+      console.log("[App] Skills loaded:", s.length);
+    }).catch((err)=> console.error("[App] Load skills failed", err));
     nextTick(() => {
       initCharts();
       if (statsIntervalId) clearInterval(statsIntervalId);
@@ -161,56 +145,7 @@ const onConnected = async (hostLabel: string) => {
   }, 1000);
 };
 
-const refreshExplorer = async () => { if (isConnected.value) realFiles.value = await invoke('ls_remote', { path: currentPath.value }); };
-const changeDir = (p: string) => {
-  if (p === '..') { const pts = currentPath.value.split('/').filter(x => x); pts.pop(); currentPath.value = '/' + pts.join('/'); } 
-  else { currentPath.value = (currentPath.value === '/' ? '' : currentPath.value) + '/' + p; }
-  const s = localStorage.getItem('ter_fast_access'); let l = s ? JSON.parse(s) : []; 
-  l = [currentPath.value, ...l.filter((x: string) => x !== currentPath.value)].slice(0, 5); 
-  localStorage.setItem('ter_fast_access', JSON.stringify(l)); 
-  refreshExplorer();
-};
-
-const onFastAccess = async (p: string) => { 
-  currentPath.value = p; 
-  if (activeTabId.value) await invoke('write_pty', { tabId: activeTabId.value, data: `cd "${p}"\r` }); 
-  refreshExplorer(); 
-};
-
-const refreshWebview = async (fUrl?: string) => {
-  if (fUrl) previewUrl.value = fUrl; let u = previewUrl.value.trim(); if (!u) return; if (/^\d+$/.test(u)) { u = `http://localhost:${u}`; previewUrl.value = u; }
-  const m = u.match(/(?:localhost|127\.0\.0\.1):(\d+)/); 
-  if (m && m[1]) { 
-    isWebviewLoading.value = true; 
-    try { 
-      const p = await invoke<number>('open_dynamic_tunnel', { remotePort: parseInt(m[1]) }); 
-      previewUrl.value = `http://localhost:${p}`; 
-    } catch (e) {} finally { isWebviewLoading.value = false; } 
-  }
-};
-
-const handleExtractDOM = async () => { backendLogs.value.push(`[INFO] Extracting DOM...`); await invoke('extract_cyber_dom'); };
-const onDomExtracted = async (md: string) => { if (activeTabId.value) { await invoke('write_pty', { tabId: activeTabId.value, data: `\x1b[200~${md}\x1b[201~\r` }); backendLogs.value.push(`[INFO] Snapshot injected.`); } };
-
 const runMacro = async (c: string) => { if (activeTabId.value) await invoke('write_pty', { tabId: activeTabId.value, data: c + '\n' }); showMorseMacro.value = false; };
-const renameTabAction = () => { 
-  const id = contextMenuTabId.value; 
-  if (id) { 
-    const n = prompt("New name:"); 
-    if (n) renameTab(id, n); 
-  } 
-  showContextMenu.value = false; 
-};
-
-const copyTabIdAction = async () => { if (contextMenuTabId.value) await navigator.clipboard.writeText(contextMenuTabId.value); showContextMenu.value = false; };
-const diagnoseSelection = async () => { 
-  const id = contextMenuTabId.value || activeTabId.value; 
-  if (id) { 
-    const s = terminalManager.getSelection(id); 
-    if (activeTabId.value) await invoke('write_pty', { tabId: activeTabId.value, data: `\x1b[200~帮我诊断并给方案：\n\n\`\`\`\n${s}\n\`\`\`\x1b[201~\r` }); 
-  } 
-  showContextMenu.value = false; 
-};
 
 const runSkill = async (skill: any) => {
   if (!isConnected.value) return;
@@ -223,9 +158,16 @@ const runSkill = async (skill: any) => {
   }
 };
 
-let unlistenLog: any, unlistenPty: any;
+let unlistenLog: any;
 const preventDefaultContextMenu = (e: MouseEvent) => e.preventDefault();
-const handleGlobalKeyDown = (e: KeyboardEvent) => { if (e.altKey && e.key.toLowerCase() === 'l') isLocked.value = !isLocked.value; };
+const handleGlobalKeyDown = (e: KeyboardEvent) => { 
+  if (e.altKey && e.key.toLowerCase() === 'l') isLocked.value = !isLocked.value; 
+  // Ctrl+T for new tab
+  if (e.ctrlKey && e.key.toLowerCase() === 't') {
+    e.preventDefault();
+    if (isConnected.value) createNewTab();
+  }
+};
 
 onMounted(async () => {
   window.addEventListener('contextmenu', preventDefaultContextMenu);
@@ -238,77 +180,12 @@ onMounted(async () => {
     backendLogs.value.push(e.payload); 
     if (backendLogs.value.length > 500) backendLogs.value.shift(); 
   });
-  
-  const decoder = new TextDecoder('utf-8', { fatal: false });
-  unlistenPty = await listen<any>('pty-data', (ev) => {
-    const { id, data } = ev.payload;
-    let bytes = typeof data === 'string' ? new TextEncoder().encode(data) : new Uint8Array(data);
-    let text = decoder.decode(bytes);
-
-    // ==========================================
-    // --- PTY RPC INTERCEPTOR (Enhanced) ---
-    // ==========================================
-    if (text.includes('[TER_RPC]')) {
-      const rpcRegex = /\[TER_RPC\]\s*({.*?})/g;
-      let match;
-      let cleanedText = text;
-      let foundRpc = false;
-
-      while ((match = rpcRegex.exec(text)) !== null) {
-        if (!match[1]) continue;
-        try {
-          const rpc = JSON.parse(match[1]);
-          foundRpc = true;
-          
-          if (rpc.action === 'screenshot') {
-            captureAndUpload(true);
-          } else if (rpc.action === 'notify') {
-            backendLogs.value.push(`[🔔 AI NOTIFY] ${rpc.msg || rpc.message}`);
-          } else if (rpc.action === 'chart') {
-            backendLogs.value.push(`[📊 AI CHART DATA] ${JSON.stringify(rpc.data)}`);
-          }
-          
-          // Remove the RPC command from the text stream
-          cleanedText = cleanedText.replace(match[0], '');
-        } catch (e) { console.warn("RPC Parse Error:", e); }
-      }
-
-      if (foundRpc) {
-        if (cleanedText.trim() === '') return; // Stop if nothing left
-        bytes = new TextEncoder().encode(cleanedText);
-      }
-    }
-
-    if (terminalManager) terminalManager.write(id, bytes);
-    
-    if (connectionStatus.value === 'connected') { 
-      connectionStatus.value = 'busy'; 
-      setTimeout(() => { if (isConnected.value) connectionStatus.value = 'connected'; }, 200); 
-    }
-    
-    if (isAutoPilot.value && id === activeTabId.value) {
-      const pt = text.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
-      const actionMatch = pt.match(/\[TER_ACTION:\s*(click|type)\((\d+)(?:,\s*"(.*?)")?\)\]/);
-      if (actionMatch) {
-        const action = actionMatch[1], eid = actionMatch[2], txt = actionMatch[3] || "";
-        const code = action === 'click' ? `window.TerAgent.click(${eid})` : `window.TerAgent.type(${eid}, ${JSON.stringify(txt)})`;
-        invoke('eval_cyber_webview', { code });
-      } else if (!pt.includes('tab-') && (Date.now() - lastAutoPilotTime.value) > 500) {
-        const lm = pt.match(/http:\/\/localhost:(\d+)/); 
-        if (lm && lm[1]) refreshWebview(`http://localhost:${lm[1]}`);
-        if (activeTriggers.value.some(t => pt.includes(t))) { 
-          lastAutoPilotTime.value = Date.now(); 
-          setTimeout(() => { invoke('write_pty', { tabId: id, data: "\r" }); }, 300); 
-        }
-      }
-    }
-  });
 });
 
 onUnmounted(() => {
   window.removeEventListener('contextmenu', preventDefaultContextMenu);
   window.removeEventListener('keydown', handleGlobalKeyDown);
-  if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty();
+  if (unlistenLog) unlistenLog();
   if (statsIntervalId) clearInterval(statsIntervalId);
 });
 </script>
@@ -329,6 +206,7 @@ onUnmounted(() => {
       />
 
       <main class="workspace" ref="workspaceRef" @click="activeTabId && terminalManager.focus(activeTabId)">
+        <!-- Context Menu -->
         <div v-if="showContextMenu" class="context-menu" :style="{ top: menuY + 'px', left: menuX + 'px' }">
           <header class="menu-header">TERMINAL ACTIONS</header>
           <div v-if="hasErrorSelection" class="menu-item highlight" @click="diagnoseSelection">🤖 Diagnose Error</div>
@@ -336,22 +214,42 @@ onUnmounted(() => {
           <div class="menu-divider"></div><div class="menu-item" @click="copySelectedText">📋 Copy</div><div class="menu-item" @click="pasteFromClipboard">📥 Paste</div>
           <div class="menu-divider"></div><div class="menu-item danger" @click="closeTab(contextMenuTabId!)">❌ Force Close</div>
         </div>
+
+        <!-- Morse Macros -->
         <div v-if="showMorseMacro" class="context-menu" :style="{ top: menuY + 'px', left: menuX + 'px' }">
           <header class="menu-header">QUICK MACROS</header>
           <div v-for="m in activeMacros" :key="m.name" class="menu-item" @click="runMacro(m.cmd)">⚡ {{ m.name }}</div>
           <div class="menu-divider"></div><div class="menu-item" @click="showSettings = true">⚙️ Manage...</div>
         </div>
+
+        <!-- Morse Preview -->
         <div v-if="morseSequence || morseText" class="morse-preview-overlay">
           <div class="sequence">{{ morseSequence }}</div>
           <div class="text">{{ morseText }}</div>
           <div class="candidates" v-if="possibleLetters">{{ possibleLetters }}</div>
         </div>
+
         <nav class="tool-bar"><div class="status-chip"><span class="pulse purple"></span> {{ host }}</div><div class="actions"><button @click="isLocked = true" class="btn-tool">Lock System</button></div></nav>
+        
         <div class="workspace-body">
-          <section class="terminal-pane"><TerminalTabs :tabs="terminalTabs" :activeTabId="activeTabId" :connectionStatus="connectionStatus" @switch-tab="bringToForeground" @close-tab="closeTab" @new-tab="createNewTab()" @terminal-context="onTerminalContextMenu" /></section>
+          <section class="terminal-pane">
+            <TerminalTabs 
+              :tabs="terminalTabs" :activeTabId="activeTabId" :connectionStatus="connectionStatus" 
+              @switch-tab="bringToForeground" @close-tab="closeTab" @new-tab="createNewTab()" 
+              @terminal-context="onTerminalContextMenu" 
+            />
+          </section>
+
           <section class="cyber-pane" v-if="cyberMode !== 0">
             <div class="cyber-container">
-              <div class="cyber-logs-view"><header><span class="title">Cyber Logs</span></header><div class="logs-container"><div v-for="(log, i) in backendLogs" :key="i" class="log-line"><span class="line-num">{{ i + 1 }}</span> {{ log }}</div></div></div>
+              <div class="cyber-logs-view">
+                <header><span class="title">Cyber Logs</span></header>
+                <div class="logs-container">
+                  <div v-for="(log, i) in backendLogs" :key="i" class="log-line">
+                    <span class="line-num">{{ i + 1 }}</span> {{ log }}
+                  </div>
+                </div>
+              </div>
               <div class="cyber-divider"></div>
               <div class="cyber-webview-wrapper">
                 <nav class="webview-address-bar">
@@ -364,6 +262,7 @@ onUnmounted(() => {
             </div>
           </section>
         </div>
+
         <footer class="status-bar">
           <div class="status-left stealth-zone" @mousedown.prevent="handleMorseMouse" @wheel.prevent="handleMorseWheel" @contextmenu.prevent="onMorseMacro">
             <div class="tiny-dot" :class="{ 'active': isMorsePressed }"></div>
@@ -382,13 +281,10 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* (Styles unchanged) */
 .app-shell { height: 100vh; background: #000; color: #d4d4d8; font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace, 'Segoe UI Emoji', 'Noto Color Emoji'; overflow: hidden; }
 .main-view { display: flex; height: 100%; width: 100%; }
 .workspace { flex: 1; display: flex; flex-direction: column; background: #000; overflow: hidden; min-width: 0; }
-
-.icon, .file-icon, .btn-tool, .status-btn { 
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
-}
 
 .context-menu { position: fixed; z-index: 1000000; background: #09090b; border: 1px solid #22c55e; padding: 4px; min-width: 160px; box-shadow: 0 10px 25px rgba(0,0,0,0.8); }
 .menu-header { padding: 6px 12px; font-size: 9px; color: #166534; border-bottom: 1px solid #18181b; margin-bottom: 4px; }

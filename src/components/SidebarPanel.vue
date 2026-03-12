@@ -15,8 +15,11 @@ const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'a
 
 // v2.2.11: Track last visited directories for FAST ACCESS
 const lastVisited = computed(() => {
-  const saved = localStorage.getItem('ter_fast_access');
-  if (saved) return JSON.parse(saved).slice(0, 5);
+  try {
+    const saved = localStorage.getItem('ter_fast_access');
+    const parsed = saved ? JSON.parse(saved) : [];
+    if (Array.isArray(parsed)) return parsed.slice(0, 5);
+  } catch (e) {}
   return [];
 });
 

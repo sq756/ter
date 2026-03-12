@@ -42,7 +42,8 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
         <div v-for="t in tabs" :key="t.id" 
              class="terminal-wrapper"
              v-show="t.id === activeTabId"
-             @click="terminalManager.focus(t.id)">
+             @click="terminalManager.focus(t.id)"
+             @contextmenu.prevent="$emit('terminal-context', { e: $event, id: t.id })">
           <TerminalView :id="t.id" :active="t.id === activeTabId" />
         </div>
       </section>

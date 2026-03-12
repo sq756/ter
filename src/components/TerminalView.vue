@@ -10,7 +10,32 @@ const props = defineProps<{
 const terminalRef = ref<HTMLElement | null>(null);
 let resizeObserver: ResizeObserver | null = null;
 
-const initTerminal = async (retries = 3) => {
+const performFit = () => {
+  if (props.active && terminalRef.value) {
+    const width = terminalRef.value.offsetWidth;
+    const height = terminalRef.value.offsetHeight;
+    
+    if (width > 0 && height > 0) {
+      console.log(`[TerminalView:${props.id}] Fitting terminal. Size: ${width}x${height}`);
+      const instance = terminalManager.getOrCreate(props.id);
+      instance.fit.fit();
+      
+      const { cols, rows } = instance.term;
+      console.log(`[TerminalView:${props.id}] Fit result: ${cols}x${rows}`);
+      
+      // Sync size with backend PTY
+      import('@tauri-apps/api/core').then(({ invoke }) => {
+        invoke('resize_pty', { tabId: props.id, cols, rows }).catch(e => {
+          console.warn(`[TerminalView:${props.id}] Failed to resize PTY:`, e);
+        });
+      });
+    } else {
+      console.debug(`[TerminalView:${props.id}] Skip fit, element hidden or 0 size`);
+    }
+  }
+};
+
+const initTerminal = async (retries = 5) => {
   if (!terminalRef.value) {
     if (retries > 0) setTimeout(() => initTerminal(retries - 1), 100);
     return;
@@ -18,15 +43,13 @@ const initTerminal = async (retries = 3) => {
   
   try {
     terminalManager.mount(props.id, terminalRef.value);
-    // Linux 下布局计算有延迟，强制在挂载后 500ms 再对齐一次
-    setTimeout(() => {
-      const instance = terminalManager.getOrCreate(props.id);
-      if (terminalRef.value && terminalRef.value.offsetWidth > 0) {
-        instance.fit.fit();
-      }
-    }, 500);
+    
+    // Stabilize layout
+    setTimeout(performFit, 100);
+    setTimeout(performFit, 500);
+    setTimeout(performFit, 1000);
   } catch (e) {
-    console.error(`[TerminalView] Mount failed for ${props.id}, retrying...`, e);
+    console.error(`[TerminalView:${props.id}] Mount failed, retrying...`, e);
     if (retries > 0) {
       setTimeout(() => initTerminal(retries - 1), 200);
       return;
@@ -34,23 +57,6 @@ const initTerminal = async (retries = 3) => {
   }
 
   const instance = terminalManager.getOrCreate(props.id);
-  const { term, fit } = instance;
-
-  // Resize Handling
-  const performFit = () => {
-    if (props.active && terminalRef.value && terminalRef.value.offsetWidth > 0) {
-      console.log(`[TerminalView] Fitting terminal ${props.id}`);
-      fit.fit();
-      
-      // Sync size with backend PTY
-      const { cols, rows } = term;
-      import('@tauri-apps/api/core').then(({ invoke }) => {
-        invoke('resize_pty', { tabId: props.id, cols, rows }).catch(e => {
-          console.warn(`[TerminalView] Failed to resize PTY ${props.id}:`, e);
-        });
-      });
-    }
-  };
 
   if (resizeObserver) resizeObserver.disconnect();
   resizeObserver = new ResizeObserver(() => {
@@ -58,15 +64,9 @@ const initTerminal = async (retries = 3) => {
   });
   resizeObserver.observe(terminalRef.value);
 
-  // Immediate Fit
-  performFit();
   if (props.active) {
-    term.focus();
+    instance.term.focus();
   }
-
-  // Layout stabilization retries
-  setTimeout(performFit, 100);
-  setTimeout(performFit, 500);
 };
 
 onMounted(() => {
@@ -81,18 +81,17 @@ onUnmounted(() => {
 
 watch(() => props.active, async (isActive) => {
   if (isActive) {
-    console.log(`[TerminalView] Terminal ${props.id} became active`);
-    // 【核心修复】：必须等待 Vue 把 v-show 的 display:none 移除，DOM 真正渲染后，再执行聚焦！
+    console.log(`[TerminalView:${props.id}] Tab became active`);
     await nextTick(); 
     
-    const { term, fit } = terminalManager.getOrCreate(props.id);
-    // 给一点缓冲时间让容器彻底撑开
+    // Extra stabilize for Linux rendering
     requestAnimationFrame(() => {
-      if (terminalRef.value && terminalRef.value.offsetWidth > 0) {
-        fit.fit();
-        term.focus();
-      }
+      performFit();
+      terminalManager.focus(props.id);
     });
+    
+    // One more try after a short delay
+    setTimeout(performFit, 300);
   }
 });
 </script>
@@ -110,21 +109,22 @@ watch(() => props.active, async (isActive) => {
   background: #000;
   overflow: hidden;
   position: relative;
-}
-
-/* 
- * CRITICAL: Ensure xterm.js handles its helper textarea natively for correct IME placement.
- */
-.xterm-helper-textarea {
-  opacity: 0 !important;
+  /* Ensure it has a block layout */
+  display: block;
 }
 
 .terminal-view-container .xterm {
   padding: 10px;
   height: 100%;
+  width: 100%;
 }
 
 .terminal-view-container .xterm-viewport {
   background-color: #000 !important;
+}
+
+/* Fix xterm background transparency */
+.xterm-screen {
+  background-color: #09090b !important;
 }
 </style>

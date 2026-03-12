@@ -109,10 +109,11 @@ async fn close_pty(tab_id: String, state: State<'_, AppState>) -> Result<(), Str
     // v2.3.11: Fix P0-3 Zombie Process Leak
     // Attempt to kill the remote tmux session before removing channels
     if let Some(session) = state.session.lock().await.as_ref() {
-        if let Ok(mut channel) = session.channel_open_session().await {
+        if let Ok(channel) = session.channel_open_session().await {
             let kill_cmd = format!("tmux kill-session -t {} || exit", tab_id);
             let _ = channel.exec(true, kill_cmd.as_str()).await;
         }
+
     }
 
     state.pty_channels.remove(&tab_id);
@@ -184,16 +185,47 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
     state.pty_channels.insert(tab_id.clone(), tx);
     state.ctrl_channels.insert(tab_id.clone(), ctrl_tx);
     tauri::async_runtime::spawn(async move {
+        log::info!("[PTY:{}] Starting PTY read loop", tab_id);
         loop {
             tokio::select! {
-                Some(ctrl) = ctrl_rx.recv() => { let PtyControl::Resize(c, r) = ctrl; let _ = channel.window_change(c, r, 0, 0).await; }
-                Some(data) = rx.recv() => { let _ = channel.data(data.as_bytes()).await; }
+                Some(ctrl) = ctrl_rx.recv() => { 
+                    let PtyControl::Resize(c, r) = ctrl; 
+                    log::debug!("[PTY:{}] Resizing to {}x{}", tab_id, c, r);
+                    let _ = channel.window_change(c, r, 0, 0).await; 
+                }
+                Some(data) = rx.recv() => { 
+                    let _ = channel.data(data.as_bytes()).await; 
+                }
                 msg = channel.wait() => { 
-                    if let Some(russh::ChannelMsg::Data { data }) = msg { let _ = app_handle.emit("pty-data", serde_json::json!({"id": tab_id, "data": data.to_vec()})); }
-                    else { break; }
+                    match msg {
+                        Some(russh::ChannelMsg::Data { data }) => {
+                            let _ = app_handle.emit("pty-data", serde_json::json!({"id": tab_id, "data": data.to_vec()}));
+                        }
+                        Some(russh::ChannelMsg::ExtendedData { data, .. }) => {
+                            let _ = app_handle.emit("pty-data", serde_json::json!({"id": tab_id, "data": data.to_vec()}));
+                        }
+                        Some(russh::ChannelMsg::Eof) => {
+                            log::info!("[PTY:{}] Received EOF", tab_id);
+                            break;
+                        }
+                        Some(russh::ChannelMsg::Close) => {
+                            log::info!("[PTY:{}] Received Close", tab_id);
+                            break;
+                        }
+                        Some(russh::ChannelMsg::ExitStatus { exit_status }) => {
+                            log::info!("[PTY:{}] Remote process exited with status: {}", tab_id, exit_status);
+                            break;
+                        }
+                        None => {
+                            log::info!("[PTY:{}] Channel wait returned None (closed)", tab_id);
+                            break;
+                        }
+                        _ => {}
+                    }
                 }
             }
         }
+        log::info!("[PTY:{}] PTY loop finished", tab_id);
     });
     Ok(())
 }
