@@ -501,7 +501,8 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
     
     // Tmux Hijacking: Attach to an existing session with this tab_id, or create a new one.
     // This provides terminal persistence even after SSH disconnects.
-    let tmux_cmd = format!("tmux new-session -A -s {}", tab_id);
+    // ADDED: set-option status off to prevent status bar noise from triggering automation loops.
+    let tmux_cmd = format!("tmux new-session -A -s {} \\; set-option status off", tab_id);
     channel.exec(true, tmux_cmd.as_str()).await.map_err(|e| e.to_string())?;
 
     let (tx, mut rx) = mpsc::channel::<String>(100);

@@ -18,7 +18,27 @@ const isConnected = ref(false);
 const isConnecting = ref(false); 
 const isMasterPasswordSet = ref(false);
 const isAutoPilot = ref(false); 
-const isLocked = ref(false);
+const lastAutoPilotTime = ref(0);
+const activeTriggers = ref<string[]>(['Allow execution of:', '1. Allow once']);
+const showTriggerConfig = ref(false);
+const newTriggerStr = ref('');
+
+// Persistence for Triggers
+watch(activeTriggers, (val) => {
+  localStorage.setItem('ter_active_triggers', JSON.stringify(val));
+}, { deep: true });
+
+const addTrigger = () => {
+  if (newTriggerStr.value && !activeTriggers.value.includes(newTriggerStr.value)) {
+    activeTriggers.value.push(newTriggerStr.value);
+    newTriggerStr.value = '';
+  }
+};
+const removeTrigger = (t: string) => {
+  activeTriggers.value = activeTriggers.value.filter(item => item !== t);
+};
+
+const isLocked = ref(false); 
 const cyberMode = ref(0); 
 const agentToken = ref('');
 const currentAgentPort = ref<number | null>(null);
@@ -252,14 +272,28 @@ const onConnected = async () => {
 
     // [Auto-Pilot]: 自动检测并同意 Gemini CLI 的 Action Required 弹窗
     if (isAutoPilot.value && id === activeTabId.value) {
-      // 去除 ANSI 控制字符以便于精准匹配纯文本
+      // 1. 去除 ANSI 控制字符以便于精准匹配纯文本
       const plainText = text.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
-      if (plainText.includes('Allow execution of:') || plainText.includes('1. Allow once')) {
-        console.log("[Auto-Pilot] Detected Action Required. Auto-approving...");
-        const randomDelay = Math.floor(Math.random() * 301) + 200;
-        setTimeout(() => {
-          invoke('write_pty', { tabId: id, data: "\r" });
-        }, randomDelay);
+      
+      // 2. 防火墙：拦截 Tmux 状态栏噪音 (tab-xxxx [bash] 等)
+      const isTmuxNoise = plainText.includes('tab-') && (plainText.length < 60 || plainText.includes('[') || plainText.includes(']'));
+      
+      // 3. 冷却机制：500ms 内禁止重复触发
+      const now = Date.now();
+      const canTrigger = (now - lastAutoPilotTime.value) > 500;
+
+      if (!isTmuxNoise && canTrigger) {
+        // [v2.2.9 ARCH UPGRADE]: Iterate over active triggers for Cross-Model compatibility
+        const matched = activeTriggers.value.some(t => plainText.includes(t));
+        
+        if (matched) {
+          console.log("[Auto-Pilot] Matched configured trigger. Approving...");
+          lastAutoPilotTime.value = now;
+          const randomDelay = Math.floor(Math.random() * 301) + 200;
+          setTimeout(() => {
+            invoke('write_pty', { tabId: id, data: "\r" });
+          }, randomDelay);
+        }
       }
     }
 
@@ -466,6 +500,15 @@ const loadServers = async () => { savedServers.value = await invoke('list_server
 
 let unlistenLog: any, unlistenPty: any;
 onMounted(async () => {
+  const savedTriggers = localStorage.getItem('ter_active_triggers');
+  if (savedTriggers) {
+    try {
+      activeTriggers.value = JSON.parse(savedTriggers);
+    } catch (e) {
+      console.error("Failed to parse triggers:", e);
+    }
+  }
+
   unlistenLog = await listen<string>('backend-log', (e) => {
     backendLogs.value.push(e.payload);
     if (backendLogs.value.length > 500) backendLogs.value.shift();
@@ -511,6 +554,27 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
     </div>
 
     <div v-else class="main-view">
+      <!-- v2.2.9: AI Trigger Config Modal -->
+      <div v-if="showTriggerConfig" class="modal-overlay trigger-modal">
+        <div class="auth-card config-card">
+          <header class="modal-header">
+            <h3>🤖 AI Auto-Pilot Triggers</h3>
+            <button @click="showTriggerConfig = false" class="close-btn">×</button>
+          </header>
+          <div class="trigger-list-scroll">
+            <div v-for="t in activeTriggers" :key="t" class="trigger-item">
+              <span class="trigger-text">{{ t }}</span>
+              <button @click="removeTrigger(t)" class="remove-btn">🗑️</button>
+            </div>
+          </div>
+          <div class="add-trigger-box">
+            <input v-model="newTriggerStr" @keyup.enter="addTrigger" placeholder="Add new trigger (e.g. Do you approve?)" />
+            <button @click="addTrigger" class="btn-primary mini">Add</button>
+          </div>
+          <p class="hint">When any of these strings appear in terminal, Ter will auto-press Enter.</p>
+        </div>
+      </div>
+
       <SidebarPanel 
         :files="realFiles" 
         :currentPath="currentPath"
@@ -525,6 +589,7 @@ onUnmounted(() => { if (unlistenLog) unlistenLog(); if (unlistenPty) unlistenPty
         @proc-context="onProcContext"
         @run-skill="runSkill"
         @change-dir="changeDir"
+        @open-trigger-settings="showTriggerConfig = true"
       />
 
       <main class="workspace" ref="workspaceRef" @click="activeTabId && terminalManager.focus(activeTabId)">
@@ -703,6 +768,20 @@ input:checked + .slider:before { transform: translateX(12px); }
 .auth-card input:focus { border-color: #3b82f6; }
 .btn-primary { width: 100%; padding: 12px; background: #3b82f6; border: none; color: #fff; border-radius: 6px; cursor: pointer; font-weight: bold; transition: background 0.2s; }
 .btn-primary:hover { background: #2563eb; }
+.btn-primary.mini { width: 60px; padding: 6px; font-size: 11px; margin-bottom: 0; }
+.trigger-modal .config-card { width: 400px; padding: 20px; }
+.modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; border-bottom: 1px solid #27272a; padding-bottom: 10px; }
+.modal-header h3 { font-size: 14px; color: #fff; margin: 0; }
+.close-btn { background: transparent; border: none; color: #71717a; font-size: 20px; cursor: pointer; }
+.trigger-list-scroll { max-height: 200px; overflow-y: auto; margin-bottom: 15px; border: 1px solid #27272a; border-radius: 6px; background: #09090b; }
+.trigger-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-bottom: 1px solid #18181b; }
+.trigger-item:last-child { border-bottom: none; }
+.trigger-text { font-size: 12px; font-family: 'JetBrains Mono', monospace; color: #a1a1aa; }
+.remove-btn { background: transparent; border: none; cursor: pointer; opacity: 0.5; transition: opacity 0.2s; }
+.remove-btn:hover { opacity: 1; }
+.add-trigger-box { display: flex; gap: 8px; margin-bottom: 10px; }
+.add-trigger-box input { flex: 1; margin-bottom: 0 !important; font-size: 12px; }
+.hint { font-size: 10px; color: #52525b; font-style: italic; margin: 0; }
 .workspace-setup { height: 100%; display: flex; align-items: center; justify-content: center; background: #09090b; }
 .vault-container { width: 480px; background: #18181b; border: 1px solid #27272a; border-radius: 12px; padding: 30px; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
 .vault-container header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }

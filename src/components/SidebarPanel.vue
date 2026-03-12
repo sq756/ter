@@ -58,7 +58,10 @@ const onItemClick = (f: any) => {
     </div>
 
     <div class="module scroller skills-hub">
-      <header>Skill Hub</header>
+      <header class="header-with-action">
+        <span>Skill Hub</span>
+        <button class="header-btn" title="Configure AI Triggers" @click="$emit('open-trigger-settings')">⚙️</button>
+      </header>
       <ul class="data-list">
         <li v-for="s in skills" :key="s.id" @click="$emit('run-skill', s)" :title="s.description">
           <span class="icon">{{ s.icon || '🛠️' }}</span>
@@ -125,8 +128,29 @@ const onItemClick = (f: any) => {
   margin-bottom: 12px;
   text-transform: uppercase;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.header-with-action {
+  display: flex !important;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.header-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 10px;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+  padding: 0;
+  line-height: 1;
+}
+
+.header-btn:hover {
+  opacity: 1;
 }
 
 .current-path {
