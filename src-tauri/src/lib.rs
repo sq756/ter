@@ -43,6 +43,17 @@ const AGENT_SCRIPT: &str = r####"
       const el = document.querySelector("[data-ter-id='" + id + "']");
       if (el) { el.click(); return "OK"; }
       return "FAIL";
+    },
+    type: function(id, text) {
+      const el = document.querySelector("[data-ter-id='" + id + "']");
+      if (el) {
+        el.focus();
+        el.value = text;
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        return "OK";
+      }
+      return "FAIL";
     }
   };
 })();
