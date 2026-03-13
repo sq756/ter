@@ -2,6 +2,9 @@
 import TerminalView from './TerminalView.vue';
 import { terminalManager } from '../TerminalManager';
 
+import { getCurrentWindow } from '@tauri-apps/api/window';
+const appWindow = getCurrentWindow();
+
 const props = defineProps<{
   tabs: any[];
   activeTabId: string | null;
@@ -11,12 +14,16 @@ const props = defineProps<{
 defineEmits(['switch-tab', 'close-tab', 'new-tab', 'terminal-context', 'rename-tab', 'pin-tab', 'copy-tab-id']);
 
 const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
+
+const minimize = () => appWindow.minimize();
+const toggleMaximize = () => appWindow.toggleMaximize();
+const closeApp = () => appWindow.close();
 </script>
 
 <template>
   <div class="terminal-workspace">
     <!-- Multi-Terminal Tab Bar -->
-    <nav class="tab-bar">
+    <nav class="tab-bar" data-tauri-drag-region>
       <!-- Status Indicator & Quick Switcher -->
       <div class="status-indicator-zone" @click="$emit('new-tab')" title="Quick Command (Ctrl+T)">
         <div class="status-dot" :class="connectionStatus"></div>
@@ -37,6 +44,13 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
         <div class="active-bar" v-if="t.id === activeTabId"></div>
       </div>
       <button class="btn-new-tab" @click="$emit('new-tab')" title="New Terminal (Ctrl+T)">+</button>
+
+      <!-- v2.11.26: Stealth Window Controls -->
+      <div class="window-controls">
+        <button class="win-btn" @click="minimize" title="Minimize">—</button>
+        <button class="win-btn" @click="toggleMaximize" title="Maximize">⬜</button>
+        <button class="win-btn close" @click="closeApp" title="Close">✕</button>
+      </div>
     </nav>
 
     <div class="workspace-body">
@@ -216,6 +230,39 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
 .btn-new-tab:hover {
   color: #fafafa;
   background: rgba(255, 255, 255, 0.05);
+}
+
+.window-controls {
+  margin-left: auto;
+  display: flex;
+  height: 100%;
+}
+
+.win-btn {
+  width: 44px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: #52525b;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s;
+  -webkit-app-region: no-drag;
+}
+
+.win-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #22c55e;
+  text-shadow: 0 0 8px #22c55e;
+}
+
+.win-btn.close:hover {
+  background: #ef4444;
+  color: #fff;
+  text-shadow: none;
 }
 
 .workspace-body { flex: 1; position: relative; overflow: hidden; display: flex; }
