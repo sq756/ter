@@ -160,30 +160,11 @@ const onConnected = async (hostLabel: string) => {
     loadedIds.add("tab-1");
   }
 
-  // --- SYNC REMOTE SESSIONS ---
-  setTimeout(async () => {
-    try {
-      const remoteSessions = await invoke<string[]>('list_remote_tmux_sessions');
-      console.log("[App] Remote sessions found:", remoteSessions);
-      for (const s of remoteSessions) {
-        if (!loadedIds.has(s) && (s.startsWith('tab-') || s === 'tab-1')) {
-          console.log("[App] Auto-mounting remote session:", s);
-          // Mount as background task
-          await createNewTab(`Remote: ${s.substring(0, 8)}`, false, s);
-          const t = terminalTabs.value.find(x => x.id === s);
-          if (t) t.isBackground = true;
-        }
-      }
-    } catch (e) { console.error("[App] Failed to sync remote sessions:", e); }
-  }, 1500);
-
   setTimeout(() => {
-    console.log("[App] Refreshing explorer and skills...");
-    refreshExplorer().then(() => console.log("[App] Explorer refreshed, files:", realFiles.value.length));
+    refreshExplorer();
     invoke('load_remote_skills').then((s: any) => {
       skills.value = s;
-      console.log("[App] Skills loaded:", s.length);
-    }).catch((err)=> console.error("[App] Load skills failed", err));
+    });
     nextTick(() => {
       initCharts();
       if (statsIntervalId) clearInterval(statsIntervalId);
@@ -204,28 +185,16 @@ const onSkillContextMenu = (p: { event: MouseEvent, skill: any }) => {
 
 const runSkill = async (skill: any) => {
   if (!isConnected.value) return;
-  
-  // v2.6.0: Handle File Context (Drag & Drop)
   if (skill.context_file) {
     const f = skill.context_file;
-    backendLogs.value.push(`[AGENT] Processing file: ${f.name} with skill: ${skill.name}`);
-    
-    // If it's a visual skill or just any skill, we can inject the path
     const fullPath = (currentPath.value === '/' ? '' : currentPath.value) + '/' + f.name;
     const cmd = `${skill.rpc || skill.trigger} "${fullPath}"\r\n`;
-    if (activeTabId.value) {
-      invoke('write_pty', { tabId: activeTabId.value, data: cmd });
-    }
+    if (activeTabId.value) invoke('write_pty', { tabId: activeTabId.value, data: cmd });
     return;
   }
-
-  if (skill.context_requirement?.require_screenshot) {
-    await captureAndUpload(true);
-  }
+  if (skill.context_requirement?.require_screenshot) await captureAndUpload(true);
   const rpc = skill.rpc || skill.trigger;
-  if (rpc && activeTabId.value) {
-    invoke('write_pty', { tabId: activeTabId.value, data: rpc.endsWith('\n') ? rpc : rpc + "\r\n" });
-  }
+  if (rpc && activeTabId.value) invoke('write_pty', { tabId: activeTabId.value, data: rpc.endsWith('\n') ? rpc : rpc + "\r\n" });
 };
 
 let unlistenLog: any;
@@ -234,9 +203,7 @@ const handleGlobalKeyDown = (e: KeyboardEvent) => {
   if (e.ctrlKey) isCtrlPressed.value = true;
   if (e.altKey) isAltPressed.value = true;
   if (e.shiftKey) isShiftPressed.value = true;
-
   if (e.altKey && e.key.toLowerCase() === 'l') isLocked.value = !isLocked.value; 
-  // Ctrl+T for new tab
   if (e.ctrlKey && e.key.toLowerCase() === 't') {
     e.preventDefault();
     if (isConnected.value) createNewTab();
@@ -294,7 +261,6 @@ onUnmounted(() => {
       />
 
       <main class="workspace" ref="workspaceRef">
-        <!-- (Rest of modals, menus, etc.) -->
         <!-- Skill Settings Modal -->
         <div v-if="showSkillSettings" class="modal-overlay" @click.self="showSkillSettings = false">
           <div class="auth-card cyber-card">
@@ -311,6 +277,7 @@ onUnmounted(() => {
             <button @click="showSkillSettings = false" class="btn-primary">APPLY_CHANGES</button>
           </div>
         </div>
+
         <!-- Context Menu -->
         <div v-if="showContextMenu" class="context-menu" :style="{ top: menuY + 'px', left: menuX + 'px' }">
           <header class="menu-header">TERMINAL ACTIONS</header>
@@ -357,7 +324,7 @@ onUnmounted(() => {
           <div class="text">{{ morseText }}</div>
           <div class="candidates" v-if="possibleLetters">{{ possibleLetters }}</div>
         </div>
-        
+
         <div class="workspace-body">
           <section class="terminal-pane">
             <TerminalTabs 
@@ -392,7 +359,7 @@ onUnmounted(() => {
 
         <footer class="status-bar">
           <div class="status-left">
-            <button class="status-btn sidebar-toggle" @click="isSidebarOpen = !isSidebarOpen" title="Toggle Sidebar">
+            <button class="status-btn sidebar-toggle" @click.stop="isSidebarOpen = !isSidebarOpen" title="Toggle Sidebar">
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
             </button>
             <div class="status-item node-info">
@@ -433,11 +400,10 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* (Styles unchanged) */
 .app-shell { height: 100vh; background: #000; color: #d4d4d8; font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace, 'Segoe UI Emoji', 'Noto Color Emoji'; overflow: hidden; border-radius: 8px; border: 1px solid #18181b; }
 
-.main-view { display: flex; height: 100%; width: 100%; }
-.workspace { flex: 1; display: flex; flex-direction: column; background: #000; overflow: hidden; min-width: 0; }
+.main-view { display: flex; height: 100%; width: 100%; position: relative; }
+.workspace { flex: 1; display: flex; flex-direction: column; background: #000; overflow: hidden; min-width: 0; position: relative; }
 
 .context-menu { position: fixed; z-index: 1000000; background: #09090b; border: 1px solid #22c55e; padding: 4px; min-width: 160px; box-shadow: 0 10px 25px rgba(0,0,0,0.8); }
 .menu-header { padding: 6px 12px; font-size: 9px; color: #166534; border-bottom: 1px solid #18181b; margin-bottom: 4px; }
@@ -456,6 +422,9 @@ onUnmounted(() => {
 .status-item .val { color: #a1a1aa; }
 .node-dot { width: 6px; height: 6px; border-radius: 50%; }
 .node-dot.purple { background: #a855f7; box-shadow: 0 0 8px #a855f7; }
+
+.sidebar-toggle { margin-right: 5px; color: #22c55e !important; }
+.sidebar-toggle:hover { background: rgba(34, 197, 94, 0.1) !important; }
 
 /* Dynamic Hotkey Bar */
 .hotkey-bar { display: flex; align-items: center; gap: 4px; height: 100%; }
@@ -476,10 +445,6 @@ onUnmounted(() => {
 .kb-pendant.accept { color: #22c55e; border-color: rgba(34, 197, 94, 0.3); }
 .kb-pendant.discard { color: #ef4444; border-color: rgba(239, 68, 68, 0.3); }
 
-/* Animation */
-.key-slide-enter-active, .key-slide-leave-active { transition: all 0.3s ease; }
-.key-slide-enter-from { opacity: 0; transform: translateX(20px); }
-.key-slide-leave-to { opacity: 0; transform: translateX(-20px); }
 .status-right { display: flex; align-items: center; gap: 12px; }
 .tiny-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; transition: all 0.1s; }
 .tiny-dot.active { transform: scale(1.1); box-shadow: 0 0 8px #22c55e; filter: brightness(1.5); }
@@ -508,9 +473,6 @@ onUnmounted(() => {
 .morse-preview-overlay .sequence { font-size: 24px; color: #22c55e; letter-spacing: 4px; }
 .morse-preview-overlay .candidates { font-size: 9px; color: #166534; margin-top: 5px; }
 
-.status-chip { font-size: 11px; color: #52525b; display: flex; align-items: center; gap: 8px; }
-.pulse.purple { width: 6px; height: 6px; background: #a855f7; border-radius: 50%; box-shadow: 0 0 5px #a855f7; }
-
 .mini-switch { position: relative; display: inline-block; width: 24px; height: 12px; }
 .mini-switch input { opacity: 0; width: 0; height: 0; }
 .slider { position: absolute; cursor: pointer; inset: 0; background-color: #27272a; transition: .4s; border-radius: 12px; }
@@ -520,4 +482,16 @@ input:checked + .slider:before { transform: translateX(12px); }
 .status-toggle { display: flex; align-items: center; gap: 8px; font-size: 10px; color: #52525b; }
 .status-btn { background: transparent; border: none; color: #52525b; cursor: pointer; font-size: 10px; padding: 2px 6px; border-radius: 4px; transition: all 0.2s; }
 .status-btn:hover { color: #fff; }
+
+/* Modal Styles */
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(5px); display: flex; align-items: center; justify-content: center; z-index: 2000000; }
+.cyber-card { background: #09090b; border: 1px solid #22c55e; padding: 30px; min-width: 400px; box-shadow: 0 0 30px rgba(34, 197, 94, 0.2); }
+.cyber-title { color: #22c55e; font-size: 18px; letter-spacing: 2px; margin-bottom: 5px; }
+.cyber-subtitle { font-size: 9px; color: #166534; margin-bottom: 20px; }
+.skill-form { display: flex; flex-direction: column; gap: 15px; margin-bottom: 25px; }
+.label { font-size: 10px; color: #71717a; text-transform: uppercase; }
+.cyber-input { background: #000; border: 1px solid #27272a; color: #22c55e; padding: 10px; font-family: 'JetBrains Mono', monospace; font-size: 12px; outline: none; }
+.cyber-input:focus { border-color: #22c55e; }
+.btn-primary { background: #22c55e; color: #000; border: none; padding: 12px; font-weight: bold; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; }
+.btn-primary:hover { filter: brightness(1.2); }
 </style>
