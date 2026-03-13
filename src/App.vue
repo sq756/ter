@@ -249,7 +249,7 @@ onMounted(() => {
     <CyberGate v-if="!isConnected" @connected="onConnected" />
     
     <div v-else class="main-view">
-      <SettingsPanel :isOpen="showSettings" @close="showSettings = false" @update-macros="(m) => activeMacros = m" />
+      <SettingsPanel :isOpen="showSettings" :useNativeWebview="useNativeWebview" @update:useNativeWebview="useNativeWebview = $event" @close="showSettings = false" @update-macros="(m) => activeMacros = m" />
       
       <SidebarPanel 
         :class="{ 'collapsed': !isSidebarOpen }"
@@ -342,6 +342,9 @@ onMounted(() => {
               </div>
               <div class="cyber-webview-wrapper">
                 <nav class="webview-address-bar">
+                  <div class="engine-indicator" :class="{ 'native': useNativeWebview }">
+                    {{ useNativeWebview ? '⚡ Native' : '🐢 Iframe' }}
+                  </div>
                   <input v-model="previewUrl" @keyup.enter="refreshWebview()" class="address-bar-input" />
                   <button @click="refreshWebview()" class="refresh-btn">⚡</button>
                 </nav>
@@ -473,6 +476,19 @@ onMounted(() => {
 .webview-address-bar { padding: 5px; background: #09090b; border-bottom: 1px solid #27272a; display: flex; gap: 5px; }
 .address-bar-input { flex: 1; background: #000; border: 1px solid #27272a; color: #22c55e; padding: 2px 8px; font-size: 11px; outline: none; border-radius: 4px; }
 .refresh-btn { background: #18181b; border: 1px solid #27272a; color: #22c55e; cursor: pointer; padding: 0 8px; border-radius: 4px; }
+
+.engine-indicator { 
+  font-size: 9px; 
+  padding: 2px 6px; 
+  border-radius: 4px; 
+  background: #18181b; 
+  color: #71717a; 
+  border: 1px solid #27272a;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+}
+.engine-indicator.native { color: #a855f7; border-color: rgba(168, 85, 247, 0.4); }
 
 .status-bar { height: 32px; background: #09090b; border-top: 1px solid #18181b; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; font-size: 11px; flex-shrink: 0; z-index: 1000; }
 .status-left, .status-right { display: flex; align-items: center; gap: 15px; }

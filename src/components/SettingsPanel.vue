@@ -3,9 +3,10 @@ import { ref, onMounted } from 'vue';
 
 const props = defineProps<{
   isOpen: boolean;
+  useNativeWebview: boolean;
 }>();
 
-const emit = defineEmits(['close', 'update-macros']);
+const emit = defineEmits(['close', 'update-macros', 'update:useNativeWebview']);
 
 const macros = ref<{name: string, cmd: string}[]>([]);
 
@@ -53,6 +54,18 @@ const removeMacro = (index: number) => {
       </header>
 
       <div class="drawer-content">
+        <section class="config-section">
+          <header>🌐 WEB_ENGINE CONFIG (Native UI Mode)</header>
+          <div class="setting-row">
+            <span class="label">USE_NATIVE_ENGINE (Unlock Google/GitHub)</span>
+            <label class="mini-switch">
+              <input type="checkbox" :checked="useNativeWebview" @change="$emit('update:useNativeWebview', $event.target.checked)" />
+              <span class="slider"></span>
+            </label>
+          </div>
+          <p class="hint">Toggle this if you see login restrictions in Webview.</p>
+        </section>
+
         <section class="config-section">
           <header>⌨️ QUICK MACROS (Morse Light Right-Click)</header>
           <div class="macro-list">
@@ -121,6 +134,8 @@ const removeMacro = (index: number) => {
 
 .config-section { margin-bottom: 30px; }
 .config-section header { font-size: 11px; color: #71717a; margin-bottom: 15px; font-weight: bold; }
+
+.setting-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; background: rgba(255, 255, 255, 0.03); padding: 10px; border-radius: 6px; border: 1px solid #27272a; }
 
 .macro-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 15px; }
 .macro-item { display: flex; gap: 8px; align-items: center; background: rgba(255, 255, 255, 0.03); padding: 8px; border-radius: 6px; border: 1px solid #27272a; }

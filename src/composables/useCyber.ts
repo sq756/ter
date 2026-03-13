@@ -1,30 +1,33 @@
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 
 export function useCyber(activeTabId: any, backendLogs: any) {
   const previewUrl = ref('http://localhost:5173');
   const isWebviewLoading = ref(false);
-  const useNativeWebview = ref(true);
+  
+  // v2.11.12: Persistent Native Webview Toggle
+  const savedMode = localStorage.getItem('ter_use_native_webview');
+  const useNativeWebview = ref(savedMode === null ? true : savedMode === 'true');
+
+  watch(useNativeWebview, (val) => {
+    localStorage.setItem('ter_use_native_webview', val.toString());
+  });
 
   const refreshWebview = async (fUrl?: string) => {
     if (fUrl) previewUrl.value = fUrl;
     let u = previewUrl.value.trim();
     if (!u) return;
 
-    // Support just typing the port
     if (/^\d+$/.test(u)) {
       u = `http://localhost:${u}`;
       previewUrl.value = u;
     }
 
-    // Attempt to tunnel ANY port access that looks like localhost or is a remote port the user might want to access via SSH
-    // If we are connected to SSH, we prefer tunneling to bypass Mixed Content blocks on Linux
     const m = u.match(/(?:localhost|127\.0\.0\.1|[\w\.-]+):(\d+)/); 
     if (m && m[1]) {
       const port = parseInt(m[1]);
-      // Avoid tunneling the dev server port if we're in dev mode
       if (port === 5173 && (u.includes('localhost') || u.includes('127.0.0.1'))) {
-         // Do nothing, just navigate
+         // Do nothing
       } else {
         isWebviewLoading.value = true; 
         backendLogs.value.push(`[SYSTEM] Attempting SSH tunnel for port ${port}...`);
@@ -38,7 +41,6 @@ export function useCyber(activeTabId: any, backendLogs: any) {
           }
         } catch (e) {
           backendLogs.value.push(`[ERROR] Tunnel failed: ${e}`);
-          console.error("Failed to open dynamic tunnel:", e);
         } finally { 
           isWebviewLoading.value = false; 
         } 
@@ -68,7 +70,6 @@ export function useCyber(activeTabId: any, backendLogs: any) {
 
   const captureAndUpload = async (auto = false) => {
     if (!auto) backendLogs.value.push(`[SYSTEM] UI Snapshot triggered (stub)...`);
-    // Removed call to ai_audit_ui as it is not implemented in backend
   };
 
   return {
