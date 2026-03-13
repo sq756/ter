@@ -270,7 +270,7 @@ watch(() => showPrivilegeMenu.value, (val) => { if (val) activeMenu.value = 'pri
 </script>
 
 <template>
-  <div class="app-shell" @click="closeAllMenus" @contextmenu="closeAllMenus">
+  <div class="app-shell" @click="closeAllMenus">
     <CyberGate v-if="!isConnected" @connected="onConnected" />
     
     <div v-else class="main-view">
