@@ -341,7 +341,36 @@ onMounted(() => {
 <style scoped>
 .app-shell { height: 100vh; width: 100vw; background: #000; color: #d4d4d8; font-family: 'JetBrains Mono', monospace; overflow: hidden; display: flex; flex-direction: column; }
 .main-view { display: flex; flex: 1; height: 100%; width: 100%; overflow: hidden; position: relative; }
-.workspace { flex: 1; display: flex; flex-direction: column; background: #000; overflow: hidden; position: relative; height: 100%; }
+
+/* FIX: Ensure side-bar completely vanishes when collapsed */
+:deep(.side-bar) {
+  width: 260px;
+  flex-shrink: 0;
+  transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1), padding 0.2s ease, opacity 0.2s ease;
+  overflow: hidden;
+}
+
+:deep(.side-bar.collapsed) {
+  width: 0 !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.workspace { 
+  flex: 1; 
+  display: flex; 
+  flex-direction: column; 
+  background: #000; 
+  overflow: hidden; 
+  position: relative; 
+  height: 100%;
+  min-width: 0; /* CRITICAL: Allows terminal to expand properly */
+  width: 100%;
+}
 .workspace-body { flex: 1; display: flex; overflow: hidden; position: relative; width: 100%; }
 .terminal-pane { flex: 1; height: 100%; min-width: 0; display: flex; flex-direction: column; overflow: hidden; background: #000; }
 .cyber-pane { width: 420px; height: 100%; border-left: 1px solid #27272a; display: none; flex-direction: column; background: #000; }
