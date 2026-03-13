@@ -521,4 +521,3 @@ input:checked + .slider:before { transform: translateX(12px); }
 .status-btn { background: transparent; border: none; color: #52525b; cursor: pointer; font-size: 10px; padding: 2px 6px; border-radius: 4px; transition: all 0.2s; }
 .status-btn:hover { color: #fff; }
 </style>
-</style>
