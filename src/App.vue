@@ -85,6 +85,32 @@ const onHeaderContextMenu = (p: { event: MouseEvent, module: string }) => {
 const storageKey = (h: string) => `ter_tabs_${h.replace(/\s+/g, '_')}`;
 let statsIntervalId: any = null;
 
+// v2.11.18: Unified Menu Mutex
+const activeMenu = ref<string | null>(null);
+
+const closeAllMenus = () => {
+  activeMenu.value = null;
+  showContextMenu.value = false;
+  showExplorerMenu.value = false;
+  showMorseMacro.value = false;
+  showPrivilegeMenu.value = false;
+};
+
+// Sync individual menu refs with unified activeMenu
+watch(activeMenu, (newVal) => {
+  if (newVal === null) {
+    showContextMenu.value = false;
+    showExplorerMenu.value = false;
+    showMorseMacro.value = false;
+    showPrivilegeMenu.value = false;
+  }
+});
+
+watch(showContextMenu, (val) => { if (val) activeMenu.value = 'terminal'; });
+watch(showExplorerMenu, (val) => { if (val) activeMenu.value = 'explorer'; });
+watch(showMorseMacro, (val) => { if (val) activeMenu.value = 'morse'; });
+watch(showPrivilegeMenu, (val) => { if (val) activeMenu.value = 'privilege'; });
+
 // ==========================================
 // --- DECOUPLED LOGIC ---
 // ==========================================
@@ -245,7 +271,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="app-shell" @click="showContextMenu = false; showMorseMacro = false; showExplorerMenu = false; showPrivilegeMenu = false">
+  <div class="app-shell" @click="closeAllMenus">
     <CyberGate v-if="!isConnected" @connected="onConnected" />
     
     <div v-else class="main-view">

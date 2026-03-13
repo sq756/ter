@@ -20,6 +20,17 @@ const props = defineProps<{
 const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill', 'change-dir', 'view-history', 'open-trigger-settings', 'fast-access', 'morse-down', 'morse-up', 'morse-context', 'explorer-context', 'cycle-health-mode', 'skill-context', 'header-context', 'resize-sftp-start']);
 
 const activeView = ref<'OPS'|'ARS'|'NAV'>('OPS');
+const views = ['OPS', 'ARS', 'NAV'] as const;
+
+const handleWheel = (e: WheelEvent) => {
+  if (e.shiftKey || (e.target as HTMLElement).closest('.view-switcher-safe')) {
+    e.preventDefault();
+    const currentIndex = views.indexOf(activeView.value);
+    const direction = e.deltaY > 0 ? 1 : -1;
+    const nextIndex = (currentIndex + direction + views.length) % views.length;
+    activeView.value = views[nextIndex] as any;
+  }
+};
 
 // v2.6.0: Agentic Interaction (Drag & Drop + Context Menu)
 const draggedFile = ref<any>(null);
@@ -72,7 +83,7 @@ const isTabActive = (id: string) => {
 </script>
 
 <template>
-  <aside class="side-bar" @contextmenu.prevent>
+  <aside class="side-bar" @contextmenu.prevent @wheel="handleWheel">
     <div class="sidebar-branding" @click="$emit('open-trigger-settings')" @contextmenu.prevent="$emit('header-context', {event: $event, module: 'branding'})" title="Click for System Settings">
       <div class="branding-text">TER // ADVANCED_TERMINAL</div>
       <div class="scanline"></div>
