@@ -1,5 +1,6 @@
-import { ref, computed, type Ref } from 'vue';
+import { ref, computed, onMounted, onUnmounted, type Ref } from 'vue';
 import * as echarts from 'echarts';
+import { listen } from '@tauri-apps/api/event';
 
 export type HealthMode = 'resource' | 'network' | 'detail';
 
@@ -8,7 +9,9 @@ export function useStats(currentAgentPort: Ref<number | null>, agentToken: Ref<s
   const memChartRef = ref<HTMLElement | null>(null);
   const netChartRef = ref<HTMLElement | null>(null);
   
-  let cpuChart: any, memChart: any, netChart: any;
+  let cpuChart: echarts.ECharts | null = null;
+  let memChart: echarts.ECharts | null = null;
+  let netChart: echarts.ECharts | null = null;
   
   const cpuHistory = ref<number[]>([]);
   const memHistory = ref<number[]>([]);
@@ -39,7 +42,7 @@ export function useStats(currentAgentPort: Ref<number | null>, agentToken: Ref<s
     xAxis: { type: 'category', show: false }, 
     yAxis: { type: 'value', min: 0, max, show: false }, 
     series: [{ 
-      data: d, 
+      data: [...d], 
       type: 'line', 
       smooth: true, 
       areaStyle: { color: c, opacity: 0.2 }, 
@@ -56,6 +59,51 @@ export function useStats(currentAgentPort: Ref<number | null>, agentToken: Ref<s
     if (netChartRef.value) netChart = echarts.init(netChartRef.value);
   };
 
+  const resizeCharts = () => {
+    cpuChart?.resize();
+    memChart?.resize();
+    netChart?.resize();
+  };
+
+  const updateTelemetry = (d: any) => {
+    // Update Histories
+    cpuHistory.value.push(d.cpu_usage); 
+    memHistory.value.push((d.mem_used / d.mem_total) * 100);
+    
+    // Calc Network Speed
+    const now = Date.now();
+    const dt = (now - lastNetStats.value.time) / 1000;
+    if (dt > 0) {
+      const up = (d.net_sent - lastNetStats.value.sent) / dt;
+      const down = (d.net_recv - lastNetStats.value.recv) / dt;
+      currentNetSpeed.value = { up: formatSpeed(up), down: formatSpeed(down) };
+      netHistory.value.push(up + down);
+      lastNetStats.value = { sent: d.net_sent, recv: d.net_recv, time: now };
+    }
+
+    if (cpuHistory.value.length > 30) { 
+      cpuHistory.value.shift(); 
+      memHistory.value.shift(); 
+      netHistory.value.shift();
+    }
+    
+    // Update Charts based on mode
+    if (healthMode.value === 'resource') {
+      cpuChart?.setOption(getChartOpt(cpuHistory.value, '#22c55e')); 
+      memChart?.setOption(getChartOpt(memHistory.value, '#3b82f6'));
+    } else if (healthMode.value === 'network') {
+      netChart?.setOption(getChartOpt(netHistory.value, '#a855f7', Math.max(...netHistory.value, 1024)));
+    }
+
+    // Update Extra Info
+    extraStats.value = {
+      gpu: d.gpu_info || 'N/A',
+      uptime: Math.floor(d.uptime) + 's',
+      ip: d.ip || '127.0.0.1',
+      disk: `${(d.disk_used / 1024 / 1024 / 1024).toFixed(1)}/${(d.disk_total / 1024 / 1024 / 1024).toFixed(1)} GB`
+    };
+  };
+
   const fetchStats = async () => {
     if (!currentAgentPort.value) return;
     try {
@@ -64,52 +112,28 @@ export function useStats(currentAgentPort: Ref<number | null>, agentToken: Ref<s
       });
       if (!r.ok) return;
       const d = await r.json();
-      
-      // Update Histories
-      cpuHistory.value.push(d.cpu_usage); 
-      memHistory.value.push((d.mem_used / d.mem_total) * 100);
-      
-      // Calc Network Speed
-      const now = Date.now();
-      const dt = (now - lastNetStats.value.time) / 1000;
-      if (dt > 0) {
-        const up = (d.net_sent - lastNetStats.value.sent) / dt;
-        const down = (d.net_recv - lastNetStats.value.recv) / dt;
-        currentNetSpeed.value = { up: formatSpeed(up), down: formatSpeed(down) };
-        netHistory.value.push(up + down);
-        lastNetStats.value = { sent: d.net_sent, recv: d.net_recv, time: now };
-      }
-
-      if (cpuHistory.value.length > 30) { 
-        cpuHistory.value.shift(); 
-        memHistory.value.shift(); 
-        netHistory.value.shift();
-      }
-      
-      // Update Charts based on mode
-      if (healthMode.value === 'resource') {
-        cpuChart?.setOption(getChartOpt(cpuHistory.value, '#22c55e')); 
-        memChart?.setOption(getChartOpt(memHistory.value, '#3b82f6'));
-      } else if (healthMode.value === 'network') {
-        netChart?.setOption(getChartOpt(netHistory.value, '#a855f7', Math.max(...netHistory.value, 1024)));
-      }
-
-      // Update Extra Info
-      extraStats.value = {
-        gpu: d.gpu_info || 'N/A',
-        uptime: Math.floor(d.uptime) + 's',
-        ip: d.ip || '127.0.0.1',
-        disk: `${(d.disk_used / 1024 / 1024 / 1024).toFixed(1)}/${(d.disk_total / 1024 / 1024 / 1024).toFixed(1)} GB`
-      };
-      
+      updateTelemetry(d);
     } catch (e) {
       console.warn("Stats fetch failed", e);
     }
   };
 
+  let unlisten: any = null;
+  onMounted(async () => {
+    unlisten = await listen('system-stats', (event: any) => {
+      updateTelemetry(event.payload);
+    });
+  });
+
+  onUnmounted(() => {
+    if (unlisten) unlisten();
+    cpuChart?.dispose();
+    memChart?.dispose();
+    netChart?.dispose();
+  });
+
   const setHealthMode = (mode: HealthMode) => {
     healthMode.value = mode;
-    // Force re-init or clear if needed
     setTimeout(initCharts, 50);
   };
 
@@ -122,6 +146,7 @@ export function useStats(currentAgentPort: Ref<number | null>, agentToken: Ref<s
     currentNetSpeed,
     extraStats,
     initCharts,
+    resizeCharts,
     fetchStats,
     setHealthMode
   };

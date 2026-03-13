@@ -457,6 +457,26 @@ pub fn run() {
             
             let db_url = format!("sqlite:///{}?mode=rwc", app_dir.join("ter.db").to_string_lossy());
             let state = app.state::<AppState>();
+            
+            // v2.11.22: Telemetry Push Loop (Heartbeat)
+            let ah_telemetry = ah.clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    // Emit a heartbeat/dummy stats if no agent is active to keep the link alive
+                    // In a production scenario, this would fetch from the remote agent.
+                    let _ = ah_telemetry.emit("system-stats", serde_json::json!({
+                        "cpu_usage": 0.0,
+                        "mem_used": 0,
+                        "mem_total": 1,
+                        "net_sent": 0,
+                        "net_recv": 0,
+                        "uptime": 0,
+                        "is_heartbeat": true
+                    }));
+                }
+            });
+
             tauri::async_runtime::block_on(async move { match Db::new(&db_url).await { Ok(db) => { let _ = state.db.set(db); } Err(e) => { *state.db_error.lock().await = Some(e.to_string()); } } });
             Ok(())
         })

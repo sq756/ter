@@ -116,7 +116,7 @@ const {
 const { 
   cpuChartRef, memChartRef, netChartRef, currentCpuUsage, 
   healthMode, currentNetSpeed, extraStats,
-  initCharts, fetchStats, setHealthMode
+  initCharts, resizeCharts, fetchStats, setHealthMode
 } = useStats(currentAgentPort, agentToken);
 
 const cycleHealthMode = () => {
@@ -292,6 +292,7 @@ watch(() => showPrivilegeMenu.value, (val) => { if (val) activeMenu.value = 'pri
         @skill-context="onSkillContextMenu"
         @header-context="onHeaderContextMenu"
         @resize-sftp-start="startResizingSFTP"
+        @resize-charts="resizeCharts"
       />
 
       <main class="workspace" @click.stop>

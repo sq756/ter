@@ -17,10 +17,19 @@ const props = defineProps<{
   sftpHeight: number;
 }>();
 
-const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill', 'change-dir', 'view-history', 'open-trigger-settings', 'fast-access', 'morse-down', 'morse-up', 'morse-context', 'explorer-context', 'cycle-health-mode', 'skill-context', 'header-context', 'resize-sftp-start']);
+const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill', 'change-dir', 'view-history', 'open-trigger-settings', 'fast-access', 'morse-down', 'morse-up', 'morse-context', 'explorer-context', 'cycle-health-mode', 'skill-context', 'header-context', 'resize-sftp-start', 'resize-charts']);
 
 const activeView = ref<'OPS'|'ARS'|'NAV'>('OPS');
 const views = ['OPS', 'ARS', 'NAV'] as const;
+
+import { watch, nextTick } from 'vue';
+watch(activeView, (newView) => {
+  if (newView === 'OPS') {
+    nextTick(() => {
+      emit('resize-charts');
+    });
+  }
+});
 
 const handleWheel = (e: WheelEvent) => {
   if (e.shiftKey || (e.target as HTMLElement).closest('.view-switcher-safe')) {
