@@ -35,6 +35,9 @@ const activeMacros = ref<{name: string, cmd: string}[]>([]);
 
 const isLocked = ref(false);
 const isSidebarOpen = ref(false);
+const isCtrlPressed = ref(false);
+const isAltPressed = ref(false);
+const isShiftPressed = ref(false);
 const cyberMode = ref(0); 
 const agentToken = ref('');
 const currentAgentPort = ref<number | null>(null);
@@ -225,6 +228,10 @@ const runSkill = async (skill: any) => {
 let unlistenLog: any;
 const preventDefaultContextMenu = (e: MouseEvent) => e.preventDefault();
 const handleGlobalKeyDown = (e: KeyboardEvent) => { 
+  if (e.ctrlKey) isCtrlPressed.value = true;
+  if (e.altKey) isAltPressed.value = true;
+  if (e.shiftKey) isShiftPressed.value = true;
+
   if (e.altKey && e.key.toLowerCase() === 'l') isLocked.value = !isLocked.value; 
   // Ctrl+T for new tab
   if (e.ctrlKey && e.key.toLowerCase() === 't') {
@@ -233,9 +240,16 @@ const handleGlobalKeyDown = (e: KeyboardEvent) => {
   }
 };
 
+const handleGlobalKeyUp = (e: KeyboardEvent) => {
+  if (!e.ctrlKey) isCtrlPressed.value = false;
+  if (!e.altKey) isAltPressed.value = false;
+  if (!e.shiftKey) isShiftPressed.value = false;
+};
+
 onMounted(async () => {
   window.addEventListener('contextmenu', preventDefaultContextMenu);
   window.addEventListener('keydown', handleGlobalKeyDown);
+  window.addEventListener('keyup', handleGlobalKeyUp);
   
   const st = localStorage.getItem('ter_active_triggers'); if (st) try { activeTriggers.value = JSON.parse(st); } catch(e){}
   const sm = localStorage.getItem('ter_macros'); if (sm) try { activeMacros.value = JSON.parse(sm); } catch(e){}
@@ -355,19 +369,6 @@ onUnmounted(() => {
               @switch-tab="bringToForeground" @close-tab="closeTab" @new-tab="createNewTab()" 
               @terminal-context="onTerminalContextMenu" 
             />
-            
-            <!-- Virtual Keyboard Bar for Mobile -->
-            <div class="mobile-kb-bar">
-              <button class="kb-btn" @click="invoke('write_pty', { tabId: activeTabId, data: '\t' })">TAB</button>
-              <button class="kb-btn" @click="invoke('write_pty', { tabId: activeTabId, data: '\x03' })">CTRL+C</button>
-              <button class="kb-btn" @click="invoke('write_pty', { tabId: activeTabId, data: '\x1b' })">ESC</button>
-              <button class="kb-btn" @click="invoke('write_pty', { tabId: activeTabId, data: '\x1b[A' })">↑</button>
-              <button class="kb-btn" @click="invoke('write_pty', { tabId: activeTabId, data: '\x1b[B' })">↓</button>
-              <button class="kb-btn" @click="invoke('write_pty', { tabId: activeTabId, data: '\x1b[D' })">←</button>
-              <button class="kb-btn" @click="invoke('write_pty', { tabId: activeTabId, data: '\x1b[C' })">→</button>
-              <button class="kb-btn" @click="invoke('write_pty', { tabId: activeTabId, data: '/' })">/</button>
-              <button class="kb-btn" @click="invoke('write_pty', { tabId: activeTabId, data: ':' })">:</button>
-            </div>
           </section>
 
           <section class="cyber-pane" :class="{ 'open': cyberMode === 1 }">
@@ -396,8 +397,26 @@ onUnmounted(() => {
         <footer class="status-bar">
           <div class="status-left stealth-zone" @mousedown.prevent="handleMorseMouse" @wheel.prevent="handleMorseWheel" @contextmenu.prevent="onMorseMacro">
             <div class="tiny-dot" :class="{ 'active': isMorsePressed }"></div>
-            <span class="item">1 | Agent: Active</span>
+            <span class="item">AGENT: ACTIVE</span>
           </div>
+
+          <!-- Integrated Hotkey Bar (Cyber Pendant Style) -->
+          <div class="hotkey-bar">
+            <template v-if="cyberMode === 0">
+              <button class="kb-pendant" @click="invoke('write_pty', { tabId: activeTabId, data: '\t' })">TAB</button>
+              <button class="kb-pendant" :class="{ 'active': isCtrlPressed }" @click="isCtrlPressed = !isCtrlPressed">CTRL</button>
+              <button class="kb-pendant" @click="invoke('write_pty', { tabId: activeTabId, data: '\x03' })">C-C</button>
+              <button class="kb-pendant" @click="invoke('write_pty', { tabId: activeTabId, data: '\x1b' })">ESC</button>
+              <button class="kb-pendant" @click="invoke('write_pty', { tabId: activeTabId, data: '\x1b[A' })">↑</button>
+              <button class="kb-pendant" @click="invoke('write_pty', { tabId: activeTabId, data: '\x1b[B' })">↓</button>
+            </template>
+            <template v-else>
+              <button class="kb-pendant accept" @click="invoke('write_pty', { tabId: activeTabId, data: '\r' })">ACCEPT</button>
+              <button class="kb-pendant discard" @click="cyberMode = 0">DISCARD</button>
+              <button class="kb-pendant refine" @click="handleExtractDOM">REFINE</button>
+            </template>
+          </div>
+
           <div class="status-right">
             <button class="status-btn" @click="captureAndUpload(false)">📸 Audit</button>
             <button class="status-btn" @click="cyberMode = cyberMode === 1 ? 0 : 1">{{ cyberMode === 1 ? '🖥️' : '🌐' }}</button>
@@ -424,7 +443,31 @@ onUnmounted(() => {
 .menu-item.danger:hover { background: #ef4444; color: #000; }
 .menu-divider { height: 1px; background: #18181b; margin: 4px 0; }
 
-.status-bar { height: 28px; background: #000; border-top: 1px solid #18181b; color: #52525b; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; font-size: 10px; z-index: 100; flex-shrink: 0; }
+.status-bar { height: 28px; background: rgba(0,0,0,0.8); backdrop-filter: blur(10px); border-top: 1px solid #18181b; color: #52525b; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; font-size: 10px; z-index: 100; flex-shrink: 0; }
+
+/* Dynamic Hotkey Bar */
+.hotkey-bar { display: flex; align-items: center; gap: 4px; height: 100%; }
+.kb-pendant { 
+  background: rgba(39, 39, 42, 0.3); 
+  border: 0.5px solid rgba(255,255,255,0.05); 
+  color: #71717a; 
+  font-family: 'JetBrains Mono', monospace; 
+  font-size: 9px; 
+  padding: 2px 8px; 
+  border-radius: 4px; 
+  cursor: pointer; 
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  text-transform: uppercase;
+}
+.kb-pendant:hover { background: rgba(255,255,255,0.05); color: #fff; box-shadow: 0 0 10px rgba(34, 197, 94, 0.2); }
+.kb-pendant.active { background: #22c55e; color: #000; box-shadow: 0 0 15px #22c55e; border-color: transparent; }
+.kb-pendant.accept { color: #22c55e; border-color: rgba(34, 197, 94, 0.3); }
+.kb-pendant.discard { color: #ef4444; border-color: rgba(239, 68, 68, 0.3); }
+
+/* Animation */
+.key-slide-enter-active, .key-slide-leave-active { transition: all 0.3s ease; }
+.key-slide-enter-from { opacity: 0; transform: translateX(20px); }
+.key-slide-leave-to { opacity: 0; transform: translateX(-20px); }
 .status-right { display: flex; align-items: center; }
 .status-right > * { margin-left: 15px !important; }
 .tiny-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; transition: all 0.1s; }
