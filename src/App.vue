@@ -37,7 +37,7 @@ const showSettings = ref(false);
 const activeMacros = ref<{name: string, cmd: string}[]>([]);
 
 const isLocked = ref(false);
-const isSidebarOpen = ref(false);
+const isSidebarOpen = ref(true);
 const isCtrlPressed = ref(false);
 const isAltPressed = ref(false);
 const isShiftPressed = ref(false);
@@ -280,7 +280,7 @@ onUnmounted(() => {
     <div v-else class="main-view">
       <SettingsPanel :isOpen="showSettings" @close="showSettings = false" @update-macros="(m) => activeMacros = m" />
       <SidebarPanel 
-        :class="{ 'open': isSidebarOpen }"
+        :class="{ 'collapsed': !isSidebarOpen }"
         :files="realFiles" :currentPath="currentPath" :bgTabs="backgroundTabs" :skills="skills"
         :lastActivityMap="lastActivityMap"
         :cpuChartRef="cpuChartRef" :memChartRef="memChartRef" :netChartRef="netChartRef"
@@ -293,7 +293,8 @@ onUnmounted(() => {
         @skill-context="onSkillContextMenu"
       />
 
-      <main class="workspace" ref="workspaceRef" @click="isSidebarOpen = false">
+      <main class="workspace" ref="workspaceRef">
+        <!-- (Rest of modals, menus, etc.) -->
         <!-- Skill Settings Modal -->
         <div v-if="showSkillSettings" class="modal-overlay" @click.self="showSkillSettings = false">
           <div class="auth-card cyber-card">
@@ -356,7 +357,7 @@ onUnmounted(() => {
           <div class="text">{{ morseText }}</div>
           <div class="candidates" v-if="possibleLetters">{{ possibleLetters }}</div>
         </div>
-
+        
         <div class="workspace-body">
           <section class="terminal-pane">
             <TerminalTabs 
@@ -391,6 +392,9 @@ onUnmounted(() => {
 
         <footer class="status-bar">
           <div class="status-left">
+            <button class="status-btn sidebar-toggle" @click="isSidebarOpen = !isSidebarOpen" title="Toggle Sidebar">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
+            </button>
             <div class="status-item node-info">
               <span class="node-dot pulse purple"></span>
               <span class="label">NODE:</span> <span class="val">{{ host }}</span>
@@ -402,7 +406,6 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- Integrated Hotkey Bar (Cyber Pendant Style) -->
           <div class="hotkey-bar">
             <template v-if="cyberMode === 0">
               <button class="kb-pendant" @click="invoke('write_pty', { tabId: activeTabId, data: '\t' })">TAB</button>
