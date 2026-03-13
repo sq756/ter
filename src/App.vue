@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted, nextTick, watch, computed } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { Webview } from '@tauri-apps/api/webview';
 
 const appWindow = getCurrentWindow();
 
@@ -91,7 +92,7 @@ const {
 } = useExplorerContextMenu(activeTabId, currentPath, refreshExplorer);
 
 const {
-  previewUrl, isWebviewLoading, refreshWebview, handleExtractDOM, onDomExtracted, captureAndUpload
+  previewUrl, isWebviewLoading, refreshWebview: legacyRefreshWebview, handleExtractDOM, onDomExtracted, captureAndUpload
 } = useCyber(activeTabId, backendLogs);
 
 const {
@@ -132,11 +133,69 @@ const closeAllMenus = () => {
   showMorseMacro.value = false;
 };
 
+// v3.0 Native Webview Logic
+const webviewContainerRef = ref<HTMLElement | null>(null);
+let nativeWebview: Webview | null = null;
+let resizeObserver: ResizeObserver | null = null;
+
+const updateNativeWebviewPosition = async () => {
+  if (!nativeWebview || !webviewContainerRef.value || cyberMode.value !== 1) return;
+  
+  const rect = webviewContainerRef.value.getBoundingClientRect();
+  await nativeWebview.setSize({
+    type: 'Logical',
+    width: rect.width,
+    height: rect.height
+  });
+  await nativeWebview.setPosition({
+    type: 'Logical',
+    x: rect.left,
+    y: rect.top
+  });
+};
+
+const refreshWebview = async () => {
+  if (cyberMode.value !== 1) return;
+  if (nativeWebview && safePreviewUrl.value) {
+    await nativeWebview.navigate(safePreviewUrl.value);
+  } else {
+    spawnNativeWebview(safePreviewUrl.value);
+  }
+};
+
+const spawnNativeWebview = async (url: string) => {
+  if (!url || url === 'about:blank') {
+    if (nativeWebview) await nativeWebview.hide();
+    return;
+  }
+
+  const rect = webviewContainerRef.value?.getBoundingClientRect() || { left: 0, top: 0, width: 800, height: 600 };
+
+  if (!nativeWebview) {
+    nativeWebview = new Webview(appWindow, 'ter_main_webview', {
+      url,
+      x: rect.left,
+      y: rect.top,
+      width: rect.width,
+      height: rect.height,
+    });
+    
+    nativeWebview.once('tauri://created', () => {
+      console.log('TER_SYSTEM: Native Webview spawned.');
+    });
+  } else {
+    await nativeWebview.navigate(url);
+    await updateNativeWebviewPosition();
+    await nativeWebview.show();
+  }
+};
+
 const onGlobalMouseMove = (e: MouseEvent) => {
   if (isResizingSFTP.value) {
     let newHeight = window.innerHeight - e.clientY - 30;
     if (newHeight > 100 && newHeight < window.innerHeight * 0.8) {
       sftpHeight.value = newHeight;
+      nextTick(() => updateNativeWebviewPosition());
     }
   }
 };
@@ -147,6 +206,19 @@ const safePreviewUrl = computed(() => {
     return 'about:blank';
   }
   return previewUrl.value;
+});
+
+// Intercept mode changes to show/hide native webview
+watch(cyberMode, (newMode) => {
+  if (newMode === 1) {
+    if (safePreviewUrl.value) spawnNativeWebview(safePreviewUrl.value);
+  } else {
+    if (nativeWebview) nativeWebview.hide();
+  }
+});
+
+watch(safePreviewUrl, (newUrl) => {
+  if (cyberMode.value === 1) spawnNativeWebview(newUrl);
 });
 
 let morseTimer: any = null;
@@ -293,7 +365,17 @@ onMounted(() => {
   window.addEventListener('mousemove', onGlobalMouseMove);
   window.addEventListener('mouseup', stopResizingSFTP);
   window.addEventListener('click', closeAllMenus);
+  window.addEventListener('resize', updateNativeWebviewPosition);
   
+  if (webviewContainerRef.value) {
+    resizeObserver = new ResizeObserver(() => {
+      if (cyberMode.value === 1) {
+        updateNativeWebviewPosition();
+      }
+    });
+    resizeObserver.observe(webviewContainerRef.value);
+  }
+
   listen<string>('backend-log', (e) => { 
     if (!isLogsPaused.value) {
       backendLogs.value.push(e.payload); 
@@ -306,6 +388,8 @@ onUnmounted(() => {
   window.removeEventListener('click', closeAllMenus);
   window.removeEventListener('mousemove', onGlobalMouseMove);
   window.removeEventListener('mouseup', stopResizingSFTP);
+  window.removeEventListener('resize', updateNativeWebviewPosition);
+  if (resizeObserver) resizeObserver.disconnect();
 });
 </script>
 
@@ -405,8 +489,8 @@ onUnmounted(() => {
                   <input v-model="previewUrl" @keyup.enter="refreshWebview()" class="address-bar-input" />
                   <button @click="refreshWebview()" class="refresh-btn">⚡</button>
                 </nav>
-                <div class="webview-container" style="flex: 1; display: flex; flex-direction: column; height: 100%;">
-                   <iframe v-if="safePreviewUrl" :src="safePreviewUrl" class="cyber-iframe" frameborder="0" style="flex: 1; width: 100%; height: 100%; background: #ffffff;"></iframe>
+                <div ref="webviewContainerRef" class="webview-container" style="flex: 1; display: flex; flex-direction: column; height: 100%;">
+                   <!-- Native Webview will be anchored here -->
                 </div>
               </div>
             </div>
