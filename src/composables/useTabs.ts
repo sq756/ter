@@ -23,7 +23,7 @@ export function useTabs(isConnected: Ref<boolean>, backendLogs: Ref<string[]>) {
     if (!skipPty && isConnected.value) {
       try {
         await invoke('spawn_new_pty', { tabId: id });
-        // Initial sync
+        // CRITICAL: 500ms delay to ensure PTY is ready
         setTimeout(() => invoke('write_pty', { tabId: id, data: "\n\r" }), 500);
       } catch (e) { 
         backendLogs.value.push(`[ERROR] PTY Spawn fail for ${id}: ${e}`); 
@@ -56,8 +56,11 @@ export function useTabs(isConnected: Ref<boolean>, backendLogs: Ref<string[]>) {
     if (tid) {
       const tab = terminalTabs.value.find(t => t.id === tid);
       if (tab) {
+        // RESTORED: Intelligent Naming logic
+        const s = terminalManager.getSelection(tab.id).trim();
         tab.isBackground = true;
-        tab.title = `Proc: ${tid.substring(0, 5)}`;
+        tab.title = s ? `Proc: ${s.substring(0, 20)}...` : `Task: ${tab.id.substring(0, 5)}`;
+        
         if (activeTabId.value === tid) {
           activeTabId.value = terminalTabs.value.find(t => !t.isBackground)?.id || null;
         }
