@@ -83,9 +83,9 @@ const isTabActive = (id: string) => {
 </script>
 
 <template>
-  <aside class="side-bar" @contextmenu.prevent @wheel="handleWheel">
-    <div class="sidebar-branding" @click="$emit('open-trigger-settings')" @contextmenu.prevent="$emit('header-context', {event: $event, module: 'branding'})" title="Click for System Settings">
-      <div class="branding-text">TER // ADVANCED_TERMINAL</div>
+  <aside class="side-bar" @contextmenu.prevent.stop @wheel="handleWheel">
+    <div class="sidebar-branding" @click="$emit('open-trigger-settings')">
+      <div class="branding-text">TER // CYBER_DECK</div>
       <div class="scanline"></div>
     </div>
 
@@ -97,7 +97,7 @@ const isTabActive = (id: string) => {
     </div>
 
     <div v-show="activeView === 'OPS'" class="safe-view-wrapper">
-      <div class="module sys-health" @click="$emit('cycle-health-mode')" @contextmenu.prevent="$emit('header-context', {event: $event, module: 'health'})" style="cursor: pointer;">
+      <div class="module sys-health" @click="$emit('cycle-health-mode')" style="cursor: pointer;">
       <header>System Health ({{ healthMode.toUpperCase() }})</header>
       
       <!-- Resource Mode: CPU & RAM -->
@@ -133,9 +133,9 @@ const isTabActive = (id: string) => {
     </div>
 
     <div class="module scroller processes">
-      <header @contextmenu.prevent.stop="$emit('header-context', {event: $event, module: 'processes'})">Running Processes</header>
+      <header>Running Processes</header>
       <ul class="data-list">
-        <li v-for="t in bgTabs" :key="t.id" @click="$emit('switch-tab', t.id)" @contextmenu.prevent="$emit('proc-context', {event: $event, tab: t})">
+        <li v-for="t in bgTabs" :key="t.id" @click="$emit('switch-tab', t.id)" @contextmenu.prevent.stop="$emit('proc-context', {event: $event, tab: t})">
           <span class="icon">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17h16M4 7h16M4 12h16"></path></svg>
           </span>
@@ -149,7 +149,7 @@ const isTabActive = (id: string) => {
 
     <div v-show="activeView === 'ARS'" class="safe-view-wrapper safe-flex-wrapper">
     <div class="module scroller skills-hub">
-      <header class="header-with-action" @contextmenu.prevent.stop="$emit('header-context', {event: $event, module: 'skills'})">
+      <header class="header-with-action">
         <span>Skill Hub</span>
         <button class="header-btn" title="Configure AI Triggers" @click="$emit('open-trigger-settings')">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
@@ -158,7 +158,7 @@ const isTabActive = (id: string) => {
       <ul class="data-list">
         <li v-for="s in skills" :key="s.id" 
           @click="$emit('run-skill', s)" 
-          @contextmenu.prevent="$emit('skill-context', {event: $event, skill: s})"
+          @contextmenu.prevent.stop="$emit('skill-context', {event: $event, skill: s})"
           @dragover.prevent 
           @drop="onDropOnSkill(s)" 
           :title="s.description"
@@ -178,11 +178,10 @@ const isTabActive = (id: string) => {
     <div v-show="activeView === 'NAV'" class="safe-view-wrapper safe-flex-wrapper">
     <!-- v2.2.11: FAST ACCESS instead of Session History -->
     <div class="module scroller history">
-      <header @contextmenu.prevent.stop="$emit('header-context', {event: $event, module: 'history'})">FAST ACCESS</header>
+      <header>FAST ACCESS</header>
       <ul class="data-list">
         <li v-for="path in lastVisited" :key="path" 
-            @click="onFastAccessClick(path)" 
-            @contextmenu.prevent="$emit('explorer-context', { e: $event, file: { name: path, is_dir: true, path: path } })">
+            @click="onFastAccessClick(path)">
           <span class="icon">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg>
           </span>
@@ -194,12 +193,12 @@ const isTabActive = (id: string) => {
     </div>
 
     <div class="module scroller explorer" :style="{ height: sftpHeight + 'px', flex: 'none' }">
-      <header @contextmenu.prevent.stop="$emit('header-context', {event: $event, module: 'explorer'})">
+      <header>
         <span>SFTP Explorer</span>
         <div class="current-path">{{ currentPath }}</div>
       </header>
       <ul class="data-list">
-        <li @click="$emit('change-dir', '..')" @contextmenu.prevent="$emit('explorer-context', { e: $event, file: { name: '..', is_dir: true } })" class="file-item">
+        <li @click="$emit('change-dir', '..')" @contextmenu.prevent.stop="$emit('explorer-context', { e: $event, file: { name: '..', is_dir: true } })" class="file-item">
           <span class="file-icon">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
           </span>
@@ -207,7 +206,7 @@ const isTabActive = (id: string) => {
         </li>
         <li v-for="f in sortedFiles" :key="f.name" 
           @click="onItemClick(f)" 
-          @contextmenu.prevent="$emit('explorer-context', { e: $event, file: f })"
+          @contextmenu.prevent.stop="$emit('explorer-context', { e: $event, file: f })"
           draggable="true"
           @dragstart="onDragStart(f)"
           class="file-item">

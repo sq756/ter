@@ -270,7 +270,7 @@ watch(() => showPrivilegeMenu.value, (val) => { if (val) activeMenu.value = 'pri
 </script>
 
 <template>
-  <div class="app-shell" @click="closeAllMenus">
+  <div class="app-shell" @click="closeAllMenus" @contextmenu="closeAllMenus">
     <CyberGate v-if="!isConnected" @connected="onConnected" />
     
     <div v-else class="main-view">
@@ -331,7 +331,9 @@ watch(() => showPrivilegeMenu.value, (val) => { if (val) activeMenu.value = 'pri
           </template>
           <template v-else>
             <div class="menu-item" @click="explorerActionDownload">📥 Download</div>
-            <div class="menu-item" @click="explorerActionCat">👁️ View</div>
+            <div class="menu-item">👁️ Preview</div>
+            <div class="menu-divider"></div>
+            <div class="menu-item danger">🗑️ Delete</div>
           </template>
         </div>
 
@@ -642,7 +644,7 @@ input:checked + .slider:before { transform: translateX(12px); }
 .app-shell :deep(.header-with-action) { font-size: 11px; letter-spacing: 0.5px; }
 .app-shell :deep(.stealth-zone) { 
   border-radius: 4px; 
-  pointer-events: auto !important;
+  pointer-events: auto !important; 
   cursor: crosshair !important;
   z-index: 99999 !important;
 }
