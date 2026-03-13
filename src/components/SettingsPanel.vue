@@ -103,7 +103,7 @@ const removeMacro = (index: number) => {
   background: rgba(9, 9, 11, 0.95);
   backdrop-filter: blur(20px);
   border-left: 1px solid #22c55e44;
-  z-index: 1000000;
+  z-index: 2147483647;
   display: flex;
   flex-direction: column;
   box-shadow: -10px 0 30px rgba(0, 0, 0, 0.5);
@@ -113,7 +113,7 @@ const removeMacro = (index: number) => {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.4);
-  z-index: 999999;
+  z-index: 2147483646;
 }
 
 .drawer-header {

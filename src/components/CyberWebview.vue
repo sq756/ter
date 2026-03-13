@@ -13,8 +13,10 @@ const emit = defineEmits(['dom-extracted']);
 const containerRef = ref<HTMLElement | null>(null);
 let webview: Webview | null = null;
 const isWebviewReady = ref(false);
+const isWebviewError = ref(false);
 let unlistenExtracted: any = null;
 let resizeObserver: ResizeObserver | null = null;
+let initTimeout: any = null;
 
 const updateWebviewBounds = async () => {
   if (!webview || !containerRef.value) return;
@@ -53,9 +55,18 @@ const initWebview = async () => {
   unlistenExtracted = await listen<string>('dom-extracted', (ev) => { emit('dom-extracted', ev.payload); });
 
   webview.once('tauri://created', async () => {
+    if (initTimeout) clearTimeout(initTimeout);
     isWebviewReady.value = true;
     await invoke('eval_cyber_webview', { code: AGENT_SCRIPT });
   });
+
+  // v2.11.13: 5s Initialization Timeout Protection
+  initTimeout = setTimeout(() => {
+    if (!isWebviewReady.value) {
+      console.error("[CyberWebview] Initialization Timeout - Potential Renderer Crash");
+      isWebviewError.value = true;
+    }
+  }, 5000);
 
   // Setup ResizeObserver for coordinate sync
   resizeObserver = new ResizeObserver(() => {
@@ -65,6 +76,7 @@ const initWebview = async () => {
 };
 
 const destroyWebview = async () => {
+  if (initTimeout) clearTimeout(initTimeout);
   if (unlistenExtracted) {
     unlistenExtracted();
     unlistenExtracted = null;
@@ -100,7 +112,16 @@ defineExpose({ reload: () => invoke('reload_cyber_webview') });
 
 <template>
   <div class="cyber-webview" ref="containerRef">
-    <div class="native-placeholder" v-if="!isWebviewReady"><div class="loader">INITIALIZING_AGENTIC_WEBVIEW...</div></div>
+    <div class="native-placeholder" v-if="!isWebviewReady && !isWebviewError">
+      <div class="loader">INITIALIZING_AGENTIC_WEBVIEW...</div>
+    </div>
+    <div class="native-error" v-if="isWebviewError">
+      <div class="error-box">
+        <span class="icon">⚠️</span>
+        <div class="msg">RENDERER_CRASHED</div>
+        <div class="hint">Please check your environment or toggle 'Compatibility Mode' in settings.</div>
+      </div>
+    </div>
     <div class="tunnel-hint" v-if="url.includes('localhost')">⚡ Agent Injected</div>
     <button class="os-browser-btn" @click="openInBrowser">🌍</button>
   </div>
@@ -109,6 +130,10 @@ defineExpose({ reload: () => invoke('reload_cyber_webview') });
 <style scoped>
 .cyber-webview { display: flex; flex-direction: column; height: 100%; width: 100%; background: #000; position: relative; }
 .native-placeholder { flex: 1; display: flex; align-items: center; justify-content: center; background: #09090b; color: #a855f7; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+.native-error { flex: 1; display: flex; align-items: center; justify-content: center; background: #09090b; color: #ef4444; font-family: 'JetBrains Mono', monospace; padding: 20px; text-align: center; }
+.error-box { border: 1px solid #ef4444; padding: 20px; border-radius: 8px; background: rgba(239, 68, 68, 0.05); }
+.error-box .msg { font-weight: bold; margin: 10px 0; letter-spacing: 2px; }
+.error-box .hint { font-size: 10px; opacity: 0.7; }
 .loader { animation: blink 1s infinite; }
 @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 .tunnel-hint { position: absolute; bottom: 10px; right: 10px; background: rgba(0, 0, 0, 0.8); color: #a855f7; font-size: 9px; padding: 4px 8px; border-radius: 4px; border: 1px solid rgba(168, 85, 247, 0.3); pointer-events: none; font-family: monospace; z-index: 5; }
