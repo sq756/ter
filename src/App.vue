@@ -357,14 +357,6 @@ onUnmounted(() => {
           <div class="candidates" v-if="possibleLetters">{{ possibleLetters }}</div>
         </div>
 
-        <nav class="tool-bar">
-          <div class="status-chip">
-            <button class="mobile-menu-btn" @click.stop="isSidebarOpen = !isSidebarOpen">☰</button>
-            <span class="pulse purple"></span> {{ host }}
-          </div>
-          <div class="actions"><button @click="isLocked = true" class="btn-tool">Lock System</button></div>
-        </nav>
-        
         <div class="workspace-body">
           <section class="terminal-pane">
             <TerminalTabs 
@@ -398,9 +390,16 @@ onUnmounted(() => {
         </div>
 
         <footer class="status-bar">
-          <div class="status-left stealth-zone" @mousedown.prevent="handleMorseMouse" @wheel.prevent="handleMorseWheel" @contextmenu.prevent="onMorseMacro">
-            <div class="tiny-dot" :class="{ 'active': isMorsePressed }"></div>
-            <span class="item">AGENT: ACTIVE</span>
+          <div class="status-left">
+            <div class="status-item node-info">
+              <span class="node-dot pulse purple"></span>
+              <span class="label">NODE:</span> <span class="val">{{ host }}</span>
+            </div>
+            <div class="status-divider"></div>
+            <div class="status-item agent-info stealth-zone" @mousedown.prevent="handleMorseMouse" @wheel.prevent="handleMorseWheel" @contextmenu.prevent="onMorseMacro">
+              <div class="tiny-dot" :class="{ 'active': isMorsePressed }"></div>
+              <span class="label">AGENT:</span> <span class="val">ACTIVE</span>
+            </div>
           </div>
 
           <!-- Integrated Hotkey Bar (Cyber Pendant Style) -->
@@ -410,20 +409,18 @@ onUnmounted(() => {
               <button class="kb-pendant" :class="{ 'active': isCtrlPressed }" @click="isCtrlPressed = !isCtrlPressed">CTRL</button>
               <button class="kb-pendant" @click="invoke('write_pty', { tabId: activeTabId, data: '\x03' })">C-C</button>
               <button class="kb-pendant" @click="invoke('write_pty', { tabId: activeTabId, data: '\x1b' })">ESC</button>
-              <button class="kb-pendant" @click="invoke('write_pty', { tabId: activeTabId, data: '\x1b[A' })">↑</button>
-              <button class="kb-pendant" @click="invoke('write_pty', { tabId: activeTabId, data: '\x1b[B' })">↓</button>
             </template>
             <template v-else>
               <button class="kb-pendant accept" @click="invoke('write_pty', { tabId: activeTabId, data: '\r' })">ACCEPT</button>
               <button class="kb-pendant discard" @click="cyberMode = 0">DISCARD</button>
-              <button class="kb-pendant refine" @click="handleExtractDOM">REFINE</button>
             </template>
           </div>
 
           <div class="status-right">
             <button class="status-btn" @click="captureAndUpload(false)">📸 Audit</button>
-            <button class="status-btn" @click="cyberMode = cyberMode === 1 ? 0 : 1">{{ cyberMode === 1 ? '🖥️' : '🌐' }}</button>
+            <button class="status-btn" @click="cyberMode = cyberMode === 1 ? 0 : 1">{{ cyberMode === 1 ? '🖥️' : '🌐' }} Web</button>
             <div class="status-toggle"><span>Auto</span><label class="mini-switch"><input type="checkbox" v-model="isAutoPilot" /><span class="slider"></span></label></div>
+            <button class="status-btn lock-btn" @click="isLocked = true">🔒 LOCK</button>
           </div>
         </footer>
       </main>
@@ -447,7 +444,15 @@ onUnmounted(() => {
 .menu-item.danger:hover { background: #ef4444; color: #000; }
 .menu-divider { height: 1px; background: #18181b; margin: 4px 0; }
 
-.status-bar { height: 28px; background: rgba(0,0,0,0.8); backdrop-filter: blur(10px); border-top: 1px solid #18181b; color: #52525b; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; font-size: 10px; z-index: 100; flex-shrink: 0; }
+.status-bar { height: 32px; background: rgba(0,0,0,0.9); backdrop-filter: blur(10px); border-top: 1px solid #18181b; color: #52525b; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; font-size: 10px; z-index: 100; flex-shrink: 0; }
+
+.status-left { display: flex; align-items: center; gap: 0; }
+.status-item { display: flex; align-items: center; gap: 8px; padding: 0 10px; height: 32px; }
+.status-divider { width: 1px; height: 16px; background: #27272a; margin: 0 4px; }
+.status-item .label { color: #3f3f46; font-weight: bold; }
+.status-item .val { color: #a1a1aa; }
+.node-dot { width: 6px; height: 6px; border-radius: 50%; }
+.node-dot.purple { background: #a855f7; box-shadow: 0 0 8px #a855f7; }
 
 /* Dynamic Hotkey Bar */
 .hotkey-bar { display: flex; align-items: center; gap: 4px; height: 100%; }
@@ -472,12 +477,14 @@ onUnmounted(() => {
 .key-slide-enter-active, .key-slide-leave-active { transition: all 0.3s ease; }
 .key-slide-enter-from { opacity: 0; transform: translateX(20px); }
 .key-slide-leave-to { opacity: 0; transform: translateX(-20px); }
-.status-right { display: flex; align-items: center; }
-.status-right > * { margin-left: 15px !important; }
+.status-right { display: flex; align-items: center; gap: 12px; }
 .tiny-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; transition: all 0.1s; }
 .tiny-dot.active { transform: scale(1.1); box-shadow: 0 0 8px #22c55e; filter: brightness(1.5); }
-.stealth-zone { display: flex; align-items: center; gap: 8px; cursor: pointer; height: 100%; padding: 0 5px; }
+.stealth-zone { cursor: pointer; }
 .stealth-zone:hover { background: rgba(34, 197, 94, 0.05); }
+
+.lock-btn { color: #71717a !important; border: 1px solid #27272a !important; padding: 2px 8px !important; border-radius: 4px !important; }
+.lock-btn:hover { border-color: #ef4444 !important; color: #ef4444 !important; background: rgba(239, 68, 68, 0.1) !important; }
 
 .workspace-body { flex: 1; display: flex; overflow: hidden; position: relative; }
 .terminal-pane { flex: 1; height: 100%; min-width: 0; position: relative; display: flex; flex-direction: column; overflow: hidden; }
@@ -498,9 +505,6 @@ onUnmounted(() => {
 .morse-preview-overlay .sequence { font-size: 24px; color: #22c55e; letter-spacing: 4px; }
 .morse-preview-overlay .candidates { font-size: 9px; color: #166534; margin-top: 5px; }
 
-.tool-bar { height: 36px; background: #000; border-bottom: 1px solid #18181b; display: flex; align-items: center; justify-content: space-between; padding: 0 15px; }
-.btn-tool { background: transparent; border: 1px solid #27272a; color: #52525b; padding: 3px 10px; font-size: 10px; cursor: pointer; text-transform: uppercase; }
-.btn-tool:hover { border-color: #ef4444; color: #ef4444; }
 .status-chip { font-size: 11px; color: #52525b; display: flex; align-items: center; gap: 8px; }
 .pulse.purple { width: 6px; height: 6px; background: #a855f7; border-radius: 50%; box-shadow: 0 0 5px #a855f7; }
 
@@ -513,4 +517,5 @@ input:checked + .slider:before { transform: translateX(12px); }
 .status-toggle { display: flex; align-items: center; gap: 8px; font-size: 10px; color: #52525b; }
 .status-btn { background: transparent; border: none; color: #52525b; cursor: pointer; font-size: 10px; padding: 2px 6px; border-radius: 4px; transition: all 0.2s; }
 .status-btn:hover { color: #fff; }
+</style>
 </style>
