@@ -24,7 +24,6 @@ const updateWebviewBounds = async () => {
   const rect = containerRef.value.getBoundingClientRect();
   const dpr = window.devicePixelRatio;
 
-  // v2.11.11: Use Math.floor and precise coordinates
   await webview.setSize({
     type: 'Physical',
     width: Math.floor(rect.width * dpr),
@@ -40,39 +39,48 @@ const updateWebviewBounds = async () => {
 const initWebview = async () => {
   if (!containerRef.value || webview) return;
   
+  isWebviewError.value = false;
+  isWebviewReady.value = false;
+
   const currentWin = getCurrentWindow();
   const rect = containerRef.value.getBoundingClientRect();
   const dpr = window.devicePixelRatio;
 
-  webview = new Webview(currentWin, 'cyber-native-view', {
-    url: props.url,
-    x: Math.floor(rect.left * dpr),
-    y: Math.floor(rect.top * dpr),
-    width: Math.floor(rect.width * dpr),
-    height: Math.floor(rect.height * dpr),
-  });
+  try {
+    webview = new Webview(currentWin, 'cyber-native-view', {
+      url: props.url,
+      x: Math.floor(rect.left * dpr),
+      y: Math.floor(rect.top * dpr),
+      width: Math.floor(rect.width * dpr),
+      height: Math.floor(rect.height * dpr),
+    });
 
-  unlistenExtracted = await listen<string>('dom-extracted', (ev) => { emit('dom-extracted', ev.payload); });
+    unlistenExtracted = await listen<string>('dom-extracted', (ev) => { emit('dom-extracted', ev.payload); });
 
-  webview.once('tauri://created', async () => {
-    if (initTimeout) clearTimeout(initTimeout);
-    isWebviewReady.value = true;
-    await invoke('eval_cyber_webview', { code: AGENT_SCRIPT });
-  });
+    webview.once('tauri://created', async () => {
+      if (initTimeout) clearTimeout(initTimeout);
+      isWebviewReady.value = true;
+      await invoke('eval_cyber_webview', { code: AGENT_SCRIPT });
+    });
 
-  // v2.11.13: 5s Initialization Timeout Protection
-  initTimeout = setTimeout(() => {
-    if (!isWebviewReady.value) {
-      console.error("[CyberWebview] Initialization Timeout - Potential Renderer Crash");
-      isWebviewError.value = true;
-    }
-  }, 5000);
+    // v2.11.13: 5s Initialization Timeout Protection
+    initTimeout = setTimeout(() => {
+      if (!isWebviewReady.value) {
+        console.error("[CyberWebview] Initialization Timeout - Potential Renderer Crash");
+        isWebviewError.value = true;
+        destroyWebview();
+      }
+    }, 5000);
 
-  // Setup ResizeObserver for coordinate sync
-  resizeObserver = new ResizeObserver(() => {
-    updateWebviewBounds();
-  });
-  resizeObserver.observe(containerRef.value);
+    // Setup ResizeObserver for coordinate sync
+    resizeObserver = new ResizeObserver(() => {
+      updateWebviewBounds();
+    });
+    resizeObserver.observe(containerRef.value);
+  } catch (e) {
+    console.error("Webview Creation Failed:", e);
+    isWebviewError.value = true;
+  }
 };
 
 const destroyWebview = async () => {
@@ -86,10 +94,18 @@ const destroyWebview = async () => {
     resizeObserver = null;
   }
   if (webview) {
-    await webview.close();
+    try {
+      await webview.close();
+    } catch(e) {}
     webview = null;
     isWebviewReady.value = false;
   }
+};
+
+const handleRetry = async () => {
+  await destroyWebview();
+  await nextTick();
+  initWebview();
 };
 
 watch(() => props.url, (newUrl) => {
@@ -119,7 +135,11 @@ defineExpose({ reload: () => invoke('reload_cyber_webview') });
       <div class="error-box">
         <span class="icon">⚠️</span>
         <div class="msg">RENDERER_CRASHED</div>
-        <div class="hint">Please check your environment or toggle 'Compatibility Mode' in settings.</div>
+        <div class="hint">WSL/Linux graphics driver deadlock detected.</div>
+        <div class="actions">
+          <button class="retry-btn" @click="handleRetry">RETRY_INITIALIZATION</button>
+          <div class="backup-hint">Alternative: Use <code>webm [url]</code> in Terminal.</div>
+        </div>
       </div>
     </div>
     <div class="tunnel-hint" v-if="url.includes('localhost')">⚡ Agent Injected</div>
@@ -131,9 +151,13 @@ defineExpose({ reload: () => invoke('reload_cyber_webview') });
 .cyber-webview { display: flex; flex-direction: column; height: 100%; width: 100%; background: #000; position: relative; }
 .native-placeholder { flex: 1; display: flex; align-items: center; justify-content: center; background: #09090b; color: #a855f7; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
 .native-error { flex: 1; display: flex; align-items: center; justify-content: center; background: #09090b; color: #ef4444; font-family: 'JetBrains Mono', monospace; padding: 20px; text-align: center; }
-.error-box { border: 1px solid #ef4444; padding: 20px; border-radius: 8px; background: rgba(239, 68, 68, 0.05); }
-.error-box .msg { font-weight: bold; margin: 10px 0; letter-spacing: 2px; }
-.error-box .hint { font-size: 10px; opacity: 0.7; }
+.error-box { border: 1px solid #ef4444; padding: 24px; border-radius: 8px; background: rgba(239, 68, 68, 0.05); max-width: 320px; }
+.error-box .msg { font-weight: bold; margin: 10px 0; letter-spacing: 2px; font-size: 14px; }
+.error-box .hint { font-size: 10px; opacity: 0.7; margin-bottom: 20px; }
+.actions { display: flex; flex-direction: column; gap: 12px; }
+.retry-btn { background: #ef4444; color: #000; border: none; padding: 8px 16px; border-radius: 4px; font-weight: bold; cursor: pointer; font-size: 11px; }
+.retry-btn:hover { background: #f87171; }
+.backup-hint { font-size: 9px; color: #71717a; }
 .loader { animation: blink 1s infinite; }
 @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 .tunnel-hint { position: absolute; bottom: 10px; right: 10px; background: rgba(0, 0, 0, 0.8); color: #a855f7; font-size: 9px; padding: 4px 8px; border-radius: 4px; border: 1px solid rgba(168, 85, 247, 0.3); pointer-events: none; font-family: monospace; z-index: 5; }

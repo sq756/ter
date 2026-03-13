@@ -2,8 +2,16 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-  // v2.11.13: Ultimate Linux Rendering Fix for WebKit
-  std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
-  std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
-  ter_lib::run();
+    // v2.11.14: Ultimate Compatibility Fix for WSL/Linux
+    // 彻底禁用组合模式和 GPU 加速
+    std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+    std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    // 强制使用软渲染器
+    std::env::set_var("WEBKIT_FORCE_SOFTWARE_RENDERER", "1");
+    // 禁用 GPU 进程，让所有渲染在 WebProcess 中完成
+    std::env::set_var("WEBKIT_DISABLE_GPU_PROCESS", "1");
+    // 伪造音频环境，防止因找不到声卡而崩溃
+    std::env::set_var("WEBKIT_MUTE_AUDIO", "1");
+    
+    ter_lib::run();
 }
