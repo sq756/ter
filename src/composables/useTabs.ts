@@ -17,20 +17,13 @@ export function useTabs(isConnected: Ref<boolean>, backendLogs: Ref<string[]>) {
       }
     });
 
-    terminalManager.getOrCreate(id);
+    const instance = terminalManager.getOrCreate(id);
 
-    if (!skipPty && isConnected.value) {
-      try {
-        await invoke('spawn_new_pty', { tabId: id });
-        setTimeout(() => invoke('write_pty', { tabId: id, data: "\n\r" }), 600);
-      } catch (e) { 
-        backendLogs.value.push(`[ERROR] PTY Fail: ${e}`); 
-      }
-    }
-
-    if (!existingId) {
+    const exists = terminalTabs.value.some(t => t.id === id);
+    if (!exists) {
       terminalTabs.value.push({ id, title, isBackground: false });
     }
+    
     activeTabId.value = id;
     lastActivityMap.value[id] = Date.now();
     return id;

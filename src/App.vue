@@ -129,26 +129,21 @@ const onConnected = async (hostLabel: string) => {
   connectionStatus.value = 'connected';
   
   const saved = localStorage.getItem(storageKey(host.value));
-  let loadedIds = new Set<string>();
-
-  try {
-    if (saved) {
+  if (saved) {
+    try {
       const ts = JSON.parse(saved); 
       if (Array.isArray(ts) && ts.length > 0) {
         terminalTabs.value = ts;
         for (const t of ts) {
           await createNewTab(t.title, false, t.id);
-          loadedIds.add(t.id);
         }
         activeTabId.value = ts.find((t: any) => !t.isBackground)?.id || ts[0]?.id;
       } else {
         await createNewTab("Main Shell", false, "tab-1");
       }
-    } else {
-      await createNewTab("Main Shell", false, "tab-1");
-    }
-  } catch (e) { 
-    await createNewTab("Main Shell", false, "tab-1"); 
+    } catch (e) { await createNewTab("Main Shell", false, "tab-1"); }
+  } else {
+    await createNewTab("Main Shell", false, "tab-1");
   }
 
   setTimeout(() => {
@@ -173,45 +168,22 @@ const onSkillContextMenu = (p: { event: MouseEvent, skill: any }) => {
 };
 
 const runSkill = async (skill: any) => {
-  if (!isConnected.value) return;
-  if (skill.context_file) {
-    const f = skill.context_file;
-    const fullPath = (currentPath.value === '/' ? '' : currentPath.value) + '/' + f.name;
-    const cmd = `${skill.rpc || skill.trigger} "${fullPath}"\r\n`;
-    if (activeTabId.value) invoke('write_pty', { tabId: activeTabId.value, data: cmd });
-    return;
-  }
-  const rpc = skill.rpc || skill.trigger;
-  if (rpc && activeTabId.value) invoke('write_pty', { tabId: activeTabId.value, data: rpc.endsWith('\n') ? rpc : rpc + "\r\n" });
+  if (!isConnected.value || !activeTabId.value) return;
+  const cmd = skill.context_file ? `${skill.rpc || skill.trigger} "${(currentPath.value === '/' ? '' : currentPath.value) + '/' + skill.context_file.name}"\r\n` : (skill.rpc || skill.trigger) + "\r\n";
+  invoke('write_pty', { tabId: activeTabId.value, data: cmd });
 };
 
 const handleGlobalKeyDown = (e: KeyboardEvent) => { 
   if (e.ctrlKey) isCtrlPressed.value = true;
   if (e.altKey && e.key.toLowerCase() === 'l') isLocked.value = !isLocked.value; 
-  if (e.ctrlKey && e.key.toLowerCase() === 't') {
-    e.preventDefault();
-    if (isConnected.value) createNewTab();
-  }
+  if (e.ctrlKey && e.key.toLowerCase() === 't') { e.preventDefault(); if (isConnected.value) createNewTab(); }
 };
 
-const handleGlobalKeyUp = (e: KeyboardEvent) => {
-  if (!e.ctrlKey) isCtrlPressed.value = false;
-};
+const handleGlobalKeyUp = (e: KeyboardEvent) => { if (!e.ctrlKey) isCtrlPressed.value = false; };
 
-onMounted(async () => {
-  window.addEventListener('contextmenu', (e) => e.preventDefault());
+onMounted(() => {
   window.addEventListener('keydown', handleGlobalKeyDown);
   window.addEventListener('keyup', handleGlobalKeyUp);
-  
-  const st = localStorage.getItem('ter_active_triggers'); if (st) try { activeTriggers.value = JSON.parse(st); } catch(e){}
-  const sm = localStorage.getItem('ter_macros'); if (sm) try { activeMacros.value = JSON.parse(sm); } catch(e){}
-  
-  await listen<string>('backend-log', (e) => { 
-    if (!isLogsPaused.value) {
-      backendLogs.value.push(e.payload); 
-      if (backendLogs.value.length > 500) backendLogs.value.shift(); 
-    }
-  });
 });
 </script>
 
@@ -237,7 +209,8 @@ onMounted(async () => {
         @skill-context="onSkillContextMenu"
       />
 
-      <main class="workspace">
+      <main class="workspace" @click.stop>
+        <!-- Modal & Context Menus -->
         <div v-if="showSkillSettings" class="modal-overlay" @click.self="showSkillSettings = false">
           <div class="auth-card cyber-card">
             <h2 class="cyber-title">SKILL_CONFIG: {{ selectedSkill?.name }}</h2>
@@ -258,7 +231,6 @@ onMounted(async () => {
           <div class="menu-divider"></div>
           <div class="menu-item" @click="copySelectedText">📋 Copy</div>
           <div class="menu-item" @click="pasteFromClipboard">📥 Paste</div>
-          <div class="menu-divider"></div>
           <div class="menu-item danger" @click="closeTab(contextMenuTabId!)">❌ Close</div>
         </div>
 
@@ -278,12 +250,10 @@ onMounted(async () => {
           </section>
           <section class="cyber-pane" :class="{ 'open': cyberMode === 1 }">
             <div class="cyber-container">
-              <div class="cyber-logs-view">
-                <div class="logs-container">
-                  <div v-for="(log, i) in backendLogs" :key="i" class="log-line">{{ log }}</div>
-                </div>
+              <div class="logs-container">
+                <div v-for="(log, i) in backendLogs" :key="i" class="log-line">{{ log }}</div>
               </div>
-              <div class="cyber-webview-wrapper">
+              <div class="webview-wrapper">
                 <nav class="webview-address-bar">
                   <input v-model="previewUrl" @keyup.enter="refreshWebview()" class="address-bar-input" />
                   <button @click="refreshWebview()">⚡</button>
@@ -301,7 +271,7 @@ onMounted(async () => {
             </button>
             <div class="status-item"><span class="node-dot purple"></span> NODE: {{ host }}</div>
             <div class="status-divider"></div>
-            <div class="status-item stealth-zone" @mousedown.prevent="handleMorseMouse" @wheel.prevent="handleMorseWheel" @contextmenu.prevent="onMorseMacro">
+            <div class="status-item" @mousedown.prevent="handleMorseMouse" @wheel.prevent="handleMorseWheel" @contextmenu.prevent="onMorseMacro">
               <div class="tiny-dot" :class="{ 'active': isMorsePressed }"></div> AGENT: ACTIVE
             </div>
           </div>
@@ -317,27 +287,32 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.app-shell { height: 100vh; background: #000; color: #d4d4d8; font-family: 'JetBrains Mono', monospace; overflow: hidden; }
-.main-view { display: flex; height: 100%; width: 100%; }
-.workspace { flex: 1; display: flex; flex-direction: column; background: #000; overflow: hidden; position: relative; }
-.workspace-body { flex: 1; display: flex; overflow: hidden; position: relative; }
-.terminal-pane { flex: 1; height: 100%; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
-.cyber-pane { width: 420px; height: 100%; border-left: 1px solid #27272a; display: none; }
+.app-shell { height: 100vh; width: 100vw; background: #000; color: #d4d4d8; font-family: 'JetBrains Mono', monospace; overflow: hidden; display: flex; flex-direction: column; }
+.main-view { display: flex; flex: 1; height: 100%; width: 100%; position: relative; overflow: hidden; }
+.workspace { flex: 1; display: flex; flex-direction: column; background: #000; overflow: hidden; position: relative; height: 100%; }
+.workspace-body { flex: 1; display: flex; overflow: hidden; position: relative; width: 100%; }
+.terminal-pane { flex: 1; height: 100%; min-width: 0; display: flex; flex-direction: column; overflow: hidden; background: #000; }
+.cyber-pane { width: 420px; height: 100%; border-left: 1px solid #27272a; display: none; flex-direction: column; }
 .cyber-pane.open { display: flex; }
-.status-bar { height: 32px; background: #09090b; border-top: 1px solid #18181b; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; font-size: 10px; flex-shrink: 0; }
+.cyber-container { display: flex; flex-direction: column; height: 100%; }
+.logs-container { flex: 0 0 30%; overflow-y: auto; padding: 10px; background: #050505; border-bottom: 1px solid #27272a; font-size: 10px; }
+.webview-wrapper { flex: 1; display: flex; flex-direction: column; }
+.status-bar { height: 32px; background: #09090b; border-top: 1px solid #18181b; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; font-size: 10px; flex-shrink: 0; z-index: 1000; }
 .status-left, .status-right { display: flex; align-items: center; gap: 10px; }
 .status-divider { width: 1px; height: 14px; background: #27272a; }
-.node-dot { width: 6px; height: 6px; border-radius: 50%; background: #a855f7; display: inline-block; margin-right: 4px; }
+.node-dot { width: 6px; height: 6px; border-radius: 50%; background: #a855f7; display: inline-block; margin-right: 4px; box-shadow: 0 0 5px #a855f7; }
 .tiny-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; display: inline-block; margin-right: 4px; }
 .tiny-dot.active { box-shadow: 0 0 8px #22c55e; }
-.sidebar-toggle { color: #22c55e !important; cursor: pointer; }
-.status-btn { background: transparent; border: 1px solid transparent; color: #52525b; cursor: pointer; padding: 2px 6px; }
+.sidebar-toggle { color: #22c55e !important; cursor: pointer; display: flex; align-items: center; }
+.status-btn { background: transparent; border: 1px solid transparent; color: #52525b; cursor: pointer; padding: 2px 6px; font-family: inherit; }
 .status-btn:hover { color: #fff; border-color: #27272a; }
-.lock-btn:hover { color: #ef4444 !important; }
-.context-menu { position: fixed; z-index: 10000; background: #09090b; border: 1px solid #22c55e; padding: 4px; min-width: 140px; }
-.menu-item { padding: 6px 12px; font-size: 11px; cursor: pointer; }
+.lock-btn:hover { color: #ef4444 !important; border-color: rgba(239, 68, 68, 0.3) !important; }
+.context-menu { position: fixed; z-index: 10000; background: #09090b; border: 1px solid #22c55e; padding: 4px; min-width: 140px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
+.menu-item { padding: 6px 12px; font-size: 11px; cursor: pointer; color: #d4d4d8; }
 .menu-item:hover { background: #22c55e; color: #000; }
-.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 20000; }
-.cyber-card { background: #09090b; border: 1px solid #22c55e; padding: 20px; min-width: 300px; }
-.cyber-input { background: #000; border: 1px solid #27272a; color: #22c55e; padding: 8px; width: 100%; margin: 10px 0; }
+.menu-item.danger { color: #ef4444; }
+.menu-divider { height: 1px; background: #18181b; margin: 4px 0; }
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(5px); display: flex; align-items: center; justify-content: center; z-index: 20000; }
+.cyber-card { background: #09090b; border: 1px solid #22c55e; padding: 30px; min-width: 400px; box-shadow: 0 0 30px rgba(34, 197, 94, 0.2); }
+.address-bar-input { background: #000; border: 1px solid #27272a; color: #22c55e; padding: 4px 10px; font-size: 10px; outline: none; flex: 1; }
 </style>
