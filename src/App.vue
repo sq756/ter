@@ -360,36 +360,43 @@ onMounted(() => {
         <footer class="status-bar">
           <div class="status-left">
             <button class="status-btn sidebar-toggle" @click.stop="isSidebarOpen = !isSidebarOpen">
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
+              {{ isSidebarOpen ? 'SIDE_HIDE' : 'SIDE_SHOW' }}
             </button>
-            <div class="status-item" @click="showNetworkMatrix = true" style="cursor: pointer;" title="Open Network Topology Matrix">
-              <span class="node-dot purple"></span> NODE: {{ host }}
+            <span class="status-sep">|</span>
+            <div class="status-item node-info" @click="showNetworkMatrix = true">
+              NODE: {{ host }}
             </div>
-            <div class="status-divider"></div>
-            <div class="status-item stealth-zone" 
+            <span class="status-sep">|</span>
+            <div class="status-item agent-zone" 
+                 :class="{ 'active': isConnected, 'pressing': isMorsePressed }"
                  @mousedown.prevent="handleMorseMouse" 
                  @mouseup.prevent="handleMorseMouse" 
                  @mouseleave="handleMorseMouse"
                  @contextmenu.prevent>
-              <div class="tiny-dot" :class="{ 'active': isMorsePressed }"></div> AGENT: ACTIVE
+              <span class="morse-preview">{{ morseSequence || '...' }}</span>
+              AGENT: {{ isConnected ? 'ACTIVE' : 'OFFLINE' }}
             </div>
           </div>
 
           <div class="hotkey-bar">
-            <button class="kb-pendant" @click="invoke('write_pty', { tabId: activeTabId, data: '\t' })">TAB</button>
-            <button class="kb-pendant" :class="{ 'active': isCtrlPressed }" @click="isCtrlPressed = !isCtrlPressed">CTRL</button>
-            <button class="kb-pendant" @click="invoke('write_pty', { tabId: activeTabId, data: '\x03' })">C-C</button>
-            <button class="kb-pendant" @click="invoke('write_pty', { tabId: activeTabId, data: '\x1b' })">ESC</button>
+            <button class="status-btn modifier" @click="invoke('write_pty', { tabId: activeTabId, data: '\t' })">TAB</button>
+            <button class="status-btn modifier" :class="{ 'active': isCtrlPressed }" @click="isCtrlPressed = !isCtrlPressed">CTRL</button>
+            <button class="status-btn modifier" @click="invoke('write_pty', { tabId: activeTabId, data: '\x03' })">C-C</button>
+            <button class="status-btn modifier" @click="invoke('write_pty', { tabId: activeTabId, data: '\x1b' })">ESC</button>
           </div>
 
           <div class="status-right">
-            <button class="status-btn" @click="captureAndUpload(false)">📸 Audit</button>
-            <button class="status-btn" @click="cyberMode = cyberMode === 1 ? 0 : 1">{{ cyberMode === 1 ? '🖥️' : '🌐' }} Web</button>
-            <div class="status-toggle">
-              <span>Auto</span>
-              <label class="mini-switch"><input type="checkbox" v-model="isAutoPilot" /><span class="slider"></span></label>
-            </div>
-            <button class="status-btn lock-btn" @click="isLocked = true">🔒 LOCK</button>
+            <button class="status-btn" @click="captureAndUpload(false)">AUDIT_UI</button>
+            <span class="status-sep">|</span>
+            <button class="status-btn web-toggle" :class="{ 'active': cyberMode === 1 }" @click="cyberMode = cyberMode === 1 ? 0 : 1">
+              WEB_ENGINE: {{ cyberMode === 1 ? 'ON' : 'OFF' }}
+            </button>
+            <span class="status-sep">|</span>
+            <button class="status-btn auto-toggle" :class="{ 'active': isAutoPilot }" @click="isAutoPilot = !isAutoPilot">
+              AUTO_SYNC: {{ isAutoPilot ? 'ON' : 'OFF' }}
+            </button>
+            <span class="status-sep">|</span>
+            <button class="status-btn lock-btn" :class="{ 'active': isLocked }" @click="isLocked = true">SYS_LOCK</button>
           </div>
         </footer>
       </main>
@@ -490,17 +497,82 @@ onMounted(() => {
 }
 .engine-indicator.native { color: #a855f7; border-color: rgba(168, 85, 247, 0.4); }
 
-.status-bar { height: 32px; background: #09090b; border-top: 1px solid #18181b; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; font-size: 11px; flex-shrink: 0; z-index: 1000; }
-.status-left, .status-right { display: flex; align-items: center; gap: 15px; }
-.status-divider { width: 1px; height: 14px; background: #27272a; }
-.node-dot { width: 6px; height: 6px; border-radius: 50%; background: #a855f7; display: inline-block; margin-right: 4px; box-shadow: 0 0 5px #a855f7; }
-.tiny-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; display: inline-block; margin-right: 4px; }
-.tiny-dot.active { box-shadow: 0 0 8px #22c55e; }
-.sidebar-toggle { color: #22c55e !important; cursor: pointer; display: flex; align-items: center; border-radius: 4px; }
-.status-btn { background: transparent; border: 1px solid transparent; color: #52525b; cursor: pointer; padding: 2px 6px; font-family: inherit; border-radius: 4px; transition: all 0.2s; }
-.status-btn:hover { color: #fff; border-color: #27272a; background: rgba(255,255,255,0.05); }
-.lock-btn { border: 1px solid #27272a !important; }
-.lock-btn:hover { color: #ef4444 !important; border-color: rgba(239, 68, 68, 0.3) !important; background: rgba(239, 68, 68, 0.1) !important; }
+.status-bar { 
+  height: 32px; 
+  background: #09090b; 
+  border-top: 1px solid #18181b; 
+  display: flex; 
+  justify-content: space-between; 
+  align-items: center; 
+  padding: 0 12px; 
+  font-size: 11px; 
+  flex-shrink: 0; 
+  z-index: 1000;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.status-left, .status-right, .hotkey-bar { display: flex; align-items: center; gap: 8px; }
+.status-sep { color: #27272a; font-size: 10px; margin: 0 4px; pointer-events: none; }
+
+.status-btn { 
+  background: transparent; 
+  border: none; 
+  color: #52525b; 
+  cursor: pointer; 
+  padding: 4px 8px; 
+  font-family: 'JetBrains Mono', monospace !important;
+  font-size: 11px;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+}
+
+.status-btn:hover { 
+  color: #fff; 
+  transform: scale(1.05);
+}
+
+.status-btn.active { color: #fff; text-shadow: 0 0 8px currentColor; animation: breathe 2s infinite ease-in-out; }
+
+/* Theme Colors */
+.agent-zone.active { color: #22c55e; text-shadow: 0 0 10px rgba(34, 197, 94, 0.5); animation: breathe 2s infinite ease-in-out; }
+.agent-zone.pressing { transform: scale(0.95); filter: brightness(1.5); }
+.agent-zone { position: relative; cursor: crosshair; padding: 4px 8px; transition: all 0.1s; }
+
+.morse-preview {
+  position: absolute;
+  top: -18px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #22c55e;
+  color: #000;
+  padding: 1px 4px;
+  border-radius: 2px;
+  font-size: 9px;
+  font-weight: bold;
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+}
+.agent-zone.pressing .morse-preview, .agent-zone:hover .morse-preview { opacity: 1; }
+
+.web-toggle.active { color: #3b82f6; text-shadow: 0 0 10px rgba(59, 130, 246, 0.5); }
+.auto-toggle.active { color: #a855f7; text-shadow: 0 0 10px rgba(168, 85, 247, 0.5); }
+.modifier.active { color: #a855f7; background: rgba(168, 85, 247, 0.1); border: 1px solid rgba(168, 85, 247, 0.2); }
+.lock-btn:hover { color: #ef4444 !important; text-shadow: 0 0 10px rgba(239, 68, 68, 0.5); }
+
+@keyframes breathe {
+  0%, 100% { opacity: 1; filter: brightness(1); }
+  50% { opacity: 0.7; filter: brightness(1.3); }
+}
+
+.node-info { cursor: pointer; color: #71717a; transition: color 0.2s; }
+.node-info:hover { color: #a855f7; }
+
+/* Remove old status bar styles */
+.status-divider, .node-dot, .tiny-dot, .kb-pendant { display: none; }
 
 .context-menu { 
   position: fixed !important; 
