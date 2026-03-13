@@ -5,21 +5,32 @@ import { terminalManager } from '../TerminalManager';
 export function useTabs(isConnected: Ref<boolean>, backendLogs: Ref<string[]>) {
   const terminalTabs = ref<any[]>([]);
   const activeTabId = ref<string | null>(null);
-  const lastActivityMap = ref<Record<string, number>>({}); // v2.6.1: Activity tracking
+  const lastActivityMap = ref<Record<string, number>>({});
   const backgroundTabs = computed(() => terminalTabs.value.filter(t => t.isBackground));
 
   const createNewTab = async (title = "Shell", skipPty = false, existingId?: string) => {
     const id = existingId || 'tab-' + Math.random().toString(36).substr(2, 9);
+    console.log(`[useTabs] Creating tab: ${id} (${title})`);
     
     terminalManager.setOnDataCallback(id, (tid, data) => { 
       if (!skipPty && isConnected.value) {
-        invoke('write_pty', { tabId: tid, data }); 
+        invoke('write_pty', { tabId: tid, data }).catch(e => console.error("Write fail:", e)); 
       }
     });
 
-    const instance = terminalManager.getOrCreate(id);
+    terminalManager.getOrCreate(id);
 
-    const exists = terminalTabs.value.some(t => t.id === id);
+    if (!skipPty && isConnected.value) {
+      try {
+        await invoke('spawn_new_pty', { tabId: id });
+        // Initial sync
+        setTimeout(() => invoke('write_pty', { tabId: id, data: "\n\r" }), 500);
+      } catch (e) { 
+        backendLogs.value.push(`[ERROR] PTY Spawn fail for ${id}: ${e}`); 
+      }
+    }
+
+    const exists = terminalTabs.value.find(t => t.id === id);
     if (!exists) {
       terminalTabs.value.push({ id, title, isBackground: false });
     }
@@ -40,15 +51,13 @@ export function useTabs(isConnected: Ref<boolean>, backendLogs: Ref<string[]>) {
     }
   };
 
-  const sendToBackground = (contextMenuTabId: string | null) => {
-    const tid = contextMenuTabId || activeTabId.value;
+  const sendToBackground = (id: string | null) => {
+    const tid = id || activeTabId.value;
     if (tid) {
       const tab = terminalTabs.value.find(t => t.id === tid);
       if (tab) {
-        const s = terminalManager.getSelection(tab.id).trim();
         tab.isBackground = true;
-        // Semantic Naming
-        tab.title = s ? `Proc: ${s.substring(0, 20)}...` : `Task: ${tab.id.substr(0, 5)}`;
+        tab.title = `Proc: ${tid.substring(0, 5)}`;
         if (activeTabId.value === tid) {
           activeTabId.value = terminalTabs.value.find(t => !t.isBackground)?.id || null;
         }
@@ -77,6 +86,7 @@ export function useTabs(isConnected: Ref<boolean>, backendLogs: Ref<string[]>) {
     closeTab,
     sendToBackground,
     bringToForeground,
-    renameTab
+    renameTab,
+    lastActivityMap
   };
 }
