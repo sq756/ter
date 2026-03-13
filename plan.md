@@ -122,5 +122,20 @@ print(json.dumps(result)) # 返回结果给 Ter
 ---
 
 ## 4. 总结
-Ter 的进化目标是：**为人设计 UI，为 AI 设计接口**。
-传统的终端是工具，而 Ter 是 AI 智能体在远程服务器上的“身躯”。通过标准化的插件系统，任何外部工具都能一键转化为 AI 的新技能。
+---
+
+## 5. 安全与稳定性升级策略 (Safety & Stability Upgrade Strategy)
+
+### 5.1 主线程死锁预防协议 (Deadlock Prevention Protocol)
+*   **非阻塞原则**: 严禁在任何 `tauri::command` (Invoke Handler) 中使用 `std::sync::Mutex` 的 `lock()` 方法进行长时间等待。必须优先使用 `tokio::sync::Mutex` 或 `DashMap`。
+*   **异步运行环境**: 所有涉及 SSH 通信、文件 I/O 或复杂计算的任务，必须通过 `tauri::async_runtime::spawn` 或 `tokio::spawn` 异步执行。
+*   **初始化保护**: 严禁在 `setup` 阶段或 `main` 函数中进行阻塞式的网络探测或数据库大规模迁移。任何可能超过 50ms 的初始化任务必须异步化，并提供 UI 加载状态。
+
+### 5.2 UI 演进兼容性准则 (UI Evolution Guidelines)
+*   **Iframe 渲染基石**: 现有的 `<iframe>` 渲染模式作为 Cyber Webview 的稳定基准。在未通过 100% 兼容性测试前，严禁移除或默认替换为 Native Webview。
+*   **渐进式增强**: 新的 Native 渲染能力应以“增强层”形式存在（如侧边栏预览或独立悬浮窗），通过功能开关（Feature Flag）控制，确保用户在 Native 环境失效时能快速回退至 Iframe。
+*   **脚本安全性**: `AGENT_SCRIPT` 注入逻辑必须同时适配 Webview2 (Windows) 和 WebKit (Linux/macOS)，并处理好 Iframe 跨域限制下的降级方案。
+
+### 5.3 状态管理守卫 (State Management Guardrails)
+*   **主密码状态校验**: 所有敏感操作前，通过 `Option<Crypto>` 的非阻塞检查（如 `lock().await`）确认解锁状态。若未解锁，应返回标准的 `UNAUTHORIZED` 错误码，由前端统一引导至 CyberGate。
+*   **资源自动回收**: 强化 PTY 和 SSH 通道的 Drop 机制。在 Tab 关闭或连接断开时，必须通过 `AbortHandle` 显式终止后台轮询任务，防止僵尸进程和内存泄漏。

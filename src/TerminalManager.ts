@@ -43,6 +43,8 @@ class TerminalManager {
       fontFamily: "'JetBrains Mono', 'Ubuntu Mono', 'Fira Code', monospace",
       theme: { background: '#09090b', foreground: '#d4d4d8' },
       allowTransparency: false,
+      scrollback: 5000,
+      wheelScrollSensitivity: 1,
       ...options
     });
 
