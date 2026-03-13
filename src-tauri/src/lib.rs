@@ -304,7 +304,20 @@ async fn open_dynamic_tunnel(remote_port: u16, state: State<'_, AppState>) -> Re
     Ok(local_port)
 }
 #[tauri::command]
-async fn ai_audit_ui() -> Result<String, String> { Ok("".to_string()) }
+async fn list_remote_tmux_sessions(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let session_guard = state.session.lock().await;
+    let session = session_guard.as_ref().ok_or("No active SSH session")?;
+
+    let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
+    let mut data = Vec::new();
+    channel.exec(true, "tmux ls -F '#S'").await.map_err(|e| e.to_string())?;
+    let mut stream = channel.into_stream();
+    tokio::io::AsyncReadExt::read_to_end(&mut stream, &mut data).await.map_err(|e| e.to_string())?;
+    
+    let output = String::from_utf8_lossy(&data);
+    let sessions = output.lines().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+    Ok(sessions)
+}
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 struct ContextRequirement {
     require_screenshot: Option<bool>,
@@ -452,7 +465,8 @@ pub fn run() {
             spawn_new_pty, write_pty, close_pty, resize_pty, get_terminal_logs, get_active_ports,
             get_agent_token, open_dynamic_tunnel, ls_remote, load_remote_skills, ai_audit_ui,
             navigate_cyber_webview, reload_cyber_webview, extract_cyber_dom, eval_cyber_webview,
-            save_server_config, set_model_path, get_model_path, download_file, upload_file
+            save_server_config, set_model_path, get_model_path, download_file, upload_file,
+            list_remote_tmux_sessions
         ])
         .run(tauri::generate_context!())
         .expect("error");

@@ -119,23 +119,47 @@ const onConnected = async (hostLabel: string) => {
   try { agentToken.value = await invoke('get_agent_token'); } catch(e){}
   
   const saved = localStorage.getItem(storageKey(host.value));
+  let loadedIds = new Set<string>();
+
   if (saved) {
     try {
       const ts = JSON.parse(saved); 
-      if (!Array.isArray(ts) || ts.length === 0) {
-        await createNewTab("Main Shell", false, "tab-1");
-      } else {
+      if (Array.isArray(ts) && ts.length > 0) {
         terminalTabs.value = ts;
-        // Re-spawn PTYs for each saved tab
         for (const t of ts) {
           await createNewTab(t.title, false, t.id);
+          loadedIds.add(t.id);
         }
         activeTabId.value = ts.find((t: any) => !t.isBackground)?.id || ts[0]?.id;
+      } else {
+        await createNewTab("Main Shell", false, "tab-1");
+        loadedIds.add("tab-1");
       }
-    } catch (e) { await createNewTab("Main Shell", false, "tab-1"); }
+    } catch (e) { 
+      await createNewTab("Main Shell", false, "tab-1"); 
+      loadedIds.add("tab-1");
+    }
   } else if (terminalTabs.value.length === 0) { 
     await createNewTab("Main Shell", false, "tab-1"); 
+    loadedIds.add("tab-1");
   }
+
+  // --- SYNC REMOTE SESSIONS ---
+  setTimeout(async () => {
+    try {
+      const remoteSessions = await invoke<string[]>('list_remote_tmux_sessions');
+      console.log("[App] Remote sessions found:", remoteSessions);
+      for (const s of remoteSessions) {
+        if (!loadedIds.has(s) && (s.startsWith('tab-') || s === 'tab-1')) {
+          console.log("[App] Auto-mounting remote session:", s);
+          // Mount as background task
+          await createNewTab(`Remote: ${s.substring(0, 8)}`, false, s);
+          const t = terminalTabs.value.find(x => x.id === s);
+          if (t) t.isBackground = true;
+        }
+      }
+    } catch (e) { console.error("[App] Failed to sync remote sessions:", e); }
+  }, 1500);
 
   setTimeout(() => {
     console.log("[App] Refreshing explorer and skills...");
@@ -149,7 +173,7 @@ const onConnected = async (hostLabel: string) => {
       if (statsIntervalId) clearInterval(statsIntervalId);
       statsIntervalId = setInterval(fetchStats, 3000);
     });
-  }, 1000);
+  }, 2000);
 };
 
 const runMacro = async (c: string) => { if (activeTabId.value) await invoke('write_pty', { tabId: activeTabId.value, data: c + '\n' }); showMorseMacro.value = false; };
