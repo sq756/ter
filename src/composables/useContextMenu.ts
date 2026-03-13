@@ -4,7 +4,11 @@ import { terminalManager } from '../TerminalManager';
 
 export function useContextMenu(
   activeTabId: Ref<string | null>,
-  renameTab: (id: string, name: string) => void
+  renameTab: (id: string, name: string) => void,
+  host: Ref<string>,
+  currentPath: Ref<string>,
+  currentAgentPort: Ref<number | null>,
+  terminalTabs: Ref<any[]>
 ) {
   const showContextMenu = ref(false);
   const menuX = ref(0);
@@ -12,7 +16,9 @@ export function useContextMenu(
   const contextMenuTabId = ref<string | null>(null);
   const hasErrorSelection = ref(false);
 
-  const calculateMenuPosition = (e: MouseEvent, estimatedHeight = 250, estimatedWidth = 160) => {
+  // ... (calculateMenuPosition, onTerminalContextMenu, copySelectedText, pasteFromClipboard, renameTabAction remains similar)
+
+  const calculateMenuPosition = (e: MouseEvent, estimatedHeight = 350, estimatedWidth = 160) => {
     let x = e.clientX, y = e.clientY;
     if (y + estimatedHeight > window.innerHeight) y = window.innerHeight - estimatedHeight - 10;
     if (x + estimatedWidth > window.innerWidth) x = window.innerWidth - estimatedWidth - 10;
@@ -61,6 +67,28 @@ export function useContextMenu(
     showContextMenu.value = false; 
   };
 
+  const copyRuntimeEnv = () => {
+    const env = `/// TER_RUNTIME_ENV\nHOST: ${host.value}\nCWD: ${currentPath.value}\nAGENT_PORT: ${currentAgentPort.value}\nTIMESTAMP: ${new Date().toISOString()}`;
+    navigator.clipboard.writeText(env);
+    showContextMenu.value = false;
+  };
+
+  const generateRunReport = async () => {
+    if (!contextMenuTabId.value) return;
+    const tid = contextMenuTabId.value;
+    const tab = terminalTabs.value.find(t => t.id === tid);
+    try {
+      const logs = await invoke<number[][]>('get_terminal_logs', { tabId: tid, limit: 100 });
+      const decoder = new TextDecoder();
+      const text = logs.map(chunk => decoder.decode(new Uint8Array(chunk))).join('').replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
+      const report = `/// TER_RUN_REPORT\nTAB: ${tab?.title || tid}\nHOST: ${host.value}\nDATE: ${new Date().toLocaleString()}\n\n--- RECENT_LOGS ---\n${text.substring(Math.max(0, text.length - 2000))}`;
+      navigator.clipboard.writeText(report);
+    } catch (e) {
+      console.error("Report fail", e);
+    }
+    showContextMenu.value = false;
+  };
+
   const diagnoseSelection = async () => { 
     const id = contextMenuTabId.value || activeTabId.value; 
     if (id) { 
@@ -86,6 +114,8 @@ export function useContextMenu(
     pasteFromClipboard,
     renameTabAction,
     copyTabIdAction,
+    copyRuntimeEnv,
+    generateRunReport,
     diagnoseSelection,
     calculateMenuPosition
   };

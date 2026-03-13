@@ -49,7 +49,7 @@ let statsIntervalId: any = null;
 // --- DECOUPLED LOGIC ---
 // ==========================================
 const { 
-  terminalTabs, activeTabId, backgroundTabs, 
+  terminalTabs, activeTabId, backgroundTabs, lastActivityMap,
   createNewTab, closeTab, sendToBackground, bringToForeground, renameTab 
 } = useTabs(isConnected, backendLogs);
 
@@ -70,8 +70,8 @@ const {
 const {
   showContextMenu, menuX, menuY, contextMenuTabId, hasErrorSelection,
   onTerminalContextMenu, copySelectedText, pasteFromClipboard, 
-  renameTabAction, copyTabIdAction, diagnoseSelection, calculateMenuPosition
-} = useContextMenu(activeTabId, renameTab);
+  renameTabAction, copyTabIdAction, copyRuntimeEnv, generateRunReport, diagnoseSelection, calculateMenuPosition
+} = useContextMenu(activeTabId, renameTab, host, currentPath, currentAgentPort, terminalTabs);
 
 const { 
   cpuChartRef, memChartRef, netChartRef, currentCpuUsage, 
@@ -92,7 +92,7 @@ const {
 
 usePtyListener(
   activeTabId, connectionStatus, backendLogs, isAutoPilot, lastAutoPilotTime, 
-  activeTriggers, captureAndUpload, refreshWebview, handleExtractDOM, currentAgentPort
+  activeTriggers, captureAndUpload, refreshWebview, handleExtractDOM, currentAgentPort, lastActivityMap
 );
 
 // ==========================================
@@ -265,6 +265,7 @@ onUnmounted(() => {
       <SidebarPanel 
         :class="{ 'open': isSidebarOpen }"
         :files="realFiles" :currentPath="currentPath" :bgTabs="backgroundTabs" :skills="skills"
+        :lastActivityMap="lastActivityMap"
         :cpuChartRef="cpuChartRef" :memChartRef="memChartRef" :netChartRef="netChartRef"
         :healthMode="healthMode" :currentNetSpeed="currentNetSpeed" :extraStats="extraStats"
         v-model:isAutoPilot="isAutoPilot"
@@ -296,7 +297,11 @@ onUnmounted(() => {
         <div v-if="showContextMenu" class="context-menu" :style="{ top: menuY + 'px', left: menuX + 'px' }">
           <header class="menu-header">TERMINAL ACTIONS</header>
           <div v-if="hasErrorSelection" class="menu-item highlight" @click="diagnoseSelection">🤖 Diagnose Error</div>
-          <div class="menu-item" @click="renameTabAction">✏️ Rename Tab</div><div class="menu-item" @click="copyTabIdAction">🆔 Copy ID</div><div class="menu-item" @click="sendToBackground(contextMenuTabId)">🚀 Background</div>
+          <div class="menu-item" @click="renameTabAction">✏️ Rename Tab</div>
+          <div class="menu-item" @click="copyTabIdAction">🆔 Copy ID</div>
+          <div class="menu-item" @click="copyRuntimeEnv">🌍 Copy Env</div>
+          <div class="menu-item" @click="generateRunReport">📊 Run Report</div>
+          <div class="menu-item" @click="sendToBackground(contextMenuTabId)">🚀 Background</div>
           <div class="menu-divider"></div><div class="menu-item" @click="copySelectedText">📋 Copy</div><div class="menu-item" @click="pasteFromClipboard">📥 Paste</div>
           <div class="menu-divider"></div><div class="menu-item danger" @click="closeTab(contextMenuTabId!)">❌ Force Close</div>
         </div>

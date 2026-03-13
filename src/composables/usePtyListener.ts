@@ -13,7 +13,8 @@ export function usePtyListener(
   captureAndUpload: (auto: boolean) => Promise<void>,
   refreshWebview: (url?: string) => Promise<void>,
   handleExtractDOM: () => Promise<void>,
-  currentAgentPort: Ref<number | null>
+  currentAgentPort: Ref<number | null>,
+  lastActivityMap: Ref<Record<string, number>>
 ) {
   let unlistenPty: any;
   const decoder = new TextDecoder('utf-8', { fatal: false });
@@ -22,6 +23,9 @@ export function usePtyListener(
     unlistenPty = await listen<any>('pty-data', (ev) => {
       const { id, data } = ev.payload;
       if (!id || !data) return;
+
+      // Update activity timestamp for breathing effect
+      lastActivityMap.value[id] = Date.now();
 
       let bytes = typeof data === 'string' ? new TextEncoder().encode(data) : new Uint8Array(data);
       let text = decoder.decode(bytes);

@@ -6,6 +6,7 @@ const props = defineProps<{
   currentPath: string;
   bgTabs: any[];
   skills: any[];
+  lastActivityMap: Record<string, number>;
   cpuChartRef: any;
   memChartRef: any;
   netChartRef: any;
@@ -60,6 +61,11 @@ const onItemClick = (f: any) => {
 const onFastAccessClick = (path: string) => {
   emit('fast-access', path);
 };
+
+const isTabActive = (id: string) => {
+  const last = props.lastActivityMap[id] || 0;
+  return (Date.now() - last) < 1000;
+};
 </script>
 
 <template>
@@ -107,7 +113,7 @@ const onFastAccessClick = (path: string) => {
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17h16M4 7h16M4 12h16"></path></svg>
           </span>
           <span class="name">{{ t.title }}</span>
-          <span class="val active">ACTIVE</span>
+          <span class="val active" :class="{ 'breathing': isTabActive(t.id) }">ACTIVE</span>
         </li>
         <li v-if="bgTabs.length === 0" class="empty-hint">No background tasks</li>
       </ul>
@@ -312,6 +318,12 @@ const onFastAccessClick = (path: string) => {
 }
 
 .data-list .val.active { color: #22c55e; font-weight: bold; font-size: 9px; }
+.data-list .val.active.breathing { animation: breathe 0.8s infinite; }
+@keyframes breathe {
+  0% { opacity: 1; filter: brightness(1); }
+  50% { opacity: 0.6; filter: brightness(1.5); }
+  100% { opacity: 1; filter: brightness(1); }
+}
 .data-list .val { 
   color: #22c55e; 
   font-size: 8px; 

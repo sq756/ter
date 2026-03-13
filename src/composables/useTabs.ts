@@ -5,6 +5,7 @@ import { terminalManager } from '../TerminalManager';
 export function useTabs(isConnected: Ref<boolean>, backendLogs: Ref<string[]>) {
   const terminalTabs = ref<any[]>([]);
   const activeTabId = ref<string | null>(null);
+  const lastActivityMap = ref<Record<string, number>>({}); // v2.6.1: Activity tracking
   const backgroundTabs = computed(() => terminalTabs.value.filter(t => t.isBackground));
 
   const createNewTab = async (title = "Shell", skipPty = false, existingId?: string) => {
@@ -31,6 +32,7 @@ export function useTabs(isConnected: Ref<boolean>, backendLogs: Ref<string[]>) {
       terminalTabs.value.push({ id, title, isBackground: false });
     }
     activeTabId.value = id;
+    lastActivityMap.value[id] = Date.now();
     return id;
   };
 
