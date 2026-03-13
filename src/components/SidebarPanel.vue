@@ -70,6 +70,11 @@ const isTabActive = (id: string) => {
 
 <template>
   <aside class="side-bar">
+    <div class="sidebar-branding" @click="$emit('open-trigger-settings')" title="Click for System Settings">
+      <div class="branding-text">TER // ADVANCED_TERMINAL</div>
+      <div class="scanline"></div>
+    </div>
+
     <div class="module sys-health" @click="$emit('cycle-health-mode')" @contextmenu.prevent="$emit('cycle-health-mode')" style="cursor: pointer;">
       <header>System Health ({{ healthMode.toUpperCase() }})</header>
       
@@ -197,6 +202,52 @@ const isTabActive = (id: string) => {
   flex-direction: column; 
   flex-shrink: 0; 
   border-right: 1px solid #27272a; 
+}
+
+.sidebar-branding {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  background: rgba(34, 197, 94, 0.05);
+  border-bottom: 1px solid #27272a;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.sidebar-branding:hover {
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.branding-text {
+  font-size: 10px;
+  color: #22c55e;
+  letter-spacing: 0.2em;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: bold;
+  z-index: 1;
+  text-shadow: 0 0 5px rgba(34, 197, 94, 0.3);
+}
+
+.scanline {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 2px;
+  background: rgba(34, 197, 94, 0.2);
+  box-shadow: 0 0 15px rgba(34, 197, 94, 0.5);
+  animation: scan 3s infinite linear;
+  pointer-events: none;
+}
+
+@keyframes scan {
+  0% { transform: translateY(-100%); opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { transform: translateY(40px); opacity: 0; }
 }
 
 .module { 

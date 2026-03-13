@@ -102,7 +102,7 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.cyber-gate-wrapper { height: 100vh; width: 100vw; background: #000; }
+.cyber-gate-wrapper { height: 100vh; width: 100vw; background: #000; position: fixed; inset: 0; z-index: 10001; }
 .cyber-card { background: #09090b !important; border: 1px solid #22c55e !important; box-shadow: 0 0 15px rgba(34, 197, 94, 0.2) !important; border-radius: 0 !important; }
 .cyber-title { color: #22c55e !important; font-family: 'JetBrains Mono', monospace; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 5px; }
 .cyber-subtitle { font-size: 10px; color: #166534; margin-bottom: 20px; letter-spacing: 1px; }

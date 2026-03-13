@@ -5,16 +5,6 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
 const appWindow = getCurrentWindow();
-const toggleFullscreen = async () => {
-  const isFull = await appWindow.isFullscreen();
-  appWindow.setFullscreen(!isFull);
-};
-const minimizeWindow = () => appWindow.minimize();
-const maximizeWindow = async () => {
-  const isMax = await appWindow.isMaximized();
-  if (isMax) appWindow.unmaximize(); else appWindow.maximize();
-};
-const closeWindow = () => appWindow.close();
 
 // Components
 import { terminalManager } from './TerminalManager';
@@ -246,7 +236,6 @@ const handleGlobalKeyDown = (e: KeyboardEvent) => {
   if (e.shiftKey) isShiftPressed.value = true;
 
   if (e.altKey && e.key.toLowerCase() === 'l') isLocked.value = !isLocked.value; 
-  if (e.key === 'F11') { e.preventDefault(); toggleFullscreen(); }
   // Ctrl+T for new tab
   if (e.ctrlKey && e.key.toLowerCase() === 't') {
     e.preventDefault();
@@ -286,16 +275,6 @@ onUnmounted(() => {
 
 <template>
   <div class="app-shell" @click="showContextMenu = false; showMorseMacro = false; showExplorerMenu = false">
-    <!-- Immersive Titlebar -->
-    <div class="custom-titlebar" data-tauri-drag-region>
-      <div class="window-controls">
-        <div class="control-dot close" @click="closeWindow"></div>
-        <div class="control-dot minimize" @click="minimizeWindow"></div>
-        <div class="control-dot maximize" @click="maximizeWindow"></div>
-      </div>
-      <div class="app-title" data-tauri-drag-region>TER // ADVANCED_TERMINAL</div>
-    </div>
-
     <CyberGate v-if="!isConnected" @connected="onConnected" />
     
     <div v-else class="main-view">
@@ -457,28 +436,7 @@ onUnmounted(() => {
 /* (Styles unchanged) */
 .app-shell { height: 100vh; background: #000; color: #d4d4d8; font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace, 'Segoe UI Emoji', 'Noto Color Emoji'; overflow: hidden; border-radius: 8px; border: 1px solid #18181b; }
 
-/* Custom Titlebar */
-.custom-titlebar {
-  height: 30px;
-  background: rgba(0,0,0,0.8);
-  display: flex;
-  align-items: center;
-  padding: 0 12px;
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 99999;
-  user-select: none;
-}
-.window-controls { display: flex; gap: 8px; }
-.control-dot { width: 12px; height: 12px; border-radius: 50%; background: #27272a; cursor: pointer; transition: all 0.2s; }
-.window-controls:hover .close { background: #ef4444; }
-.window-controls:hover .minimize { background: #f59e0b; }
-.window-controls:hover .maximize { background: #22c55e; }
-.app-title { flex: 1; text-align: center; font-size: 10px; color: #3f3f46; letter-spacing: 0.2em; pointer-events: none; }
-
-.main-view { display: flex; height: 100%; width: 100%; padding-top: 30px; }
+.main-view { display: flex; height: 100%; width: 100%; }
 .workspace { flex: 1; display: flex; flex-direction: column; background: #000; overflow: hidden; min-width: 0; }
 
 .context-menu { position: fixed; z-index: 1000000; background: #09090b; border: 1px solid #22c55e; padding: 4px; min-width: 160px; box-shadow: 0 10px 25px rgba(0,0,0,0.8); }

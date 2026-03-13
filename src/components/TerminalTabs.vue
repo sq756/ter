@@ -17,9 +17,12 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
   <div class="terminal-workspace">
     <!-- Multi-Terminal Tab Bar -->
     <nav class="tab-bar">
-      <!-- Status Indicator -->
-      <div class="status-indicator-zone">
+      <!-- Status Indicator & Quick Switcher -->
+      <div class="status-indicator-zone" @click="$emit('new-tab')" title="Quick Command (Ctrl+T)">
         <div class="status-dot" :class="connectionStatus"></div>
+        <div class="quick-switcher-icon">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        </div>
       </div>
 
       <div v-for="t in getVisibleTabs()" 
@@ -77,8 +80,26 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
   padding: 0 12px;
   display: flex;
   align-items: center;
+  gap: 12px;
   border-right: 1px solid #27272a;
   height: 100%;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.status-indicator-zone:hover {
+  background: rgba(34, 197, 94, 0.05);
+}
+
+.status-indicator-zone:hover .quick-switcher-icon {
+  color: #22c55e;
+}
+
+.quick-switcher-icon {
+  color: #52525b;
+  display: flex;
+  align-items: center;
+  transition: color 0.2s;
 }
 
 .status-dot {
