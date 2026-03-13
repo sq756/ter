@@ -56,11 +56,15 @@ export function useTabs(isConnected: Ref<boolean>, backendLogs: Ref<string[]>) {
     if (tid) {
       const tab = terminalTabs.value.find(t => t.id === tid);
       if (tab) {
-        // RESTORED: Intelligent Naming logic
         const s = terminalManager.getSelection(tab.id).trim();
-        tab.isBackground = true;
-        tab.title = s ? `Proc: ${s.substring(0, 20)}...` : `Task: ${tab.id.substring(0, 5)}`;
         
+        // v2.9.11: Protect custom names
+        const isDefaultName = tab.title === 'Shell' || tab.title === 'Main Shell' || tab.title.startsWith('tab-') || tab.title.startsWith('Proc:');
+        if (isDefaultName) {
+          tab.title = s ? `Proc: ${s.substring(0, 10)}...` : `Proc: ${tid.substring(0, 5)}`;
+        }
+        
+        tab.isBackground = true;
         if (activeTabId.value === tid) {
           activeTabId.value = terminalTabs.value.find(t => !t.isBackground)?.id || null;
         }

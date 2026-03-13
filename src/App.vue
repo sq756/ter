@@ -432,7 +432,17 @@ onMounted(() => {
 .lock-btn { border: 1px solid #27272a !important; }
 .lock-btn:hover { color: #ef4444 !important; border-color: rgba(239, 68, 68, 0.3) !important; background: rgba(239, 68, 68, 0.1) !important; }
 
-.context-menu { position: fixed; z-index: 10000; background: #09090b; border: 1px solid #22c55e; padding: 4px; min-width: 140px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border-radius: 6px; }
+.context-menu { 
+  position: fixed !important; 
+  z-index: 99999 !important; 
+  background: rgba(9, 9, 11, 0.95) !important; 
+  backdrop-filter: blur(10px);
+  border: 1px solid #22c55e !important; 
+  padding: 4px !important; 
+  min-width: 140px; 
+  box-shadow: 0 10px 30px rgba(0,0,0,0.8) !important; 
+  border-radius: 6px; 
+}
 .menu-header { padding: 4px 8px; font-size: 10px; color: #166534; border-bottom: 1px solid #18181b; margin-bottom: 4px; letter-spacing: 0.5px; }
 .menu-item { padding: 6px 12px; font-size: 12px; cursor: pointer; color: #d4d4d8; border-radius: 4px; margin-bottom: 1px; }
 .menu-item:hover { background: #22c55e; color: #000; }

@@ -74,7 +74,13 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
   height: 36px; 
   flex-shrink: 0; 
   z-index: 10; 
+  overflow-x: auto !important;
+  overflow-y: hidden;
+  white-space: nowrap;
 }
+
+.tab-bar::-webkit-scrollbar { height: 4px; }
+.tab-bar::-webkit-scrollbar-thumb { background: #27272a; border-radius: 2px; }
 
 .status-indicator-zone {
   padding: 0 12px;
@@ -147,6 +153,7 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
   max-width: 200px;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); 
   border-right: 1px solid #18181b;
+  flex-shrink: 0 !important;
 }
 
 .tab-icon {
