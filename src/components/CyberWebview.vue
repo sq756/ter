@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { open } from '@tauri-apps/plugin-shell';
 import { Webview } from '@tauri-apps/api/webview';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { AGENT_SCRIPT } from '../constants';
 
 const props = defineProps<{ url: string; }>();
 const emit = defineEmits(['dom-extracted']);
@@ -13,6 +14,71 @@ const containerRef = ref<HTMLElement | null>(null);
 let webview: Webview | null = null;
 const isWebviewReady = ref(false);
 let unlistenExtracted: any = null;
+let resizeObserver: ResizeObserver | null = null;
+
+const updateWebviewBounds = async () => {
+  if (!webview || !containerRef.value) return;
+  await nextTick();
+  const rect = containerRef.value.getBoundingClientRect();
+  const dpr = window.devicePixelRatio;
+
+  // v2.11.11: Use Math.floor and precise coordinates
+  await webview.setSize({
+    type: 'Physical',
+    width: Math.floor(rect.width * dpr),
+    height: Math.floor(rect.height * dpr),
+  });
+  await webview.setPosition({
+    type: 'Physical',
+    x: Math.floor(rect.left * dpr),
+    y: Math.floor(rect.top * dpr),
+  });
+};
+
+const initWebview = async () => {
+  if (!containerRef.value || webview) return;
+  
+  const currentWin = getCurrentWindow();
+  const rect = containerRef.value.getBoundingClientRect();
+  const dpr = window.devicePixelRatio;
+
+  webview = new Webview(currentWin, 'cyber-native-view', {
+    url: props.url,
+    x: Math.floor(rect.left * dpr),
+    y: Math.floor(rect.top * dpr),
+    width: Math.floor(rect.width * dpr),
+    height: Math.floor(rect.height * dpr),
+  });
+
+  unlistenExtracted = await listen<string>('dom-extracted', (ev) => { emit('dom-extracted', ev.payload); });
+
+  webview.once('tauri://created', async () => {
+    isWebviewReady.value = true;
+    await invoke('eval_cyber_webview', { code: AGENT_SCRIPT });
+  });
+
+  // Setup ResizeObserver for coordinate sync
+  resizeObserver = new ResizeObserver(() => {
+    updateWebviewBounds();
+  });
+  resizeObserver.observe(containerRef.value);
+};
+
+const destroyWebview = async () => {
+  if (unlistenExtracted) {
+    unlistenExtracted();
+    unlistenExtracted = null;
+  }
+  if (resizeObserver) {
+    resizeObserver.disconnect();
+    resizeObserver = null;
+  }
+  if (webview) {
+    await webview.close();
+    webview = null;
+    isWebviewReady.value = false;
+  }
+};
 
 watch(() => props.url, (newUrl) => {
   if (isWebviewReady.value) {
@@ -20,35 +86,13 @@ watch(() => props.url, (newUrl) => {
   }
 });
 
-onMounted(async () => {
-  if (!containerRef.value) return;
-  const currentWin = getCurrentWindow();
-  const rect = containerRef.value.getBoundingClientRect();
-  const dpr = window.devicePixelRatio;
-
-  webview = new Webview(currentWin, 'cyber-native-view', {
-    url: props.url,
-    x: Math.round(rect.left * dpr),
-    y: Math.round(rect.top * dpr),
-    width: Math.round(rect.width * dpr),
-    height: Math.round(rect.height * dpr),
-  });
-
-  unlistenExtracted = await listen<string>('dom-extracted', (ev) => { emit('dom-extracted', ev.payload); });
-
-  webview.once('tauri://created', async () => {
-    isWebviewReady.value = true;
-    // Inject agent logic immediately after creation as a workaround for initializationScript types
-    await invoke('eval_cyber_webview', { code: AGENT_SCRIPT }); // Use the AGENT_SCRIPT from Rust or inject it here
-  });
-
-  onUnmounted(async () => {
-    if (unlistenExtracted) unlistenExtracted();
-    if (webview) { await webview.close(); webview = null; }
-  });
+onMounted(() => {
+  initWebview();
 });
 
-import { AGENT_SCRIPT } from '../constants';
+onUnmounted(() => {
+  destroyWebview();
+});
 
 const openInBrowser = async () => { try { await open(props.url); } catch(e){} };
 defineExpose({ reload: () => invoke('reload_cyber_webview') });

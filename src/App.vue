@@ -14,6 +14,7 @@ import TerminalTabs from './components/TerminalTabs.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
 import CyberGate from './components/CyberGate.vue';
 import NetworkMatrix from './components/NetworkMatrix.vue';
+import CyberWebview from './components/CyberWebview.vue';
 
 // Composables
 import { useMorse } from './composables/useMorse';
@@ -345,7 +346,8 @@ onMounted(() => {
                   <button @click="refreshWebview()" class="refresh-btn">⚡</button>
                 </nav>
                 <div class="webview-container" style="flex: 1; display: flex; flex-direction: column; height: 100%;">
-                   <iframe v-if="previewUrl" :src="previewUrl" class="cyber-iframe" frameborder="0" style="flex: 1; width: 100%; height: 100%; background: #ffffff;"></iframe>
+                   <CyberWebview v-if="cyberMode === 1 && useNativeWebview" :url="previewUrl" @dom-extracted="onDomExtracted" />
+                   <iframe v-else-if="cyberMode === 1 && !useNativeWebview" :src="previewUrl" class="cyber-iframe" frameborder="0" style="flex: 1; width: 100%; height: 100%; background: #ffffff;"></iframe>
                 </div>
               </div>
             </div>

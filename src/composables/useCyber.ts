@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 export function useCyber(activeTabId: any, backendLogs: any) {
   const previewUrl = ref('http://localhost:5173');
   const isWebviewLoading = ref(false);
+  const useNativeWebview = ref(true);
 
   const refreshWebview = async (fUrl?: string) => {
     if (fUrl) previewUrl.value = fUrl;
@@ -73,6 +74,7 @@ export function useCyber(activeTabId: any, backendLogs: any) {
   return {
     previewUrl,
     isWebviewLoading,
+    useNativeWebview,
     refreshWebview,
     handleExtractDOM,
     onDomExtracted,
