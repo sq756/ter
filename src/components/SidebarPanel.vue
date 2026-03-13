@@ -19,6 +19,8 @@ const props = defineProps<{
 
 const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill', 'change-dir', 'view-history', 'open-trigger-settings', 'fast-access', 'morse-down', 'morse-up', 'morse-context', 'explorer-context', 'cycle-health-mode', 'skill-context', 'header-context', 'resize-sftp-start']);
 
+const activeView = ref<'OPS'|'ARS'|'NAV'>('OPS');
+
 // v2.6.0: Agentic Interaction (Drag & Drop + Context Menu)
 const draggedFile = ref<any>(null);
 
@@ -76,7 +78,15 @@ const isTabActive = (id: string) => {
       <div class="scanline"></div>
     </div>
 
-    <div class="module sys-health" @click="$emit('cycle-health-mode')" @contextmenu.prevent="$emit('header-context', {event: $event, module: 'health'})" style="cursor: pointer;">
+    <!-- Safe View Switcher -->
+    <div class="view-switcher-safe">
+      <button :class="{ active: activeView === 'OPS' }" @click="activeView = 'OPS'">[OPS]</button>
+      <button :class="{ active: activeView === 'ARS' }" @click="activeView = 'ARS'">[ARS]</button>
+      <button :class="{ active: activeView === 'NAV' }" @click="activeView = 'NAV'">[NAV]</button>
+    </div>
+
+    <div v-show="activeView === 'OPS'" class="safe-view-wrapper">
+      <div class="module sys-health" @click="$emit('cycle-health-mode')" @contextmenu.prevent="$emit('header-context', {event: $event, module: 'health'})" style="cursor: pointer;">
       <header>System Health ({{ healthMode.toUpperCase() }})</header>
       
       <!-- Resource Mode: CPU & RAM -->
@@ -124,7 +134,9 @@ const isTabActive = (id: string) => {
         <li v-if="bgTabs.length === 0" class="empty-hint">No background tasks</li>
       </ul>
     </div>
+    </div> <!-- Close OPS wrapper -->
 
+    <div v-show="activeView === 'ARS'" class="safe-view-wrapper safe-flex-wrapper">
     <div class="module scroller skills-hub">
       <header class="header-with-action" @contextmenu.prevent.stop="$emit('header-context', {event: $event, module: 'skills'})">
         <span>Skill Hub</span>
@@ -150,7 +162,9 @@ const isTabActive = (id: string) => {
         <li v-if="skills.length === 0" class="empty-hint">No skills in .ter/skills.json</li>
       </ul>
     </div>
+    </div> <!-- Close ARS wrapper -->
 
+    <div v-show="activeView === 'NAV'" class="safe-view-wrapper safe-flex-wrapper">
     <!-- v2.2.11: FAST ACCESS instead of Session History -->
     <div class="module scroller history">
       <header @contextmenu.prevent.stop="$emit('header-context', {event: $event, module: 'history'})">FAST ACCESS</header>
@@ -195,10 +209,55 @@ const isTabActive = (id: string) => {
       </ul>
       <div class="resizable-handle" @mousedown="$emit('resize-sftp-start', $event)"></div>
     </div>
+    </div> <!-- Close NAV wrapper -->
   </aside>
 </template>
 
 <style scoped>
+.view-switcher-safe {
+  display: flex;
+  height: 28px;
+  background: #000;
+  border-bottom: 1px solid #18181b;
+}
+
+.view-switcher-safe button {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #71717a;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: bold;
+}
+
+.view-switcher-safe button:hover {
+  color: #d4d4d8;
+  background: rgba(255,255,255,0.05);
+}
+
+.view-switcher-safe button.active {
+  color: #22c55e;
+  background: rgba(34, 197, 94, 0.1);
+  border-bottom: 2px solid #22c55e;
+}
+
+.safe-view-wrapper {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  height: 100%;
+}
+
+.safe-flex-wrapper .module.scroller {
+  flex: 1 !important;
+  max-height: none !important;
+  height: 100% !important;
+}
+
 .side-bar { 
   background: #09090b; 
   width: 260px; 
