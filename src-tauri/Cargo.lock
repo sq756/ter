@@ -130,39 +130,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
-name = "app"
-version = "2.5.5"
-dependencies = [
- "aes-gcm",
- "anyhow",
- "argon2",
- "async-trait",
- "base64 0.22.1",
- "dashmap",
- "headless_chrome",
- "log",
- "rand 0.8.5",
- "russh",
- "russh-keys",
- "russh-sftp",
- "serde",
- "serde_json",
- "serde_yaml",
- "sqlx",
- "sqlx-sqlite",
- "ssh-key",
- "subtle",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-log",
- "tauri-plugin-shell",
- "tiny_http",
- "tokio",
- "uuid",
-]
-
-[[package]]
 name = "argon2"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6020,6 +5987,39 @@ dependencies = [
  "futf",
  "mac",
  "utf-8",
+]
+
+[[package]]
+name = "ter"
+version = "2.5.8"
+dependencies = [
+ "aes-gcm",
+ "anyhow",
+ "argon2",
+ "async-trait",
+ "base64 0.22.1",
+ "dashmap",
+ "headless_chrome",
+ "log",
+ "rand 0.8.5",
+ "russh",
+ "russh-keys",
+ "russh-sftp",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sqlx",
+ "sqlx-sqlite",
+ "ssh-key",
+ "subtle",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-log",
+ "tauri-plugin-shell",
+ "tiny_http",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]

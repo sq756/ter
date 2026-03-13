@@ -7,7 +7,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use russh::*;
 use std::future::Future;
-use tauri::{AppHandle, State, Manager};
+use tauri::{AppHandle, State, Manager, Url};
 use tokio::sync::mpsc;
 use tauri::Emitter;
 use uuid::Uuid;
@@ -139,8 +139,9 @@ async fn delete_server_config(id: String, state: State<'_, AppState>) -> Result<
 #[tauri::command]
 async fn navigate_cyber_webview(url: String, app_handle: AppHandle) -> Result<(), String> {
     if let Some(wv) = app_handle.get_webview_window("cyber-native-view") {
-        wv.navigate(url.parse().map_err(|e| format!("{}", e))?).map_err(|e| e.to_string())?;
-        wv.eval(AGENT_SCRIPT).map_err(|e| e.to_string())?;
+        let url_parsed = url.parse::<Url>().map_err(|e| format!("{}", e))?;
+        let _ = wv.navigate(url_parsed).map_err(|e: tauri::Error| e.to_string())?;
+        let _ = wv.eval(AGENT_SCRIPT).map_err(|e: tauri::Error| e.to_string())?;
     }
     Ok(())
 }
@@ -148,8 +149,8 @@ async fn navigate_cyber_webview(url: String, app_handle: AppHandle) -> Result<()
 #[tauri::command]
 async fn reload_cyber_webview(app_handle: AppHandle) -> Result<(), String> {
     if let Some(wv) = app_handle.get_webview_window("cyber-native-view") {
-        wv.eval("window.location.reload()").map_err(|e| e.to_string())?;
-        wv.eval(AGENT_SCRIPT).map_err(|e| e.to_string())?;
+        let _ = wv.eval("window.location.reload()").map_err(|e: tauri::Error| e.to_string())?;
+        let _ = wv.eval(AGENT_SCRIPT).map_err(|e: tauri::Error| e.to_string())?;
     }
     Ok(())
 }
@@ -157,7 +158,7 @@ async fn reload_cyber_webview(app_handle: AppHandle) -> Result<(), String> {
 #[tauri::command]
 async fn extract_cyber_dom(app_handle: AppHandle) -> Result<(), String> {
     if let Some(wv) = app_handle.get_webview_window("cyber-native-view") {
-        wv.eval("window.emit('dom-extracted', window.TerAgent.extractDOM())").map_err(|e| e.to_string())?;
+        let _ = wv.eval("window.emit('dom-extracted', window.TerAgent.extractDOM())").map_err(|e: tauri::Error| e.to_string())?;
     }
     Ok(())
 }
@@ -165,7 +166,7 @@ async fn extract_cyber_dom(app_handle: AppHandle) -> Result<(), String> {
 #[tauri::command]
 async fn eval_cyber_webview(code: String, app_handle: AppHandle) -> Result<(), String> {
     if let Some(wv) = app_handle.get_webview_window("cyber-native-view") {
-        wv.eval(&code).map_err(|e| e.to_string())?;
+        let _ = wv.eval(&code).map_err(|e: tauri::Error| e.to_string())?;
     }
     Ok(())
 }
@@ -263,7 +264,45 @@ async fn ls_remote(path: String, state: State<'_, AppState>) -> Result<Vec<Remot
     Ok(files)
 }
 #[tauri::command]
-async fn open_dynamic_tunnel(_: u16, _: AppHandle, _: State<'_, AppState>) -> Result<u16, String> { Ok(0) }
+async fn open_dynamic_tunnel(remote_port: u16, state: State<'_, AppState>) -> Result<u16, String> {
+    log::info!("Opening dynamic tunnel for remote port: {}", remote_port);
+    let session = state.session.lock().await.as_ref().ok_or("No active SSH session")?.clone();
+    
+    // Close existing tunnel if any
+    if let Some(handle) = state.dynamic_abort.lock().await.take() { handle.abort(); }
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.map_err(|e| e.to_string())?;
+    let local_port = listener.local_addr().map_err(|e| e.to_string())?.port();
+    
+    let abort_handle = tokio::spawn(async move {
+        loop {
+            match listener.accept().await {
+                Ok((mut socket, _)) => {
+                    let session = session.clone();
+                    tokio::spawn(async move {
+                        match session.channel_open_direct_tcpip("127.0.0.1", remote_port as u32, "127.0.0.1", 0).await {
+                            Ok(channel) => {
+                                let mut channel_stream = channel.into_stream();
+                                let _ = tokio::io::copy_bidirectional(&mut socket, &mut channel_stream).await;
+                            }
+                            Err(e) => { log::error!("Failed to open SSH channel for tunnel: {}", e); }
+                        }
+                    });
+                }
+                Err(e) => { 
+                    log::error!("Tunnel listener accept error: {}", e);
+                    break;
+                }
+            }
+        }
+    });
+
+    *state.dynamic_abort.lock().await = Some(abort_handle.abort_handle());
+    *state.dynamic_port.lock().await = Some(local_port);
+
+    log::info!("Tunnel active: 127.0.0.1:{} -> remote:{}", local_port, remote_port);
+    Ok(local_port)
+}
 #[tauri::command]
 async fn ai_audit_ui() -> Result<String, String> { Ok("".to_string()) }
 #[derive(serde::Serialize, serde::Deserialize, Debug)]

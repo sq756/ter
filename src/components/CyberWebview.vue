@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, watch } from 'vue';
 import { open } from '@tauri-apps/plugin-shell';
 import { Webview } from '@tauri-apps/api/webview';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -13,6 +13,12 @@ const containerRef = ref<HTMLElement | null>(null);
 let webview: Webview | null = null;
 const isWebviewReady = ref(false);
 let unlistenExtracted: any = null;
+
+watch(() => props.url, (newUrl) => {
+  if (isWebviewReady.value) {
+    invoke('navigate_cyber_webview', { url: newUrl });
+  }
+});
 
 onMounted(async () => {
   if (!containerRef.value) return;
@@ -33,7 +39,7 @@ onMounted(async () => {
   webview.once('tauri://created', async () => {
     isWebviewReady.value = true;
     // Inject agent logic immediately after creation as a workaround for initializationScript types
-    await invoke('reload_cyber_webview'); // This trigger eval internally if needed, but let's use direct eval from Rust for safety
+    await invoke('eval_cyber_webview', { code: AGENT_SCRIPT }); // Use the AGENT_SCRIPT from Rust or inject it here
   });
 
   onUnmounted(async () => {
@@ -41,6 +47,8 @@ onMounted(async () => {
     if (webview) { await webview.close(); webview = null; }
   });
 });
+
+import { AGENT_SCRIPT } from '../constants';
 
 const openInBrowser = async () => { try { await open(props.url); } catch(e){} };
 defineExpose({ reload: () => invoke('reload_cyber_webview') });

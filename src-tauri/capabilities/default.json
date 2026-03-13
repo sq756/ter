@@ -13,6 +13,8 @@
     "core:window:allow-set-position",
     "dialog:default",
     "log:default",
-    "shell:default"
+    "shell:default",
+    "core:webview:default"
   ]
+
 }
