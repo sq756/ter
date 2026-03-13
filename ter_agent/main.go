@@ -15,6 +15,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	stdnet "net"
 
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
@@ -133,15 +134,26 @@ func getGPUInfo() string {
 }
 
 func getLocalIP() string {
-	addrs, err := net.Interfaces()
+	ifaces, err := stdnet.Interfaces()
 	if err != nil {
 		return "127.0.0.1"
 	}
-	for _, a := range addrs {
-		for _, addr := range a.Addrs {
-			if ipnet, ok := addr.Addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-				if ipnet.IP.To4() != nil {
-					return ipnet.IP.String()
+	for _, i := range ifaces {
+		addrs, err := i.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			var ip stdnet.IP
+			switch v := addr.(type) {
+			case *stdnet.IPNet:
+				ip = v.IP
+			case *stdnet.IPAddr:
+				ip = v.IP
+			}
+			if ip != nil && !ip.IsLoopback() {
+				if ip.To4() != nil {
+					return ip.String()
 				}
 			}
 		}
