@@ -7,377 +7,257 @@ const props = defineProps<{
   cpuUsage: number;
 }>();
 
+const emit = defineEmits(['unlock']);
+
 const matrixCanvas = ref<HTMLCanvasElement | null>(null);
-let matrixInterval: any = null;
+let animationFrameId: number | null = null;
+const isUnlocking = ref(false);
 const systemTime = ref(new Date().toLocaleTimeString());
-const bitrate = ref((Math.random() * 1000 + 500).toFixed(2));
-const isTyping = ref(false);
 
-onMounted(() => {
-  setInterval(() => {
-    systemTime.value = new Date().toLocaleTimeString();
-    bitrate.value = (Math.random() * 1000 + 500).toFixed(2);
-  }, 1000);
-});
+// Game of Life State
+const cellSize = 6;
+let grid: number[][] = [];
+let cols = 0, rows = 0;
 
-const startMatrix = () => {
-  const canvas = matrixCanvas.value;
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d', { alpha: false })!; 
+const initGrid = () => {
+  cols = Math.ceil(window.innerWidth / cellSize);
+  rows = Math.ceil(window.innerHeight / cellSize);
+  grid = Array.from({ length: cols }, () => 
+    Array.from({ length: rows }, () => Math.random() > 0.85 ? 1 : 0)
+  );
   
-  const setCanvasSize = () => {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-  };
-  setCanvasSize();
-
-  const fontSize = 14;
-  const columns = Math.floor(canvas.width / fontSize);
-  
-  const drops: number[] = [];
-  const columnLogs: string[] = [];
-  
-  for (let x = 0; x < columns; x++) {
-    drops[x] = Math.random() * -100;
-    columnLogs[x] = "SYSTEM_INITIALIZING...";
-  }
-
-  const draw = () => {
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    ctx.font = `bold ${fontSize}px 'JetBrains Mono', monospace`;
-
-    for (let i = 0; i < drops.length; i++) {
-      const dropY = drops[i];
-      let logLine = columnLogs[i];
-      if (dropY === undefined || logLine === undefined) continue;
-
-      const charIndex = Math.floor(dropY) % logLine.length;
-      const char = logLine[charIndex] || " ";
-
-      const yPos = dropY * fontSize;
-      const brightness = Math.max(0.05, 1 - (yPos / canvas.height));
-      
-      const isRealLog = logLine.startsWith("[") || logLine.includes("DEBUG");
-      
-      if (isRealLog && Math.random() > 0.98) {
-        ctx.fillStyle = '#fff';
-        ctx.shadowBlur = 12;
-        ctx.shadowColor = '#22c55e';
-      } else {
-        ctx.fillStyle = `rgba(34, 197, 94, ${brightness})`;
-        ctx.shadowBlur = 0;
-      }
-
-      ctx.fillText(char, i * fontSize, yPos);
-
-      // v2.2.11: Speed up by 5x if typing (simulating crack)
-      const baseSpeed = 0.5 + (props.cpuUsage / 100) * 3.0;
-      const speed = isTyping.value ? baseSpeed * 5 : baseSpeed;
-      
-      if (yPos > canvas.height && Math.random() > 0.975) {
-        drops[i] = 0;
-        if (props.logs.length > 0 && Math.random() > 0.4) {
-          const rawLog = props.logs[Math.floor(Math.random() * props.logs.length)];
-          if (rawLog) {
-            columnLogs[i] = rawLog.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '').substring(0, 60);
-          } else {
-            columnLogs[i] = "NODE_TRACE_NULL";
-          }
-        } else {
-          columnLogs[i] = "NODE_TRACE_" + Math.random().toString(16).slice(2, 10).toUpperCase();
-        }
-      } else {
-        drops[i] = dropY + speed;
-      }
-    }
-  };
-
-  if (matrixInterval) clearInterval(matrixInterval);
-  matrixInterval = setInterval(draw, 33);
+  // Seed some common patterns
+  seedPulsar(Math.floor(cols/2), Math.floor(rows/2));
 };
 
-const handleKeyDown = (e: KeyboardEvent) => {
-  isTyping.value = true;
-  setTimeout(() => isTyping.value = false, 100);
-  if (e.key === 'Enter' || e.key === 'Escape') {
-    emit('unlock');
+const seedPulsar = (cx: number, cy: number) => {
+  const p = [
+    [2,1],[3,1],[4,1],[8,1],[9,1],[10,1],
+    [1,2],[1,3],[1,4],[6,2],[6,3],[6,4],[11,2],[11,3],[11,4],
+    [2,6],[3,6],[4,6],[8,6],[9,6],[10,6]
+  ];
+  p.forEach(([x, y]) => { if(grid[cx+x] && cy+y < rows) grid[cx+x][cy+y] = 1; });
+};
+
+const stepLife = () => {
+  let next = grid.map(arr => [...arr]);
+  for (let x = 0; x < cols; x++) {
+    for (let y = 0; y < rows; y++) {
+      let neighbors = 0;
+      for (let i = -1; i <= 1; i++) {
+        for (let j = -1; j <= 1; j++) {
+          if (i === 0 && j === 0) continue;
+          const nx = (x + i + cols) % cols;
+          const ny = (y + j + rows) % rows;
+          neighbors += grid[nx][ny];
+        }
+      }
+      if (grid[x][y] === 1 && (neighbors < 2 || neighbors > 3)) next[x][y] = 0;
+      else if (grid[x][y] === 0 && neighbors === 3) next[x][y] = 1;
+    }
   }
+  grid = next;
+};
+
+const draw = (ctx: CanvasRenderingContext2D) => {
+  if (!props.isLocked) return;
+  
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.2)'; // Trail effect
+  ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+
+  // v2.7.0: Ambient Life Game
+  const brightness = isUnlocking.value ? 0.8 : 0.15;
+  ctx.fillStyle = `rgba(34, 197, 94, ${brightness})`;
+  
+  for (let x = 0; x < cols; x++) {
+    for (let y = 0; y < rows; y++) {
+      if (grid[x][y] === 1) {
+        ctx.fillRect(x * cellSize, y * cellSize, cellSize - 1, cellSize - 1);
+      }
+    }
+  }
+
+  // Intermittent Data Stream Lightning
+  if (Math.random() > 0.95) {
+    ctx.fillStyle = 'rgba(34, 197, 94, 0.4)';
+    const lx = Math.random() * ctx.canvas.width;
+    ctx.fillRect(lx, 0, 1, ctx.canvas.height);
+  }
+
+  const speedFactor = isUnlocking.value ? 4 : (1 + props.cpuUsage / 20);
+  if (Math.random() * 10 < speedFactor) stepLife();
+
+  animationFrameId = requestAnimationFrame(() => draw(ctx));
+};
+
+const handleInteraction = (e: MouseEvent | KeyboardEvent) => {
+  if (isUnlocking.value) return;
+  
+  if (e instanceof MouseEvent) {
+    const gx = Math.floor(e.clientX / cellSize);
+    const gy = Math.floor(e.clientY / cellSize);
+    for(let i=-1; i<=1; i++) for(let j=-1; j<=1; j++) {
+      if (grid[gx+i] && gy+j < rows) grid[gx+i][gy+j] = 1;
+    }
+  } else {
+    // Key press: Seed random clusters
+    for (let i = 0; i < 10; i++) {
+      const rx = Math.floor(Math.random() * cols);
+      const ry = Math.floor(Math.random() * rows);
+      grid[rx][ry] = 1;
+    }
+    
+    if (e.key === 'Enter' || e.key === 'Escape' || e.key === ' ') {
+      performUnlock();
+    }
+  }
+};
+
+const performUnlock = () => {
+  isUnlocking.value = true;
+  setTimeout(() => {
+    isUnlocking.value = false;
+    emit('unlock');
+  }, 600);
 };
 
 watch(() => props.isLocked, (val) => {
   if (val) {
-    nextTick(() => startMatrix());
-    window.addEventListener('resize', handleResize);
-    window.addEventListener('keydown', handleKeyDown);
+    nextTick(() => {
+      initGrid();
+      const ctx = matrixCanvas.value?.getContext('2d');
+      if (ctx) draw(ctx);
+      window.addEventListener('mousemove', handleInteraction);
+      window.addEventListener('keydown', handleInteraction);
+    });
   } else {
-    if (matrixInterval) clearInterval(matrixInterval);
-    window.removeEventListener('resize', handleResize);
-    window.removeEventListener('keydown', handleKeyDown);
+    if (animationFrameId) cancelAnimationFrame(animationFrameId);
+    window.removeEventListener('mousemove', handleInteraction);
+    window.removeEventListener('keydown', handleInteraction);
   }
 });
 
-const handleResize = () => {
-  if (props.isLocked) {
-    const canvas = matrixCanvas.value;
-    if (canvas) {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
-    }
-  }
-};
-
-const emit = defineEmits(['unlock']);
-
 onUnmounted(() => {
-  if (matrixInterval) clearInterval(matrixInterval);
-  window.removeEventListener('resize', handleResize);
-  window.removeEventListener('keydown', handleKeyDown);
+  if (animationFrameId) cancelAnimationFrame(animationFrameId);
 });
 </script>
 
 <template>
-  <Transition name="fade">
-    <div v-if="isLocked" class="matrix-container">
-      <canvas ref="matrixCanvas"></canvas>
-      
-      <div class="blur-overlay"></div>
-      <div class="scanlines"></div>
+  <div v-if="isLocked" class="matrix-container" :class="{ 'crt-off': isUnlocking }">
+    <canvas ref="matrixCanvas" :width="1920" :height="1080"></canvas>
+    
+    <div class="system-meta-top">
+      [SYSTEM_INTEGRITY_CHECKING...] [PTY_SESSION_RECOVERY: {{ Math.floor(Math.random()*1000000) }}] [ACTIVE_NODES: {{ logs.length }}]
+    </div>
 
-      <div class="matrix-overlay">
-        <div class="security-barrier">
-          <div class="glitch-wrapper">
-            <div class="glitch-text" data-text="AUTHENTICATION REQUIRED">AUTHENTICATION REQUIRED</div>
-          </div>
-          <div class="barrier-sub">LEVEL 7 CLEARANCE DETECTED // ENCRYPTING TRACE</div>
-          
-          <div class="live-logs-window">
-             <div v-for="(log, idx) in logs.slice(-5)" :key="idx" class="log-entry">
-               <span class="timestamp">[{{ new Date().toLocaleTimeString() }}]</span>
-               <span class="content">{{ log.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '').substring(0, 100) }}</span>
-             </div>
-          </div>
-
-          <div class="security-lines">
-            <div class="line"></div>
-            <div class="line"></div>
-          </div>
-        </div>
-        
-        <div class="decrypt-prompt">
-          <span class="pulse-text">PRESS ANY KEY TO DECRYPT</span>
-        </div>
-
-        <div class="system-stats-corner top-left">
-          <div class="stat-item">SYSTEM_CLOCK: <span class="highlight">{{ systemTime }}</span></div>
-          <div class="stat-item">ENCRYPTION: <span class="highlight">{{ bitrate }} bits/s</span></div>
-        </div>
-
-        <div class="status-monitor">
-          <div class="monitor-item">
-            <span class="label">CPU_LOAD:</span>
-            <span class="value">{{ cpuUsage.toFixed(1) }}%</span>
-          </div>
-          <div class="monitor-item">
-            <span class="label">LOG_DENSITY:</span>
-            <span class="value">{{ logs.length }}_NODES</span>
-          </div>
-        </div>
+    <div class="matrix-overlay">
+      <div class="security-barrier" :class="{ 'glitch-active': isUnlocking }">
+        <h1 class="main-title">AUTHENTICATION REQUIRED</h1>
+        <div class="decrypt-ritual" v-if="isUnlocking">DECRYPTING... {{ Math.random().toString(16).toUpperCase() }}</div>
       </div>
     </div>
-  </Transition>
+
+    <div class="decrypt-prompt">
+      <span class="breathing-text">PRESS ANY KEY TO INITIALIZE DECRYPTION</span>
+    </div>
+  </div>
 </template>
 
 <style scoped>
 .matrix-container {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
+  inset: 0;
   z-index: 999999;
   background: #000;
   overflow: hidden;
+  cursor: none;
 }
 
-.blur-overlay {
+canvas { display: block; filter: blur(0.5px); }
+
+.system-meta-top {
   position: absolute;
-  inset: 0;
-  backdrop-filter: blur(15px);
-  z-index: 5;
-  pointer-events: none;
-}
-
-canvas {
-  display: block;
-}
-
-.scanlines {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
-    to bottom,
-    transparent 50%,
-    rgba(0, 0, 0, 0.4) 50%
-  );
-  background-size: 100% 4px;
-  pointer-events: none;
-  z-index: 10;
-  animation: scanline-scroll 10s linear infinite;
-}
-
-@keyframes scanline-scroll {
-  from { background-position: 0 0; }
-  to { background-position: 0 100%; }
+  top: 10px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  color: rgba(34, 197, 94, 0.4);
+  letter-spacing: 2px;
 }
 
 .matrix-overlay {
   position: absolute;
   inset: 0;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  z-index: 20;
-  background: radial-gradient(circle at center, transparent 20%, rgba(0, 0, 0, 0.7) 100%);
+  background: radial-gradient(circle at center, transparent 30%, rgba(0, 0, 0, 0.8) 100%);
 }
 
-.security-barrier {
+.main-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 28px;
+  font-weight: 200;
+  color: #22c55e;
+  letter-spacing: 0.4em;
+  text-shadow: 0 0 10px rgba(34, 197, 94, 0.3);
+  margin: 0;
+  transition: all 0.1s;
+}
+
+.security-barrier.glitch-active .main-title {
+  animation: glitch 0.1s infinite;
+  color: #fff;
+  text-shadow: 2px 0 #ff00ff, -2px 0 #00ffff;
+}
+
+@keyframes glitch {
+  0% { transform: translate(0); }
+  20% { transform: translate(-2px, 2px); }
+  40% { transform: translate(-2px, -2px); }
+  60% { transform: translate(2px, 2px); }
+  80% { transform: translate(2px, -2px); }
+  100% { transform: translate(0); }
+}
+
+.decrypt-ritual {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: #fff;
+  margin-top: 20px;
+}
+
+.decrypt-prompt {
+  position: absolute;
+  bottom: 40px;
+  left: 0;
+  right: 0;
   text-align: center;
-  border: 1px solid #22c55e;
-  padding: 50px 80px;
-  background: rgba(0, 10, 0, 0.4);
-  position: relative;
-  box-shadow: 0 0 30px rgba(34, 197, 94, 0.3);
-  border-radius: 8px;
-  animation: breathing-glow 4s infinite ease-in-out;
 }
 
-@keyframes breathing-glow {
-  0%, 100% { box-shadow: 0 0 20px rgba(34, 197, 94, 0.2); }
-  50% { box-shadow: 0 0 40px rgba(34, 197, 94, 0.5); }
-}
-
-.live-logs-window {
-  margin-top: 30px;
-  text-align: left;
-  font-family: 'JetBrains Mono', monospace;
-  background: rgba(0, 0, 0, 0.8);
-  border: 1px solid rgba(34, 197, 94, 0.2);
-  padding: 15px;
-  border-radius: 4px;
-  height: 110px;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.log-entry {
-  font-size: 11px;
-  color: #22c55e;
-  white-space: nowrap;
-}
-
-.log-entry .timestamp {
-  color: #166534;
-  margin-right: 10px;
-  font-size: 10px;
-}
-
-.log-entry .content {
-  color: #22c55e;
-  text-shadow: 0 0 5px rgba(34, 197, 94, 0.5);
-}
-
-.glitch-text {
-  font-size: 42px;
-  font-weight: 800;
-  color: #22c55e;
-  letter-spacing: 16px;
-  font-family: 'JetBrains Mono', monospace;
-  text-shadow: 0 0 15px rgba(34, 197, 94, 0.8);
-}
-
-.barrier-sub {
-  color: #22c55e;
-  font-size: 11px;
-  margin-top: 15px;
-  letter-spacing: 6px;
-  font-family: 'JetBrains Mono', monospace;
-  opacity: 0.8;
-  text-transform: uppercase;
-}
-
-.security-lines .line {
-  height: 100%;
-  width: 40%;
-  background: #22c55e;
-  box-shadow: 0 0 10px #22c55e;
-}
-
-.pulse-text {
-  color: #166534;
-  font-size: 14px;
-  text-transform: uppercase;
-  letter-spacing: 6px;
-  animation: pulse 4s infinite;
-  font-family: monospace;
-}
-
-@keyframes pulse {
-  0%, 100% { opacity: 0.2; color: #166534; }
-  50% { opacity: 0.8; color: #22c55e; text-shadow: 0 0 8px #22c55e; }
-}
-
-.system-stats-corner {
-  position: absolute;
-  top: 40px;
-  left: 40px;
+.breathing-text {
   font-family: 'JetBrains Mono', monospace;
   font-size: 10px;
-  color: #166534;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  color: rgba(34, 197, 94, 0.3);
+  letter-spacing: 4px;
+  animation: breathe 3s infinite ease-in-out;
 }
 
-.stat-item .highlight {
-  color: #22c55e;
-  text-shadow: 0 0 5px #22c55e;
+@keyframes breathe {
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 0.8; }
 }
 
-.status-monitor {
-  position: absolute;
-  bottom: 50px;
-  right: 50px;
-  text-align: right;
-  font-family: 'JetBrains Mono', monospace;
-  border-right: 2px solid #22c55e;
-  padding: 15px 20px;
-  background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(5px);
+/* CRT Off Effect */
+.crt-off {
+  animation: crt-off 0.6s forwards cubic-bezier(0.19, 1, 0.22, 1);
 }
 
-.monitor-item .label {
-  font-size: 10px;
-  color: #166534;
-}
-
-.monitor-item .value {
-  font-size: 14px;
-  color: #22c55e;
-  text-shadow: 0 0 10px #22c55e;
-}
-
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1);
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
+@keyframes crt-off {
+  0% { transform: scale(1, 1); filter: brightness(1); }
+  40% { transform: scale(1, 0.005); filter: brightness(2); }
+  100% { transform: scale(0, 0); filter: brightness(5); }
 }
 </style>
