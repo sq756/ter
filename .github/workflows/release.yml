@@ -49,6 +49,11 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Install NDK
+        run: |
+          sdkmanager "ndk;25.2.9519653"
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/25.2.9519653" >> $GITHUB_ENV
+
       - name: Rust setup
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -73,6 +78,7 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Ter v__VERSION__ - Cyber Edition"
