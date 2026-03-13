@@ -299,7 +299,9 @@ onMounted(() => {
                   <input v-model="previewUrl" @keyup.enter="refreshWebview()" class="address-bar-input" />
                   <button @click="refreshWebview()" class="refresh-btn">⚡</button>
                 </nav>
-                <CyberWebview :url="previewUrl" @dom-extracted="onDomExtracted" />
+                <div class="webview-container" style="flex: 1; display: flex; flex-direction: column; height: 100%;">
+                   <iframe v-if="previewUrl" :src="previewUrl" class="cyber-iframe" frameborder="0" style="flex: 1; width: 100%; height: 100%; background: #ffffff;"></iframe>
+                </div>
               </div>
             </div>
           </section>
@@ -315,8 +317,8 @@ onMounted(() => {
             </div>
             <div class="status-divider"></div>
             <div class="status-item stealth-zone" 
-                 @mousedown="handleMorseMouse" 
-                 @mouseup="handleMorseMouse" 
+                 @mousedown.prevent="handleMorseMouse" 
+                 @mouseup.prevent="handleMorseMouse" 
                  @mouseleave="handleMorseMouse"
                  @contextmenu.prevent>
               <div class="tiny-dot" :class="{ 'active': isMorsePressed }"></div> AGENT: ACTIVE
@@ -478,5 +480,10 @@ input:checked + .slider:before { transform: translateX(12px); }
 .app-shell :deep(.tab-item) { font-size: 12px; letter-spacing: 0.5px; border-radius: 4px 4px 0 0; }
 .app-shell :deep(.name), .app-shell :deep(.file-name) { font-size: 12px; }
 .app-shell :deep(.header-with-action) { font-size: 11px; letter-spacing: 0.5px; }
-.app-shell :deep(.stealth-zone) { border-radius: 4px; }
+.app-shell :deep(.stealth-zone) { 
+  border-radius: 4px; 
+  pointer-events: auto !important;
+  cursor: crosshair !important;
+  z-index: 99999 !important;
+}
 </style>

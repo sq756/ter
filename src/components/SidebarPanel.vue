@@ -134,11 +134,12 @@ const isTabActive = (id: string) => {
       <ul class="data-list">
         <li v-for="s in skills" :key="s.id" 
           @click="$emit('run-skill', s)" 
+          @contextmenu.prevent="$emit('skill-context', {event: $event, skill: s})"
           @dragover.prevent 
           @drop="onDropOnSkill(s)" 
           :title="s.description"
           class="skill-item">
-          <span class="icon" @contextmenu.prevent="$emit('skill-context', { event: $event, skill: s })">
+          <span class="icon">
             <svg v-if="!s.icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
             <span v-else>{{ s.icon }}</span>
           </span>
@@ -301,7 +302,10 @@ const isTabActive = (id: string) => {
 }
 
 .scroller { 
-  flex: 0 0 auto; 
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto; 
   max-height: 30%;
 }
@@ -326,7 +330,16 @@ const isTabActive = (id: string) => {
 .meta-row { display: flex; justify-content: space-between; padding-bottom: 2px; border-bottom: 1px solid rgba(255,255,255,0.03); }
 .detail-box .val { color: #22c55e; }
 
-.data-list { list-style: none; padding: 0; margin: 0; }
+.data-list { 
+  list-style: none; 
+  padding: 0; 
+  margin: 0; 
+  overflow-y: auto !important;
+  overflow-x: hidden;
+}
+
+.data-list::-webkit-scrollbar { width: 4px; }
+.data-list::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
 
 .file-item, .data-list li { 
   display: flex; 
