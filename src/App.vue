@@ -13,6 +13,7 @@ import SidebarPanel from './components/SidebarPanel.vue';
 import TerminalTabs from './components/TerminalTabs.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
 import CyberGate from './components/CyberGate.vue';
+import NetworkMatrix from './components/NetworkMatrix.vue';
 
 // Composables
 import { useMorse } from './composables/useMorse';
@@ -37,6 +38,7 @@ const showSettings = ref(false);
 const activeMacros = ref<{name: string, cmd: string}[]>([]);
 
 const isLocked = ref(false);
+const showNetworkMatrix = ref(false);
 const isSidebarOpen = ref(true);
 const isCtrlPressed = ref(false);
 const cyberMode = ref(0); 
@@ -308,7 +310,9 @@ onMounted(() => {
             <button class="status-btn sidebar-toggle" @click.stop="isSidebarOpen = !isSidebarOpen">
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
             </button>
-            <div class="status-item"><span class="node-dot purple"></span> NODE: {{ host }}</div>
+            <div class="status-item" @click="showNetworkMatrix = true" style="cursor: pointer;" title="Open Network Topology Matrix">
+              <span class="node-dot purple"></span> NODE: {{ host }}
+            </div>
             <div class="status-divider"></div>
             <div class="status-item stealth-zone" 
                  @mousedown="handleMorseMouse" 
@@ -339,6 +343,7 @@ onMounted(() => {
       </main>
     </div>
     <MatrixScreen :isLocked="isLocked" :logs="backendLogs" :cpuUsage="currentCpuUsage ?? 0" @unlock="isLocked = false" />
+    <NetworkMatrix v-if="showNetworkMatrix" @close="showNetworkMatrix = false" />
   </div>
 </template>
 
