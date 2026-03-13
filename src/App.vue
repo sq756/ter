@@ -320,6 +320,12 @@ watch(() => showPrivilegeMenu.value, (val) => { if (val) activeMenu.value = 'pri
           <div class="menu-item" @click="copySelectedText">📋 Copy</div>
           <div class="menu-item" @click="pasteFromClipboard">📥 Paste</div>
           <div class="menu-divider"></div>
+          <header class="menu-header">TMUX CONTROL</header>
+          <div class="menu-item" @click="invoke('write_pty', { tabId: activeTabId, data: '\x02%' }); activeMenu = null">◫ Split Horizontal</div>
+          <div class="menu-item" @click="invoke('write_pty', { tabId: activeTabId, data: '\x02\&quot;' }); activeMenu = null">⬒ Split Vertical</div>
+          <div class="menu-item" @click="invoke('write_pty', { tabId: activeTabId, data: '\x02z' }); activeMenu = null">⤢ Toggle Zoom</div>
+          <div class="menu-item danger" @click="invoke('write_pty', { tabId: activeTabId, data: '\x02x' }); activeMenu = null">✕ Kill Pane</div>
+          <div class="menu-divider"></div>
           <div class="menu-item danger" @click="closeTab(contextMenuTabId!)">❌ Close</div>
         </div>
 
