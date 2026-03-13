@@ -39,6 +39,7 @@ const cyberMode = ref(0);
 const agentToken = ref('');
 const currentAgentPort = ref<number | null>(null);
 const backendLogs = ref<string[]>([]);
+const isLogsPaused = ref(false);
 const skills = ref<any[]>([]);
 
 const storageKey = (h: string) => `ter_tabs_${h.replace(/\s+/g, '_')}`;
@@ -217,8 +218,10 @@ onMounted(async () => {
   const sm = localStorage.getItem('ter_macros'); if (sm) try { activeMacros.value = JSON.parse(sm); } catch(e){}
   
   unlistenLog = await listen<string>('backend-log', (e) => { 
-    backendLogs.value.push(e.payload); 
-    if (backendLogs.value.length > 500) backendLogs.value.shift(); 
+    if (!isLogsPaused.value) {
+      backendLogs.value.push(e.payload); 
+      if (backendLogs.value.length > 500) backendLogs.value.shift(); 
+    }
   });
 });
 
@@ -325,8 +328,8 @@ onUnmounted(() => {
           <section class="cyber-pane" :class="{ 'open': cyberMode === 1 }">
             <div class="cyber-container">
               <div class="cyber-logs-view">
-                <header><span class="title">Cyber Logs</span></header>
-                <div class="logs-container">
+                <header><span class="title">Cyber Logs</span> <span v-if="isLogsPaused" class="pause-hint">PAUSED</span></header>
+                <div class="logs-container" @mouseenter="isLogsPaused = true" @mouseleave="isLogsPaused = false">
                   <div v-for="(log, i) in backendLogs" :key="i" class="log-line">
                     <span class="line-num">{{ i + 1 }}</span> {{ log }}
                   </div>
@@ -389,7 +392,8 @@ onUnmounted(() => {
 .cyber-pane { width: 420px; height: 100%; border-left: 1px solid #27272a; background: #000; overflow: hidden; display: flex; flex-direction: column; }
 .cyber-container { display: flex; flex-direction: column; height: 100%; flex: 1; overflow: hidden; }
 .cyber-logs-view { flex: 0 0 30%; display: flex; flex-direction: column; background: #000; border-bottom: 1px solid #27272a; overflow: hidden; }
-.logs-container { flex: 1; padding: 10px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #a1a1aa; user-select: text; -webkit-user-select: text; }
+.logs-container { flex: 1; padding: 10px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #a1a1aa; user-select: text !important; -webkit-user-select: text !important; }
+.pause-hint { font-size: 9px; color: #ef4444; border: 1px solid #ef4444; padding: 0 4px; border-radius: 2px; margin-left: 10px; animation: blink 1s infinite; }
 .cyber-webview-wrapper { flex: 1; background: #000; display: flex; flex-direction: column; overflow: hidden; }
 .webview-address-bar { height: 32px; border-bottom: 1px solid #27272a; display: flex; align-items: center; padding: 0 8px; gap: 8px; }
 .address-input-wrapper { flex: 1; background: #050505; border: 1px solid #18181b; height: 24px; animation: breathing-border 3s infinite; display: flex; align-items: center; padding: 0 8px; }

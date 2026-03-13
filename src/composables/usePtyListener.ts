@@ -87,8 +87,10 @@ export function usePtyListener(
           const lm = pt.match(/http:\/\/localhost:(\d+)/); 
           if (lm && lm[1]) {
             const port = parseInt(lm[1]);
-            currentAgentPort.value = port;
-            refreshWebview(`http://localhost:${port}`);
+            if (currentAgentPort.value !== port) {
+              currentAgentPort.value = port;
+              refreshWebview(`http://localhost:${port}`);
+            }
           }
           
           if (activeTriggers.value.some(t => pt.includes(t))) { 
