@@ -141,52 +141,74 @@ let resizeObserver: ResizeObserver | null = null;
 const updateNativeWebviewPosition = async () => {
   if (!nativeWebview || !webviewContainerRef.value || cyberMode.value !== 1) return;
   
-  const rect = webviewContainerRef.value.getBoundingClientRect();
-  await nativeWebview.setSize({
-    type: 'Logical',
-    width: rect.width,
-    height: rect.height
-  });
-  await nativeWebview.setPosition({
-    type: 'Logical',
-    x: rect.left,
-    y: rect.top
-  });
+  // 加上一点点微小的延时，确保 DOM 布局彻底稳定
+  await new Promise(resolve => setTimeout(resolve, 50)); 
+  
+  try {
+    const rect = webviewContainerRef.value.getBoundingClientRect();
+    // 核心修复：强制约束尺寸，防止溢出，并使用向下取整
+    await nativeWebview.setSize({
+      type: 'Logical',
+      width: Math.floor(rect.width),
+      height: Math.floor(rect.height)
+    });
+    await nativeWebview.setPosition({
+      type: 'Logical',
+      x: Math.floor(rect.left),
+      y: Math.floor(rect.top)
+    });
+  } catch (e) {
+    console.error('TER_SYSTEM: Position update failed', e);
+  }
 };
 
 const refreshWebview = async () => {
   if (cyberMode.value !== 1) return;
-  if (nativeWebview && safePreviewUrl.value) {
-    await nativeWebview.navigate(safePreviewUrl.value);
-  } else {
-    spawnNativeWebview(safePreviewUrl.value);
+  try {
+    if (nativeWebview && safePreviewUrl.value) {
+      await nativeWebview.navigate(safePreviewUrl.value);
+    } else if (safePreviewUrl.value) {
+      spawnNativeWebview(safePreviewUrl.value);
+    }
+  } catch (e) {
+    console.error('TER_SYSTEM: Refresh failed', e);
   }
 };
 
 const spawnNativeWebview = async (url: string) => {
   if (!url || url === 'about:blank') {
-    if (nativeWebview) await nativeWebview.hide();
+    if (nativeWebview) {
+      try { await nativeWebview.destroy(); nativeWebview = null; } catch (e) {}
+    }
     return;
   }
 
+  // Ensure DOM is ready for rect calculation
+  await nextTick();
   const rect = webviewContainerRef.value?.getBoundingClientRect() || { left: 0, top: 0, width: 800, height: 600 };
 
-  if (!nativeWebview) {
-    nativeWebview = new Webview(appWindow, 'ter_main_webview', {
-      url,
-      x: rect.left,
-      y: rect.top,
-      width: rect.width,
-      height: rect.height,
-    });
-    
-    nativeWebview.once('tauri://created', () => {
-      console.log('TER_SYSTEM: Native Webview spawned.');
-    });
-  } else {
-    await nativeWebview.navigate(url);
-    await updateNativeWebviewPosition();
-    await nativeWebview.show();
+  try {
+    if (!nativeWebview) {
+      nativeWebview = new Webview(appWindow, 'ter_main_webview', {
+        url,
+        x: Math.floor(rect.left),
+        y: Math.floor(rect.top),
+        width: Math.floor(rect.width),
+        height: Math.floor(rect.height),
+      });
+      
+      nativeWebview.once('tauri://created', () => {
+        console.log('TER_SYSTEM: Native Webview spawned.');
+      });
+      nativeWebview.once('tauri://error', (e) => {
+        console.error('TER_SYSTEM: Native Webview error', e);
+      });
+    } else {
+      await nativeWebview.navigate(url);
+      await updateNativeWebviewPosition();
+    }
+  } catch (e) {
+    console.error('TER_SYSTEM: Spawn/Nav failed', e);
   }
 };
 
@@ -209,16 +231,30 @@ const safePreviewUrl = computed(() => {
 });
 
 // Intercept mode changes to show/hide native webview
-watch(cyberMode, (newMode) => {
+watch(cyberMode, async (newMode) => {
   if (newMode === 1) {
+    await nextTick();
     if (safePreviewUrl.value) spawnNativeWebview(safePreviewUrl.value);
   } else {
-    if (nativeWebview) nativeWebview.hide();
+    if (nativeWebview) {
+      try { 
+        await nativeWebview.destroy(); // 彻底移除，释放鼠标拦截
+        nativeWebview = null; 
+      } catch (e) {}
+    }
   }
 });
 
-watch(safePreviewUrl, (newUrl) => {
-  if (cyberMode.value === 1) spawnNativeWebview(newUrl);
+watch(safePreviewUrl, async (newUrl) => {
+  if (cyberMode.value === 1) {
+    await nextTick();
+    if (!nativeWebview) {
+      spawnNativeWebview(newUrl);
+    } else {
+      await nativeWebview.navigate(newUrl);
+      await updateNativeWebviewPosition();
+    }
+  }
 });
 
 let morseTimer: any = null;
