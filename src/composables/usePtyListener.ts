@@ -12,6 +12,7 @@ export function usePtyListener(
   activeTriggers: Ref<string[]>,
   captureAndUpload: (auto: boolean) => Promise<void>,
   refreshWebview: (url?: string) => Promise<void>,
+  handleExtractDOM: () => Promise<void>,
   currentAgentPort: Ref<number | null>
 ) {
   let unlistenPty: any;
@@ -42,6 +43,10 @@ export function usePtyListener(
             
             if (rpc.action === 'screenshot') {
               captureAndUpload(true);
+            } else if (rpc.action === 'navigate' && rpc.url) {
+              refreshWebview(rpc.url);
+            } else if (rpc.action === 'extract_dom') {
+              handleExtractDOM();
             } else if (rpc.action === 'notify') {
               backendLogs.value.push(`[🔔 AI NOTIFY] ${rpc.msg || rpc.message}`);
             } else if (rpc.action === 'chart') {

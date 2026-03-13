@@ -91,7 +91,7 @@ const {
 
 usePtyListener(
   activeTabId, connectionStatus, backendLogs, isAutoPilot, lastAutoPilotTime, 
-  activeTriggers, captureAndUpload, refreshWebview, currentAgentPort
+  activeTriggers, captureAndUpload, refreshWebview, handleExtractDOM, currentAgentPort
 );
 
 // ==========================================
