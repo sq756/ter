@@ -66,13 +66,8 @@ export function useCyber(activeTabId: any, backendLogs: any) {
   };
 
   const captureAndUpload = async (auto = false) => {
-    if (!auto) backendLogs.value.push(`[SYSTEM] Initiating UI sync...`);
-    try {
-      const path = await invoke<string>('ai_audit_ui');
-      if (!auto) backendLogs.value.push(`[INFO] UI Snapshot saved: ${path}`);
-    } catch (e) {
-      backendLogs.value.push(`[ERROR] Audit Fail: ${e}`);
-    }
+    if (!auto) backendLogs.value.push(`[SYSTEM] UI Snapshot triggered (stub)...`);
+    // Removed call to ai_audit_ui as it is not implemented in backend
   };
 
   return {
