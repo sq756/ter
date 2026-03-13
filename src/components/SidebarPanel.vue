@@ -8,10 +8,14 @@ const props = defineProps<{
   skills: any[];
   cpuChartRef: any;
   memChartRef: any;
+  netChartRef: any;
+  healthMode: string;
+  currentNetSpeed: { up: string, down: string };
+  extraStats: any;
   isAutoPilot: boolean;
 }>();
 
-const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill', 'change-dir', 'view-history', 'open-trigger-settings', 'fast-access', 'morse-down', 'morse-up', 'morse-context', 'explorer-context']);
+const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill', 'change-dir', 'view-history', 'open-trigger-settings', 'fast-access', 'morse-down', 'morse-up', 'morse-context', 'explorer-context', 'cycle-health-mode']);
 
 // v2.2.11: Track last visited directories for FAST ACCESS
 const lastVisited = computed(() => {
@@ -45,11 +49,38 @@ const onFastAccessClick = (path: string) => {
 
 <template>
   <aside class="side-bar">
-    <div class="module sys-health" @click="$emit('switch-mode', 0)" style="cursor: pointer;">
-      <header>System Health</header>
-      <div class="chart-box">
-        <div :ref="cpuChartRef" class="mini-chart"></div>
-        <div :ref="memChartRef" class="mini-chart"></div>
+    <div class="module sys-health" @click="$emit('cycle-health-mode')" @contextmenu.prevent="$emit('cycle-health-mode')" style="cursor: pointer;">
+      <header>System Health ({{ healthMode.toUpperCase() }})</header>
+      
+      <!-- Resource Mode: CPU & RAM -->
+      <div v-if="healthMode === 'resource'" class="chart-box">
+        <div class="stat-item">
+          <div :ref="cpuChartRef" class="mini-chart"></div>
+          <span class="label">CPU</span>
+        </div>
+        <div class="stat-item">
+          <div :ref="memChartRef" class="mini-chart"></div>
+          <span class="label">RAM</span>
+        </div>
+      </div>
+
+      <!-- Network Mode: Speeds -->
+      <div v-else-if="healthMode === 'network'" class="net-box">
+        <div class="speed-row">
+          <span class="label">UP:</span> <span class="val">{{ currentNetSpeed.up }}</span>
+        </div>
+        <div class="speed-row">
+          <span class="label">DOWN:</span> <span class="val">{{ currentNetSpeed.down }}</span>
+        </div>
+        <div :ref="netChartRef" class="net-chart"></div>
+      </div>
+
+      <!-- Detail Mode: Meta -->
+      <div v-else class="detail-box">
+        <div class="meta-row"><span class="label">GPU:</span> <span class="val">{{ extraStats.gpu }}</span></div>
+        <div class="meta-row"><span class="label">UPT:</span> <span class="val">{{ extraStats.uptime }}</span></div>
+        <div class="meta-row"><span class="label">IP:</span> <span class="val">{{ extraStats.ip }}</span></div>
+        <div class="meta-row"><span class="label">DISK:</span> <span class="val">{{ extraStats.disk }}</span></div>
       </div>
     </div>
 
@@ -196,9 +227,20 @@ const onFastAccessClick = (path: string) => {
   max-height: none;
 }
 
-.sys-health { height: 140px; flex-shrink: 0; }
-.chart-box { display: flex; gap: 10px; height: 40px; }
-.mini-chart { flex: 1; height: 100%; background: #000; border: 1px solid #18181b; border-radius: 4px; }
+.sys-health { height: 160px; flex-shrink: 0; transition: height 0.2s; overflow: hidden; }
+.chart-box { display: flex; gap: 10px; height: 60px; }
+.stat-item { flex: 1; display: flex; flex-direction: column; gap: 4px; }
+.mini-chart { height: 40px; background: #000; border: 1px solid #18181b; border-radius: 4px; }
+.sys-health .label { font-size: 9px; color: #52525b; text-transform: uppercase; letter-spacing: 0.1em; }
+.sys-health .val { font-size: 11px; color: #d4d4d8; font-family: 'JetBrains Mono', monospace; margin-left: auto; }
+
+.net-box { display: flex; flex-direction: column; gap: 6px; }
+.speed-row { display: flex; justify-content: space-between; }
+.net-chart { height: 40px; background: #000; border: 1px solid #18181b; margin-top: 4px; border-radius: 4px; }
+
+.detail-box { display: flex; flex-direction: column; gap: 4px; }
+.meta-row { display: flex; justify-content: space-between; padding-bottom: 2px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+.detail-box .val { color: #22c55e; }
 
 .data-list { list-style: none; padding: 0; margin: 0; }
 

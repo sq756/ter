@@ -34,6 +34,8 @@ type Stats struct {
 	Processes []ProcessInfo `json:"processes"`
 	Uptime    uint64        `json:"uptime"`
 	Timestamp int64         `json:"timestamp"`
+	GPUInfo   string        `json:"gpu_info"`
+	IP        string        `json:"ip"`
 }
 
 type ProcessInfo struct {
@@ -122,6 +124,31 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+func getGPUInfo() string {
+	out, err := exec.Command("nvidia-smi", "--query-gpu=name,memory.used,memory.total", "--format=csv,noheader,nounits").Output()
+	if err != nil {
+		return "N/A"
+	}
+	return string(out)
+}
+
+func getLocalIP() string {
+	addrs, err := net.Interfaces()
+	if err != nil {
+		return "127.0.0.1"
+	}
+	for _, a := range addrs {
+		for _, addr := range a.Addrs {
+			if ipnet, ok := addr.Addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+				if ipnet.IP.To4() != nil {
+					return ipnet.IP.String()
+				}
+			}
+		}
+	}
+	return "127.0.0.1"
+}
+
 func getStats() (*Stats, error) {
 	cpuPercent, err := cpu.Percent(0, false)
 	if err != nil {
@@ -141,6 +168,15 @@ func getStats() (*Stats, error) {
 		sent = netIO[0].BytesSent
 		recv = netIO[0].BytesRecv
 	}
+	
+	// Uptime
+	hostInfo, _ := os.Open("/proc/uptime")
+	var uptime float64
+	if hostInfo != nil {
+		fmt.Fscanf(hostInfo, "%f", &uptime)
+		hostInfo.Close()
+	}
+
 	procs, err := process.Processes()
 	if err != nil {
 		return nil, err
@@ -178,8 +214,10 @@ func getStats() (*Stats, error) {
 		NetSent:   sent,
 		NetRecv:   recv,
 		Processes: procInfos,
-		Uptime:    0,
+		Uptime:    uint64(uptime),
 		Timestamp: time.Now().Unix(),
+		GPUInfo:   getGPUInfo(),
+		IP:        getLocalIP(),
 	}, nil
 }
 

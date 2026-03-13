@@ -72,8 +72,16 @@ const {
 } = useContextMenu(activeTabId, renameTab);
 
 const { 
-  cpuChartRef, memChartRef, currentCpuUsage, initCharts, fetchStats 
+  cpuChartRef, memChartRef, netChartRef, currentCpuUsage, 
+  healthMode, currentNetSpeed, extraStats,
+  initCharts, fetchStats, setHealthMode
 } = useStats(currentAgentPort, agentToken);
+
+const cycleHealthMode = () => {
+  const modes: any[] = ['resource', 'network', 'detail'];
+  const next = modes[(modes.indexOf(healthMode.value) + 1) % modes.length];
+  setHealthMode(next);
+};
 
 const { 
   morseSequence, morseText, showMorseMacro, isMorsePressed, possibleLetters,
@@ -229,12 +237,13 @@ onUnmounted(() => {
       <SettingsPanel :isOpen="showSettings" @close="showSettings = false" @update-macros="(m) => activeMacros = m" />
       <SidebarPanel 
         :files="realFiles" :currentPath="currentPath" :bgTabs="backgroundTabs" :skills="skills"
-        :cpuChartRef="cpuChartRef" :memChartRef="memChartRef"
+        :cpuChartRef="cpuChartRef" :memChartRef="memChartRef" :netChartRef="netChartRef"
+        :healthMode="healthMode" :currentNetSpeed="currentNetSpeed" :extraStats="extraStats"
         v-model:isAutoPilot="isAutoPilot"
         @switch-tab="bringToForeground" @switch-mode="(mode: number) => cyberMode = mode"
         @view-history="viewHistory" @proc-context="(p: any) => onTerminalContextMenu({e: p.event, id: p.tab.id})" @run-skill="runSkill"
         @change-dir="changeDir" @open-trigger-settings="showSettings = true" @fast-access="onFastAccess"
-        @explorer-context="onExplorerContextMenu"
+        @explorer-context="onExplorerContextMenu" @cycle-health-mode="cycleHealthMode"
       />
 
       <main class="workspace" ref="workspaceRef">
