@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, reactive, onMounted } from 'vue';
+import { open } from '@tauri-apps/plugin-dialog';
+import { invoke } from '@tauri-apps/api/core';
 
 const props = defineProps<{
   files: any[];
@@ -7,7 +9,7 @@ const props = defineProps<{
   bgTabs: any[];
   skills: any[];
   lastActivityMap: Record<string, number>;
-  cpuChartRef: any;
+  cpuChartRef: any; // Keep for prop sync but we'll use local refs for DOM
   memChartRef: any;
   netChartRef: any;
   healthMode: string;
@@ -15,9 +17,45 @@ const props = defineProps<{
   extraStats: any;
   isAutoPilot: boolean;
   sftpHeight: number;
+  isAuditMode: boolean;
 }>();
 
-const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill', 'change-dir', 'view-history', 'open-trigger-settings', 'fast-access', 'morse-down', 'morse-up', 'morse-context', 'explorer-context', 'cycle-health-mode', 'skill-context', 'header-context', 'resize-sftp-start']);
+const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill', 'change-dir', 'view-history', 'open-trigger-settings', 'fast-access', 'morse-down', 'morse-up', 'morse-context', 'explorer-context', 'cycle-health-mode', 'skill-context', 'resize-sftp-start', 'reload-skills', 'update-audit-mode', 'refresh-explorer']);
+
+// v2.11.2: Rotary Switch Logic Expanded
+const moduleModes = {
+  health: [
+    { id: 'res', label: 'CPU/RAM', apply: () => emit('cycle-health-mode', 'resource') },
+    { id: 'net', label: 'NETWORK', apply: () => emit('cycle-health-mode', 'network') },
+    { id: 'io', label: 'DISK IO', apply: () => emit('cycle-health-mode', 'detail') }
+  ],
+  sftp: [
+    { id: 'std', label: 'STANDARD', apply: () => emit('update-audit-mode', false) },
+    { id: 'audit', label: 'AUDIT', apply: () => emit('update-audit-mode', true) },
+    { id: 'hidden', label: 'DOTFILES', apply: () => console.log('TER_SYSTEM: Dotfiles toggle not implemented yet') }
+  ],
+  skills: [
+    { id: 'run', label: 'EXECUTE', apply: () => console.log('TER_SYSTEM: Skill execution mode active') },
+    { id: 'reload', label: 'RELOAD', apply: () => emit('reload-skills') }
+  ],
+  processes: [
+    { id: 'all', label: 'ALL TASKS', apply: () => {} },
+    { id: 'bg', label: 'BACKGROUND', apply: () => {} }
+  ],
+  history: [
+    { id: 'jump', label: 'JUMP', apply: () => {} },
+    { id: 'edit', label: 'EDIT', apply: () => {} }
+  ]
+};
+
+const modeIndices = reactive({ health: 0, sftp: 0, skills: 0, processes: 0, history: 0 });
+
+const rotateMode = (module: keyof typeof moduleModes, step: number) => {
+  const modes = moduleModes[module];
+  const len = modes.length;
+  modeIndices[module] = (modeIndices[module] + step + len) % len;
+  modes[modeIndices[module]].apply();
+};
 
 // v2.6.0: Agentic Interaction (Drag & Drop + Context Menu)
 const draggedFile = ref<any>(null);
@@ -31,6 +69,20 @@ const onDropOnSkill = (skill: any) => {
   if (draggedFile.value) {
     emit('run-skill', { ...skill, context_file: draggedFile.value });
     draggedFile.value = null;
+  }
+};
+
+const handleUpload = async () => {
+  try {
+    const selected = await open({ multiple: false });
+    if (selected && typeof selected === 'string') {
+      const fileName = selected.split(/[\\/]/).pop();
+      const remotePath = (props.currentPath === '/' ? '' : props.currentPath) + '/' + fileName;
+      await invoke('upload_file', { localPath: selected, remotePath });
+      emit('refresh-explorer');
+    }
+  } catch (e) {
+    console.error('Upload failed:', e);
   }
 };
 
@@ -67,6 +119,17 @@ const isTabActive = (id: string) => {
   const last = props.lastActivityMap[id] || 0;
   return (Date.now() - last) < 1000;
 };
+
+// Connect local refs to parent's ref objects for ECharts initialization
+const cpuChartLocal = ref(null);
+const memChartLocal = ref(null);
+const netChartLocal = ref(null);
+
+onMounted(() => {
+  if (cpuChartLocal.value) props.cpuChartRef.value = cpuChartLocal.value;
+  if (memChartLocal.value) props.memChartRef.value = memChartLocal.value;
+  if (netChartLocal.value) props.netChartRef.value = netChartLocal.value;
+});
 </script>
 
 <template>
@@ -76,17 +139,20 @@ const isTabActive = (id: string) => {
       <div class="scanline"></div>
     </div>
 
-    <div class="module sys-health" @click="$emit('cycle-health-mode')" @contextmenu.prevent="$emit('header-context', {event: $event, module: 'health'})" style="cursor: pointer;">
-      <header>System Health ({{ healthMode.toUpperCase() }})</header>
+    <div class="module sys-health" style="cursor: pointer;">
+      <header class="header-with-action" @click.prevent="rotateMode('health', -1)" @contextmenu.prevent="rotateMode('health', 1)">
+        <span>System Health</span>
+        <span class="mode-badge">[{{ moduleModes.health[modeIndices.health].label }}]</span>
+      </header>
       
       <!-- Resource Mode: CPU & RAM -->
       <div v-if="healthMode === 'resource'" class="chart-box">
         <div class="stat-item">
-          <canvas ref="cpuChartRef" width="100" height="40" class="mini-chart"></canvas>
+          <canvas ref="cpuChartLocal" width="100" height="40" class="mini-chart"></canvas>
           <span class="label">CPU</span>
         </div>
         <div class="stat-item">
-          <canvas ref="memChartRef" width="100" height="40" class="mini-chart"></canvas>
+          <canvas ref="memChartLocal" width="100" height="40" class="mini-chart"></canvas>
           <span class="label">RAM</span>
         </div>
       </div>
@@ -99,7 +165,7 @@ const isTabActive = (id: string) => {
         <div class="speed-row">
           <span class="label">DOWN:</span> <span class="val">{{ currentNetSpeed.down }}</span>
         </div>
-        <canvas ref="netChartRef" width="200" height="40" class="net-chart"></canvas>
+        <canvas ref="netChartLocal" width="200" height="40" class="net-chart"></canvas>
       </div>
 
       <!-- Detail Mode: Meta -->
@@ -112,7 +178,10 @@ const isTabActive = (id: string) => {
     </div>
 
     <div class="module scroller processes">
-      <header @contextmenu.prevent.stop="$emit('header-context', {event: $event, module: 'processes'})">Running Processes</header>
+      <header class="header-with-action" @click.prevent="rotateMode('processes', -1)" @contextmenu.prevent="rotateMode('processes', 1)">
+        <span>Running Processes</span>
+        <span class="mode-badge">[{{ moduleModes.processes[modeIndices.processes].label }}]</span>
+      </header>
       <ul class="data-list">
         <li v-for="t in bgTabs" :key="t.id" @click="$emit('switch-tab', t.id)" @contextmenu.prevent="$emit('proc-context', {event: $event, tab: t})">
           <span class="icon">
@@ -126,9 +195,10 @@ const isTabActive = (id: string) => {
     </div>
 
     <div class="module scroller skills-hub">
-      <header class="header-with-action" @contextmenu.prevent.stop="$emit('header-context', {event: $event, module: 'skills'})">
+      <header class="header-with-action" @click.prevent="rotateMode('skills', -1)" @contextmenu.prevent="rotateMode('skills', 1)">
         <span>Skill Hub</span>
-        <button class="header-btn" title="Configure AI Triggers" @click="$emit('open-trigger-settings')">
+        <span class="mode-badge">[{{ moduleModes.skills[modeIndices.skills].label }}]</span>
+        <button class="header-btn" title="Configure AI Triggers" @click.stop="$emit('open-trigger-settings')">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
         </button>
       </header>
@@ -153,7 +223,10 @@ const isTabActive = (id: string) => {
 
     <!-- v2.2.11: FAST ACCESS instead of Session History -->
     <div class="module scroller history">
-      <header @contextmenu.prevent.stop="$emit('header-context', {event: $event, module: 'history'})">FAST ACCESS</header>
+      <header class="header-with-action" @click.prevent="rotateMode('history', -1)" @contextmenu.prevent="rotateMode('history', 1)">
+        <span>FAST ACCESS</span>
+        <span class="mode-badge">[{{ moduleModes.history[modeIndices.history].label }}]</span>
+      </header>
       <ul class="data-list">
         <li v-for="path in lastVisited" :key="path" 
             @click="onFastAccessClick(path)" 
@@ -168,12 +241,18 @@ const isTabActive = (id: string) => {
       </ul>
     </div>
 
-    <div class="module scroller explorer" :style="{ height: sftpHeight + 'px', flex: 'none' }">
-      <header @contextmenu.prevent.stop="$emit('header-context', {event: $event, module: 'explorer'})">
+    <div class="module scroller explorer" :style="{ height: sftpHeight + 'px', minHeight: '150px', flex: 'none' }">
+      <header class="header-with-action" @click.prevent="rotateMode('sftp', -1)" @contextmenu.prevent="rotateMode('sftp', 1)">
         <span>SFTP Explorer</span>
-        <div class="current-path">{{ currentPath }}</div>
+        <div class="header-actions">
+           <button class="header-btn" title="Upload File" @click.stop="handleUpload">
+             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+           </button>
+           <span class="mode-badge">[{{ moduleModes.sftp[modeIndices.sftp].label }}]</span>
+        </div>
       </header>
-      <ul class="data-list">
+      <div class="current-path">{{ currentPath }}</div>
+      <ul class="data-list" style="flex: 1;">
         <li @click="$emit('change-dir', '..')" @contextmenu.prevent="$emit('explorer-context', { e: $event, file: { name: '..', is_dir: true } })" class="file-item">
           <span class="file-icon">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
@@ -191,6 +270,7 @@ const isTabActive = (id: string) => {
             <svg v-else viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
           </span>
           <span class="file-name">{{ f.name }}</span>
+          <span v-if="isAuditMode" class="audit-info">[{{ f.is_dir ? '755' : '644' }}]</span>
         </li>
       </ul>
       <div class="resizable-handle" @mousedown="$emit('resize-sftp-start', $event)"></div>
@@ -278,6 +358,13 @@ const isTabActive = (id: string) => {
   align-items: center;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
 .header-btn {
   background: transparent;
   border: none;
@@ -287,10 +374,19 @@ const isTabActive = (id: string) => {
   transition: opacity 0.2s;
   padding: 0;
   line-height: 1;
+  display: flex;
+  align-items: center;
 }
-
 .header-btn:hover {
   opacity: 1;
+}
+
+.mode-badge {
+  font-size: 9px;
+  color: #22c55e;
+  font-family: 'JetBrains Mono', monospace;
+  opacity: 0.8;
+  pointer-events: none;
 }
 
 .current-path {
@@ -315,11 +411,13 @@ const isTabActive = (id: string) => {
 .explorer {
   position: relative;
   border-bottom: 1px solid #27272a;
+  display: flex;
+  flex-direction: column;
 }
 
 .resizable-handle {
   position: absolute;
-  bottom: 0;
+  top: 0;
   left: 0;
   width: 100%;
   height: 4px;
@@ -359,8 +457,17 @@ const isTabActive = (id: string) => {
 .data-list::-webkit-scrollbar { width: 4px; }
 .data-list::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
 
-.file-item, .data-list li { 
-  display: flex; 
+.audit-info {
+  margin-left: 8px;
+  font-size: 10px;
+  color: #ef4444; /* 危险红色或暗灰色 */
+  font-family: 'JetBrains Mono', monospace;
+  opacity: 0.8;
+  white-space: nowrap;
+}
+
+.file-item, .data-list li {
+  display: flex;
   align-items: center;
   justify-content: flex-start;
   gap: 10px;
@@ -371,13 +478,10 @@ const isTabActive = (id: string) => {
   color: #d4d4d8;
   font-size: 13px;
   transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-  border-bottom: none;
 }
 
-.file-item:hover, .data-list li:hover { 
-  background: rgba(34, 197, 94, 0.08); 
-  color: #22c55e; 
-  transform: scale(1.02);
+.file-item:hover, .data-list li:hover {
+  background: rgba(34, 197, 94, 0.1);
 }
 
 .file-item:active, .data-list li:active {
@@ -389,7 +493,7 @@ const isTabActive = (id: string) => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  flex: 1;
+  flex: 0 1 auto;
 }
 
 .file-icon, .data-list .icon { 

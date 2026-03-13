@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue';
+import { ref, onMounted, onUnmounted, nextTick, watch, computed } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -51,6 +51,7 @@ const skills = ref<any[]>([]);
 // v2.10.3: Resizable SFTP
 const sftpHeight = ref(200);
 const isResizingSFTP = ref(false);
+const isAuditMode = ref(false);
 
 const startResizingSFTP = (e: MouseEvent) => {
   isResizingSFTP.value = true;
@@ -62,23 +63,10 @@ const stopResizingSFTP = () => {
   document.body.style.cursor = '';
 };
 
-const handleGlobalMouseMove = (e: MouseEvent) => {
-  if (isResizingSFTP.value) {
-    sftpHeight.value = Math.max(100, Math.min(600, sftpHeight.value + e.movementY));
-  }
-};
-
-// v2.10.3: Privilege Menu
-const showPrivilegeMenu = ref(false);
-const privilegeModule = ref('');
-const privilegeMenuX = ref(0);
-const privilegeMenuY = ref(0);
-
-const onHeaderContextMenu = (p: { event: MouseEvent, module: string }) => {
-  privilegeModule.value = p.module;
-  privilegeMenuX.value = p.event.clientX;
-  privilegeMenuY.value = p.event.clientY;
-  showPrivilegeMenu.value = true;
+const reloadSkills = () => {
+  invoke('load_remote_skills').then((s: any) => {
+    skills.value = s;
+  }).catch(() => {});
 };
 
 const storageKey = (h: string) => `ter_tabs_${h.replace(/\s+/g, '_')}`;
@@ -118,15 +106,9 @@ const {
   initCharts, fetchStats, setHealthMode
 } = useStats(currentAgentPort, agentToken);
 
-const cycleHealthMode = () => {
-  const modes: any[] = ['resource', 'network', 'detail'];
-  const next = modes[(modes.indexOf(healthMode.value) + 1) % modes.length];
-  setHealthMode(next);
-};
-
 const { 
   morseSequence, morseText, showMorseMacro, isMorsePressed, possibleLetters,
-  handleMorseMouse, handleMorseWheel, onMorseMacro
+  handleMorseWheel, onMorseMacro
 } = useMorse(activeTabId, calculateMenuPosition);
 
 usePtyListener(
@@ -144,7 +126,85 @@ watch(terminalTabs, (val) => {
 // ==========================================
 // --- METHODS ---
 // ==========================================
-// RESTORED: Terminal Playback (Recording)
+const closeAllMenus = () => {
+  showContextMenu.value = false;
+  showExplorerMenu.value = false;
+  showMorseMacro.value = false;
+};
+
+const onGlobalMouseMove = (e: MouseEvent) => {
+  if (isResizingSFTP.value) {
+    let newHeight = window.innerHeight - e.clientY - 30;
+    if (newHeight > 100 && newHeight < window.innerHeight * 0.8) {
+      sftpHeight.value = newHeight;
+    }
+  }
+};
+
+const safePreviewUrl = computed(() => {
+  if (!previewUrl.value) return '';
+  if (previewUrl.value.includes('localhost:1420') || previewUrl.value.includes('localhost:5173')) {
+    return 'about:blank';
+  }
+  return previewUrl.value;
+});
+
+let morseTimer: any = null;
+let isLeftDown = false;
+let isRightDown = false;
+let morseTimerGlobal: any = null;
+
+const commitMorse = async () => {
+  // Use a stable reference to morseMap
+  const morseMap: Record<string, string> = {
+    '.-': 'A', '-...': 'B', '-.-.': 'C', '-..': 'D', '.': 'E', '..-.': 'F', '--.': 'G', '....': 'H', '..': 'I', '.---': 'J', '-.-': 'K', '.-..': 'L', '--': 'M', '-.': 'N', '---': 'O', '.--.': 'P', '--.-': 'Q', '.-.': 'R', '...': 'S', '-': 'T', '..-': 'U', '...-': 'V', '.--': 'W', '-..-': 'X', '-.--': 'Y', '--..': 'Z', '-----': '0', '.----': '1', '..---': '2', '...--': '3', '....-': '4', '.....': '5', '-....': '6', '--...': '7', '---..': '8', '----.': '9'
+  };
+  const char = morseMap[morseSequence.value];
+  if (char && activeTabId.value) {
+    morseText.value += char;
+    await invoke('write_pty', { tabId: activeTabId.value, data: char });
+  }
+  morseSequence.value = '';
+  setTimeout(() => { if (!morseSequence.value) morseText.value = ''; }, 2000);
+};
+
+const handleMorseMouse = (e: MouseEvent) => {
+  e.preventDefault();
+  e.stopPropagation();
+  
+  if (e.type === 'mousedown') {
+    isMorsePressed.value = true;
+    if (e.button === 0) {
+      isLeftDown = true;
+      morseTimer = setTimeout(() => {
+        if (isLeftDown && !isRightDown) {
+          calculateMenuPosition(e, 200);
+          showMorseMacro.value = true;
+        }
+      }, 500);
+    }
+    if (e.button === 2) isRightDown = true;
+  } else if (e.type === 'mouseup' || e.type === 'mouseleave') {
+    clearTimeout(morseTimer);
+    if (e.type === 'mouseup') {
+      if (isLeftDown && isRightDown) {
+        if (activeTabId.value) invoke('write_pty', { tabId: activeTabId.value, data: ' ' });
+      } else if (e.button === 0 && !showMorseMacro.value) {
+        morseSequence.value += '.';
+        if (morseTimerGlobal) clearTimeout(morseTimerGlobal);
+        morseTimerGlobal = setTimeout(commitMorse, 800);
+      } else if (e.button === 2) {
+        morseSequence.value += '-';
+        if (morseTimerGlobal) clearTimeout(morseTimerGlobal);
+        morseTimerGlobal = setTimeout(commitMorse, 800);
+      }
+    }
+    if (e.button === 0) isLeftDown = false;
+    if (e.button === 2) isRightDown = false;
+    isMorsePressed.value = false;
+  }
+};
+
 const viewHistory = async (originalTabId: string) => {
   const t = terminalTabs.value.find(x => x.id === originalTabId);
   const playbackId = await createNewTab(`Playback: ${t?.title || originalTabId}`, true);
@@ -182,9 +242,7 @@ const onConnected = async (hostLabel: string) => {
 
   setTimeout(() => {
     refreshExplorer();
-    invoke('load_remote_skills').then((s: any) => {
-      skills.value = s;
-    }).catch(() => {});
+    reloadSkills();
     nextTick(() => {
       initCharts();
       if (statsIntervalId) clearInterval(statsIntervalId);
@@ -193,7 +251,6 @@ const onConnected = async (hostLabel: string) => {
   }, 1000);
 };
 
-// RESTORED: Skills & Macros
 const runMacro = async (c: string) => { 
   if (activeTabId.value) await invoke('write_pty', { tabId: activeTabId.value, data: c + '\n' }); 
   showMorseMacro.value = false; 
@@ -229,11 +286,14 @@ const handleGlobalKeyDown = (e: KeyboardEvent) => {
     if (isConnected.value) createNewTab();
   }
 };
+
 onMounted(() => {
   window.addEventListener('keydown', handleGlobalKeyDown);
   window.addEventListener('keyup', (e) => { if (!e.ctrlKey) isCtrlPressed.value = false; });
-  window.addEventListener('mousemove', handleGlobalMouseMove);
+  window.addEventListener('mousemove', onGlobalMouseMove);
   window.addEventListener('mouseup', stopResizingSFTP);
+  window.addEventListener('click', closeAllMenus);
+  
   listen<string>('backend-log', (e) => { 
     if (!isLogsPaused.value) {
       backendLogs.value.push(e.payload); 
@@ -241,10 +301,16 @@ onMounted(() => {
     }
   });
 });
+
+onUnmounted(() => {
+  window.removeEventListener('click', closeAllMenus);
+  window.removeEventListener('mousemove', onGlobalMouseMove);
+  window.removeEventListener('mouseup', stopResizingSFTP);
+});
 </script>
 
 <template>
-  <div class="app-shell" @click="showContextMenu = false; showMorseMacro = false; showExplorerMenu = false; showPrivilegeMenu = false">
+  <div class="app-shell">
     <CyberGate v-if="!isConnected" @connected="onConnected" />
     
     <div v-else class="main-view">
@@ -258,14 +324,17 @@ onMounted(() => {
         :healthMode="healthMode" :currentNetSpeed="currentNetSpeed" :extraStats="extraStats"
         :isAutoPilot="isAutoPilot"
         :sftpHeight="sftpHeight"
+        :is-audit-mode="isAuditMode"
         @update:isAutoPilot="isAutoPilot = $event"
         @switch-tab="bringToForeground" @switch-mode="(mode: number) => cyberMode = mode"
         @view-history="viewHistory" @proc-context="(p: any) => onTerminalContextMenu({e: p.event, id: p.tab.id})" @run-skill="runSkill"
         @change-dir="changeDir" @open-trigger-settings="showSettings = true" @fast-access="onFastAccess"
-        @explorer-context="onExplorerContextMenu" @cycle-health-mode="cycleHealthMode"
+        @explorer-context="onExplorerContextMenu" @cycle-health-mode="setHealthMode"
         @skill-context="onSkillContextMenu"
-        @header-context="onHeaderContextMenu"
         @resize-sftp-start="startResizingSFTP"
+        @reload-skills="reloadSkills"
+        @update-audit-mode="(val) => isAuditMode = val"
+        @refresh-explorer="refreshExplorer"
       />
 
       <main class="workspace" @click.stop>
@@ -284,7 +353,7 @@ onMounted(() => {
         </div>
 
         <!-- Terminal Context Menu -->
-        <div v-if="showContextMenu" class="context-menu" :style="{ top: menuY + 'px', left: menuX + 'px' }">
+        <div v-if="showContextMenu" class="context-menu" :style="{ top: menuY + 'px', left: menuX + 'px' }" @click.stop>
           <header class="menu-header">TERMINAL ACTIONS</header>
           <div v-if="hasErrorSelection" class="menu-item highlight" @click="diagnoseSelection">🤖 Diagnose Error</div>
           <div class="menu-item" @click="renameTabAction">✏️ Rename</div>
@@ -297,7 +366,7 @@ onMounted(() => {
         </div>
 
         <!-- Explorer Menu -->
-        <div v-if="showExplorerMenu" class="context-menu" :style="{ top: explorerMenuY + 'px', left: explorerMenuX + 'px' }">
+        <div v-if="showExplorerMenu" class="context-menu" :style="{ top: explorerMenuY + 'px', left: explorerMenuX + 'px' }" @click.stop>
           <header class="menu-header">FILE ACTIONS</header>
           <template v-if="selectedFile?.is_dir">
             <div class="menu-item" @click="explorerActionCd">📂 Open Folder</div>
@@ -310,17 +379,9 @@ onMounted(() => {
         </div>
 
         <!-- Morse Macros -->
-        <div v-if="showMorseMacro" class="context-menu" :style="{ top: menuY + 'px', left: menuX + 'px' }">
+        <div v-if="showMorseMacro" class="context-menu" :style="{ top: menuY + 'px', left: menuX + 'px' }" @click.stop>
           <header class="menu-header">QUICK MACROS</header>
           <div v-for="m in activeMacros" :key="m.name" class="menu-item" @click="runMacro(m.cmd)">⚡ {{ m.name }}</div>
-        </div>
-
-        <!-- Privilege Menu -->
-        <div v-if="showPrivilegeMenu" class="context-menu" :style="{ top: privilegeMenuY + 'px', left: privilegeMenuX + 'px' }">
-          <header class="menu-header">CYBER PRIVILEGE: {{ privilegeModule.toUpperCase() }}</header>
-          <div class="menu-item">🛠️ Deep Diagnostic</div>
-          <div class="menu-item">🛡️ Secure Isolation</div>
-          <div class="menu-item highlight">☢️ Core Override</div>
         </div>
 
         <div class="workspace-body">
@@ -345,7 +406,7 @@ onMounted(() => {
                   <button @click="refreshWebview()" class="refresh-btn">⚡</button>
                 </nav>
                 <div class="webview-container" style="flex: 1; display: flex; flex-direction: column; height: 100%;">
-                   <iframe v-if="previewUrl" :src="previewUrl" class="cyber-iframe" frameborder="0" style="flex: 1; width: 100%; height: 100%; background: #ffffff;"></iframe>
+                   <iframe v-if="safePreviewUrl" :src="safePreviewUrl" class="cyber-iframe" frameborder="0" style="flex: 1; width: 100%; height: 100%; background: #ffffff;"></iframe>
                 </div>
               </div>
             </div>
@@ -530,5 +591,10 @@ input:checked + .slider:before { transform: translateX(12px); }
   pointer-events: auto !important;
   cursor: crosshair !important;
   z-index: 99999 !important;
+}
+
+.stealth-zone:active .tiny-dot {
+  background-color: #ffffff !important;
+  box-shadow: 0 0 10px #ffffff !important;
 }
 </style>
