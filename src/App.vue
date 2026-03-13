@@ -85,32 +85,6 @@ const onHeaderContextMenu = (p: { event: MouseEvent, module: string }) => {
 const storageKey = (h: string) => `ter_tabs_${h.replace(/\s+/g, '_')}`;
 let statsIntervalId: any = null;
 
-// v2.11.18: Unified Menu Mutex
-const activeMenu = ref<string | null>(null);
-
-const closeAllMenus = () => {
-  activeMenu.value = null;
-  showContextMenu.value = false;
-  showExplorerMenu.value = false;
-  showMorseMacro.value = false;
-  showPrivilegeMenu.value = false;
-};
-
-// Sync individual menu refs with unified activeMenu
-watch(activeMenu, (newVal) => {
-  if (newVal === null) {
-    showContextMenu.value = false;
-    showExplorerMenu.value = false;
-    showMorseMacro.value = false;
-    showPrivilegeMenu.value = false;
-  }
-});
-
-watch(showContextMenu, (val) => { if (val) activeMenu.value = 'terminal'; });
-watch(showExplorerMenu, (val) => { if (val) activeMenu.value = 'explorer'; });
-watch(showMorseMacro, (val) => { if (val) activeMenu.value = 'morse'; });
-watch(showPrivilegeMenu, (val) => { if (val) activeMenu.value = 'privilege'; });
-
 // ==========================================
 // --- DECOUPLED LOGIC ---
 // ==========================================
@@ -130,7 +104,7 @@ const {
 } = useExplorerContextMenu(activeTabId, currentPath, refreshExplorer);
 
 const {
-  previewUrl, isWebviewLoading, refreshWebview, handleExtractDOM, onDomExtracted, captureAndUpload
+  previewUrl, isWebviewLoading, refreshWebview, handleExtractDOM, onDomExtracted, captureAndUpload, useNativeWebview
 } = useCyber(activeTabId, backendLogs);
 
 const {
@@ -268,6 +242,31 @@ onMounted(() => {
     }
   });
 });
+
+// v2.11.18 FIX: Unified Menu Mutex (Moved to bottom to prevent ReferenceError)
+const activeMenu = ref<string | null>(null);
+
+const closeAllMenus = () => {
+  activeMenu.value = null;
+  showContextMenu.value = false;
+  showExplorerMenu.value = false;
+  showMorseMacro.value = false;
+  showPrivilegeMenu.value = false;
+};
+
+watch(activeMenu, (newVal) => {
+  if (newVal === null) {
+    showContextMenu.value = false;
+    showExplorerMenu.value = false;
+    showMorseMacro.value = false;
+    showPrivilegeMenu.value = false;
+  }
+});
+
+watch(() => showContextMenu.value, (val) => { if (val) activeMenu.value = 'terminal'; });
+watch(() => showExplorerMenu.value, (val) => { if (val) activeMenu.value = 'explorer'; });
+watch(() => showMorseMacro.value, (val) => { if (val) activeMenu.value = 'morse'; });
+watch(() => showPrivilegeMenu.value, (val) => { if (val) activeMenu.value = 'privilege'; });
 </script>
 
 <template>
