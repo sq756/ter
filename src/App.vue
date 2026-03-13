@@ -108,10 +108,6 @@ watch(terminalTabs, (val) => {
   if (isConnected.value) localStorage.setItem(storageKey(host.value), JSON.stringify(val)); 
 }, { deep: true });
 
-watch(activeTriggers, (val) => { 
-  localStorage.setItem('ter_active_triggers', JSON.stringify(val)); 
-}, { deep: true });
-
 // ==========================================
 // --- METHODS ---
 // ==========================================
@@ -131,14 +127,12 @@ const onConnected = async (hostLabel: string) => {
   host.value = hostLabel;
   isConnected.value = true;
   connectionStatus.value = 'connected';
-  console.log("[App] Connected to", hostLabel);
-  try { agentToken.value = await invoke('get_agent_token'); } catch(e){}
   
   const saved = localStorage.getItem(storageKey(host.value));
   let loadedIds = new Set<string>();
 
-  if (saved) {
-    try {
+  try {
+    if (saved) {
       const ts = JSON.parse(saved); 
       if (Array.isArray(ts) && ts.length > 0) {
         terminalTabs.value = ts;
@@ -149,28 +143,23 @@ const onConnected = async (hostLabel: string) => {
         activeTabId.value = ts.find((t: any) => !t.isBackground)?.id || ts[0]?.id;
       } else {
         await createNewTab("Main Shell", false, "tab-1");
-        loadedIds.add("tab-1");
       }
-    } catch (e) { 
-      await createNewTab("Main Shell", false, "tab-1"); 
-      loadedIds.add("tab-1");
+    } else {
+      await createNewTab("Main Shell", false, "tab-1");
     }
-  } else if (terminalTabs.value.length === 0) { 
+  } catch (e) { 
     await createNewTab("Main Shell", false, "tab-1"); 
-    loadedIds.add("tab-1");
   }
 
   setTimeout(() => {
     refreshExplorer();
-    invoke('load_remote_skills').then((s: any) => {
-      skills.value = s;
-    });
+    invoke('load_remote_skills').then((s: any) => { skills.value = s; }).catch(() => {});
     nextTick(() => {
       initCharts();
       if (statsIntervalId) clearInterval(statsIntervalId);
       statsIntervalId = setInterval(fetchStats, 3000);
     });
-  }, 2000);
+  }, 1000);
 };
 
 const runMacro = async (c: string) => { if (activeTabId.value) await invoke('write_pty', { tabId: activeTabId.value, data: c + '\n' }); showMorseMacro.value = false; };
@@ -192,17 +181,12 @@ const runSkill = async (skill: any) => {
     if (activeTabId.value) invoke('write_pty', { tabId: activeTabId.value, data: cmd });
     return;
   }
-  if (skill.context_requirement?.require_screenshot) await captureAndUpload(true);
   const rpc = skill.rpc || skill.trigger;
   if (rpc && activeTabId.value) invoke('write_pty', { tabId: activeTabId.value, data: rpc.endsWith('\n') ? rpc : rpc + "\r\n" });
 };
 
-let unlistenLog: any;
-const preventDefaultContextMenu = (e: MouseEvent) => e.preventDefault();
 const handleGlobalKeyDown = (e: KeyboardEvent) => { 
   if (e.ctrlKey) isCtrlPressed.value = true;
-  if (e.altKey) isAltPressed.value = true;
-  if (e.shiftKey) isShiftPressed.value = true;
   if (e.altKey && e.key.toLowerCase() === 'l') isLocked.value = !isLocked.value; 
   if (e.ctrlKey && e.key.toLowerCase() === 't') {
     e.preventDefault();
@@ -212,31 +196,22 @@ const handleGlobalKeyDown = (e: KeyboardEvent) => {
 
 const handleGlobalKeyUp = (e: KeyboardEvent) => {
   if (!e.ctrlKey) isCtrlPressed.value = false;
-  if (!e.altKey) isAltPressed.value = false;
-  if (!e.shiftKey) isShiftPressed.value = false;
 };
 
 onMounted(async () => {
-  window.addEventListener('contextmenu', preventDefaultContextMenu);
+  window.addEventListener('contextmenu', (e) => e.preventDefault());
   window.addEventListener('keydown', handleGlobalKeyDown);
   window.addEventListener('keyup', handleGlobalKeyUp);
   
   const st = localStorage.getItem('ter_active_triggers'); if (st) try { activeTriggers.value = JSON.parse(st); } catch(e){}
   const sm = localStorage.getItem('ter_macros'); if (sm) try { activeMacros.value = JSON.parse(sm); } catch(e){}
   
-  unlistenLog = await listen<string>('backend-log', (e) => { 
+  await listen<string>('backend-log', (e) => { 
     if (!isLogsPaused.value) {
       backendLogs.value.push(e.payload); 
       if (backendLogs.value.length > 500) backendLogs.value.shift(); 
     }
   });
-});
-
-onUnmounted(() => {
-  window.removeEventListener('contextmenu', preventDefaultContextMenu);
-  window.removeEventListener('keydown', handleGlobalKeyDown);
-  if (unlistenLog) unlistenLog();
-  if (statsIntervalId) clearInterval(statsIntervalId);
 });
 </script>
 
@@ -246,13 +221,15 @@ onUnmounted(() => {
     
     <div v-else class="main-view">
       <SettingsPanel :isOpen="showSettings" @close="showSettings = false" @update-macros="(m) => activeMacros = m" />
+      
       <SidebarPanel 
         :class="{ 'collapsed': !isSidebarOpen }"
         :files="realFiles" :currentPath="currentPath" :bgTabs="backgroundTabs" :skills="skills"
         :lastActivityMap="lastActivityMap"
         :cpuChartRef="cpuChartRef" :memChartRef="memChartRef" :netChartRef="netChartRef"
         :healthMode="healthMode" :currentNetSpeed="currentNetSpeed" :extraStats="extraStats"
-        v-model:isAutoPilot="isAutoPilot"
+        :isAutoPilot="isAutoPilot"
+        @update:isAutoPilot="isAutoPilot = $event"
         @switch-tab="bringToForeground" @switch-mode="(mode: number) => cyberMode = mode"
         @view-history="viewHistory" @proc-context="(p: any) => onTerminalContextMenu({e: p.event, id: p.tab.id})" @run-skill="runSkill"
         @change-dir="changeDir" @open-trigger-settings="showSettings = true" @fast-access="onFastAccess"
@@ -260,69 +237,35 @@ onUnmounted(() => {
         @skill-context="onSkillContextMenu"
       />
 
-      <main class="workspace" ref="workspaceRef">
-        <!-- Skill Settings Modal -->
+      <main class="workspace">
         <div v-if="showSkillSettings" class="modal-overlay" @click.self="showSkillSettings = false">
           <div class="auth-card cyber-card">
             <h2 class="cyber-title">SKILL_CONFIG: {{ selectedSkill?.name }}</h2>
-            <div class="cyber-subtitle">/// PARAMETER_ADJUSTMENT</div>
             <div class="skill-form">
-              <label class="label">ID</label>
-              <input :value="selectedSkill?.id" disabled class="cyber-input" />
               <label class="label">RPC_COMMAND</label>
               <input v-model="selectedSkill.rpc" class="cyber-input" />
               <label class="label">DESCRIPTION</label>
               <textarea v-model="selectedSkill.description" class="cyber-input" rows="3"></textarea>
             </div>
-            <button @click="showSkillSettings = false" class="btn-primary">APPLY_CHANGES</button>
+            <button @click="showSkillSettings = false" class="btn-primary">APPLY</button>
           </div>
         </div>
 
-        <!-- Context Menu -->
         <div v-if="showContextMenu" class="context-menu" :style="{ top: menuY + 'px', left: menuX + 'px' }">
           <header class="menu-header">TERMINAL ACTIONS</header>
-          <div v-if="hasErrorSelection" class="menu-item highlight" @click="diagnoseSelection">🤖 Diagnose Error</div>
-          <div class="menu-item" @click="renameTabAction">✏️ Rename Tab</div>
-          <div class="menu-item" @click="copyTabIdAction">🆔 Copy ID</div>
-          <div class="menu-item" @click="copyRuntimeEnv">🌍 Copy Env</div>
-          <div class="menu-item" @click="generateRunReport">📊 Run Report</div>
+          <div class="menu-item" @click="renameTabAction">✏️ Rename</div>
           <div class="menu-item" @click="sendToBackground(contextMenuTabId)">🚀 Background</div>
-          <div class="menu-divider"></div><div class="menu-item" @click="copySelectedText">📋 Copy</div><div class="menu-item" @click="pasteFromClipboard">📥 Paste</div>
-          <div class="menu-divider"></div><div class="menu-item danger" @click="closeTab(contextMenuTabId!)">❌ Force Close</div>
+          <div class="menu-divider"></div>
+          <div class="menu-item" @click="copySelectedText">📋 Copy</div>
+          <div class="menu-item" @click="pasteFromClipboard">📥 Paste</div>
+          <div class="menu-divider"></div>
+          <div class="menu-item danger" @click="closeTab(contextMenuTabId!)">❌ Close</div>
         </div>
 
-        <!-- Explorer Context Menu -->
         <div v-if="showExplorerMenu" class="context-menu" :style="{ top: explorerMenuY + 'px', left: explorerMenuX + 'px' }">
           <header class="menu-header">FILE ACTIONS</header>
-          <template v-if="selectedFile?.is_dir">
-            <div class="menu-item" @click="explorerActionCd">📂 CD into folder</div>
-            <div class="menu-item" @click="explorerActionUpload">📤 Upload to this dir</div>
-            <div class="menu-item" @click="explorerActionCopyPath">📋 Copy Path</div>
-          </template>
-          <template v-else>
-            <div class="menu-item" @click="explorerActionDownload">📥 Download File</div>
-            <div class="menu-divider"></div>
-            <div class="menu-item" @click="explorerActionRun">🚀 Run Executable</div>
-            <div class="menu-item" @click="explorerActionCat">👁️ Cat File</div>
-            <div class="menu-item" @click="explorerActionVim">✏️ Edit (Vim)</div>
-            <div class="menu-divider"></div>
-            <div class="menu-item" @click="explorerActionCd">📂 CD to parent dir</div>
-            <div class="menu-item" @click="explorerActionCopyPath">📋 Copy Path</div>
-          </template>
-        </div>
-
-        <!-- Morse Macros -->
-        <div v-if="showMorseMacro" class="context-menu" :style="{ top: menuY + 'px', left: menuX + 'px' }">
-          <header class="menu-header">QUICK MACROS</header>
-          <div v-for="m in activeMacros" :key="m.name" class="menu-item" @click="runMacro(m.cmd)">⚡ {{ m.name }}</div>
-          <div class="menu-divider"></div><div class="menu-item" @click="showSettings = true">⚙️ Manage...</div>
-        </div>
-
-        <!-- Morse Preview -->
-        <div v-if="morseSequence || morseText" class="morse-preview-overlay">
-          <div class="sequence">{{ morseSequence }}</div>
-          <div class="text">{{ morseText }}</div>
-          <div class="candidates" v-if="possibleLetters">{{ possibleLetters }}</div>
+          <div class="menu-item" @click="explorerActionCd">📂 Open</div>
+          <div class="menu-item" @click="explorerActionDownload">📥 Download</div>
         </div>
 
         <div class="workspace-body">
@@ -333,23 +276,17 @@ onUnmounted(() => {
               @terminal-context="onTerminalContextMenu" 
             />
           </section>
-
           <section class="cyber-pane" :class="{ 'open': cyberMode === 1 }">
             <div class="cyber-container">
               <div class="cyber-logs-view">
-                <header><span class="title">Cyber Logs</span> <span v-if="isLogsPaused" class="pause-hint">PAUSED</span></header>
-                <div class="logs-container" @mouseenter="isLogsPaused = true" @mouseleave="isLogsPaused = false">
-                  <div v-for="(log, i) in backendLogs" :key="i" class="log-line">
-                    <span class="line-num">{{ i + 1 }}</span> {{ log }}
-                  </div>
+                <div class="logs-container">
+                  <div v-for="(log, i) in backendLogs" :key="i" class="log-line">{{ log }}</div>
                 </div>
               </div>
-              <div class="cyber-divider"></div>
               <div class="cyber-webview-wrapper">
                 <nav class="webview-address-bar">
-                  <div class="address-input-wrapper"><span class="secure-icon">🔒</span><input v-model="previewUrl" @keyup.enter="refreshWebview()" @focus="($event.target as HTMLInputElement).select()" class="address-bar-input" /></div>
-                  <button class="refresh-btn" @click="refreshWebview()" :class="{ spinning: isWebviewLoading }">{{ isWebviewLoading ? '⏳' : '⚡' }}</button>
-                  <button class="extract-btn" @click="handleExtractDOM">👁️ Extract</button>
+                  <input v-model="previewUrl" @keyup.enter="refreshWebview()" class="address-bar-input" />
+                  <button @click="refreshWebview()">⚡</button>
                 </nav>
                 <CyberWebview :url="previewUrl" @dom-extracted="onDomExtracted" />
               </div>
@@ -359,37 +296,17 @@ onUnmounted(() => {
 
         <footer class="status-bar">
           <div class="status-left">
-            <button class="status-btn sidebar-toggle" @click.stop="isSidebarOpen = !isSidebarOpen" title="Toggle Sidebar">
+            <button class="status-btn sidebar-toggle" @click.stop="isSidebarOpen = !isSidebarOpen">
               <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="9" y1="3" x2="9" y2="21"></line></svg>
             </button>
-            <div class="status-item node-info">
-              <span class="node-dot pulse purple"></span>
-              <span class="label">NODE:</span> <span class="val">{{ host }}</span>
-            </div>
+            <div class="status-item"><span class="node-dot purple"></span> NODE: {{ host }}</div>
             <div class="status-divider"></div>
-            <div class="status-item agent-info stealth-zone" @mousedown.prevent="handleMorseMouse" @wheel.prevent="handleMorseWheel" @contextmenu.prevent="onMorseMacro">
-              <div class="tiny-dot" :class="{ 'active': isMorsePressed }"></div>
-              <span class="label">AGENT:</span> <span class="val">ACTIVE</span>
+            <div class="status-item stealth-zone" @mousedown.prevent="handleMorseMouse" @wheel.prevent="handleMorseWheel" @contextmenu.prevent="onMorseMacro">
+              <div class="tiny-dot" :class="{ 'active': isMorsePressed }"></div> AGENT: ACTIVE
             </div>
           </div>
-
-          <div class="hotkey-bar">
-            <template v-if="cyberMode === 0">
-              <button class="kb-pendant" @click="invoke('write_pty', { tabId: activeTabId, data: '\t' })">TAB</button>
-              <button class="kb-pendant" :class="{ 'active': isCtrlPressed }" @click="isCtrlPressed = !isCtrlPressed">CTRL</button>
-              <button class="kb-pendant" @click="invoke('write_pty', { tabId: activeTabId, data: '\x03' })">C-C</button>
-              <button class="kb-pendant" @click="invoke('write_pty', { tabId: activeTabId, data: '\x1b' })">ESC</button>
-            </template>
-            <template v-else>
-              <button class="kb-pendant accept" @click="invoke('write_pty', { tabId: activeTabId, data: '\r' })">ACCEPT</button>
-              <button class="kb-pendant discard" @click="cyberMode = 0">DISCARD</button>
-            </template>
-          </div>
-
           <div class="status-right">
-            <button class="status-btn" @click="captureAndUpload(false)">📸 Audit</button>
-            <button class="status-btn" @click="cyberMode = cyberMode === 1 ? 0 : 1">{{ cyberMode === 1 ? '🖥️' : '🌐' }} Web</button>
-            <div class="status-toggle"><span>Auto</span><label class="mini-switch"><input type="checkbox" v-model="isAutoPilot" /><span class="slider"></span></label></div>
+            <button class="status-btn" @click="cyberMode = cyberMode === 1 ? 0 : 1">🖥️/🌐</button>
             <button class="status-btn lock-btn" @click="isLocked = true">🔒 LOCK</button>
           </div>
         </footer>
@@ -400,98 +317,27 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.app-shell { height: 100vh; background: #000; color: #d4d4d8; font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace, 'Segoe UI Emoji', 'Noto Color Emoji'; overflow: hidden; border-radius: 8px; border: 1px solid #18181b; }
-
-.main-view { display: flex; height: 100%; width: 100%; position: relative; }
-.workspace { flex: 1; display: flex; flex-direction: column; background: #000; overflow: hidden; min-width: 0; position: relative; }
-
-.context-menu { position: fixed; z-index: 1000000; background: #09090b; border: 1px solid #22c55e; padding: 4px; min-width: 160px; box-shadow: 0 10px 25px rgba(0,0,0,0.8); }
-.menu-header { padding: 6px 12px; font-size: 9px; color: #166534; border-bottom: 1px solid #18181b; margin-bottom: 4px; }
-.menu-item { padding: 8px 12px; font-size: 11px; color: #d4d4d8; cursor: pointer; }
-.menu-item:hover { background: #22c55e; color: #000; }
-.menu-item.danger { color: #ef4444; }
-.menu-item.danger:hover { background: #ef4444; color: #000; }
-.menu-divider { height: 1px; background: #18181b; margin: 4px 0; }
-
-.status-bar { height: 32px; background: rgba(0,0,0,0.9); backdrop-filter: blur(10px); border-top: 1px solid #18181b; color: #52525b; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; font-size: 10px; z-index: 100; flex-shrink: 0; }
-
-.status-left { display: flex; align-items: center; gap: 0; }
-.status-item { display: flex; align-items: center; gap: 8px; padding: 0 10px; height: 32px; }
-.status-divider { width: 1px; height: 16px; background: #27272a; margin: 0 4px; }
-.status-item .label { color: #3f3f46; font-weight: bold; }
-.status-item .val { color: #a1a1aa; }
-.node-dot { width: 6px; height: 6px; border-radius: 50%; }
-.node-dot.purple { background: #a855f7; box-shadow: 0 0 8px #a855f7; }
-
-.sidebar-toggle { margin-right: 5px; color: #22c55e !important; }
-.sidebar-toggle:hover { background: rgba(34, 197, 94, 0.1) !important; }
-
-/* Dynamic Hotkey Bar */
-.hotkey-bar { display: flex; align-items: center; gap: 4px; height: 100%; }
-.kb-pendant { 
-  background: rgba(39, 39, 42, 0.3); 
-  border: 0.5px solid rgba(255,255,255,0.05); 
-  color: #71717a; 
-  font-family: 'JetBrains Mono', monospace; 
-  font-size: 9px; 
-  padding: 2px 8px; 
-  border-radius: 4px; 
-  cursor: pointer; 
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  text-transform: uppercase;
-}
-.kb-pendant:hover { background: rgba(255,255,255,0.05); color: #fff; box-shadow: 0 0 10px rgba(34, 197, 94, 0.2); }
-.kb-pendant.active { background: #22c55e; color: #000; box-shadow: 0 0 15px #22c55e; border-color: transparent; }
-.kb-pendant.accept { color: #22c55e; border-color: rgba(34, 197, 94, 0.3); }
-.kb-pendant.discard { color: #ef4444; border-color: rgba(239, 68, 68, 0.3); }
-
-.status-right { display: flex; align-items: center; gap: 12px; }
-.tiny-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; transition: all 0.1s; }
-.tiny-dot.active { transform: scale(1.1); box-shadow: 0 0 8px #22c55e; filter: brightness(1.5); }
-.stealth-zone { cursor: pointer; }
-.stealth-zone:hover { background: rgba(34, 197, 94, 0.05); }
-
-.lock-btn { color: #71717a !important; border: 1px solid #27272a !important; padding: 2px 8px !important; border-radius: 4px !important; }
-.lock-btn:hover { border-color: #ef4444 !important; color: #ef4444 !important; background: rgba(239, 68, 68, 0.1) !important; }
-
+.app-shell { height: 100vh; background: #000; color: #d4d4d8; font-family: 'JetBrains Mono', monospace; overflow: hidden; }
+.main-view { display: flex; height: 100%; width: 100%; }
+.workspace { flex: 1; display: flex; flex-direction: column; background: #000; overflow: hidden; position: relative; }
 .workspace-body { flex: 1; display: flex; overflow: hidden; position: relative; }
-.terminal-pane { flex: 1; height: 100%; min-width: 0; position: relative; display: flex; flex-direction: column; overflow: hidden; }
-.cyber-pane { width: 420px; height: 100%; border-left: 1px solid #27272a; background: #000; overflow: hidden; display: flex; flex-direction: column; }
-.cyber-container { display: flex; flex-direction: column; height: 100%; flex: 1; overflow: hidden; }
-.cyber-logs-view { flex: 0 0 30%; display: flex; flex-direction: column; background: #000; border-bottom: 1px solid #27272a; overflow: hidden; }
-.logs-container { flex: 1; padding: 10px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #a1a1aa; user-select: text !important; -webkit-user-select: text !important; }
-.pause-hint { font-size: 9px; color: #ef4444; border: 1px solid #ef4444; padding: 0 4px; border-radius: 2px; margin-left: 10px; animation: blink 1s infinite; }
-.cyber-webview-wrapper { flex: 1; background: #000; display: flex; flex-direction: column; overflow: hidden; }
-.webview-address-bar { height: 32px; border-bottom: 1px solid #27272a; display: flex; align-items: center; padding: 0 8px; gap: 8px; }
-.address-input-wrapper { flex: 1; background: #050505; border: 1px solid #18181b; height: 24px; animation: breathing-border 3s infinite; display: flex; align-items: center; padding: 0 8px; }
-@keyframes breathing-border { 0% { border-color: #18181b; } 50% { border-color: #22c55e; } 100% { border-color: #18181b; } }
-.address-bar-input { background: transparent; border: none; color: #22c55e; font-size: 10px; width: 100%; outline: none; font-family: 'JetBrains Mono', monospace; }
-.extract-btn { background: rgba(168, 85, 247, 0.1); border: 1px solid #a855f7; color: #a855f7; font-size: 10px; padding: 2px 8px; cursor: pointer; font-family: 'JetBrains Mono', monospace; }
-.extract-btn:hover { background: rgba(168, 85, 247, 0.2); box-shadow: 0 0 10px #a855f7; }
-
-.morse-preview-overlay { position: absolute; bottom: 40px; left: 10px; background: rgba(0, 0, 0, 0.9); border: 1px solid #22c55e; padding: 10px 20px; z-index: 1000; display: flex; flex-direction: column; align-items: center; pointer-events: none; }
-.morse-preview-overlay .sequence { font-size: 24px; color: #22c55e; letter-spacing: 4px; }
-.morse-preview-overlay .candidates { font-size: 9px; color: #166534; margin-top: 5px; }
-
-.mini-switch { position: relative; display: inline-block; width: 24px; height: 12px; }
-.mini-switch input { opacity: 0; width: 0; height: 0; }
-.slider { position: absolute; cursor: pointer; inset: 0; background-color: #27272a; transition: .4s; border-radius: 12px; }
-.slider:before { position: absolute; content: ""; height: 8px; width: 8px; left: 2px; bottom: 2px; background-color: white; transition: .4s; border-radius: 50%; }
-input:checked + .slider { background-color: #3b82f6; }
-input:checked + .slider:before { transform: translateX(12px); }
-.status-toggle { display: flex; align-items: center; gap: 8px; font-size: 10px; color: #52525b; }
-.status-btn { background: transparent; border: none; color: #52525b; cursor: pointer; font-size: 10px; padding: 2px 6px; border-radius: 4px; transition: all 0.2s; }
-.status-btn:hover { color: #fff; }
-
-/* Modal Styles */
-.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(5px); display: flex; align-items: center; justify-content: center; z-index: 2000000; }
-.cyber-card { background: #09090b; border: 1px solid #22c55e; padding: 30px; min-width: 400px; box-shadow: 0 0 30px rgba(34, 197, 94, 0.2); }
-.cyber-title { color: #22c55e; font-size: 18px; letter-spacing: 2px; margin-bottom: 5px; }
-.cyber-subtitle { font-size: 9px; color: #166534; margin-bottom: 20px; }
-.skill-form { display: flex; flex-direction: column; gap: 15px; margin-bottom: 25px; }
-.label { font-size: 10px; color: #71717a; text-transform: uppercase; }
-.cyber-input { background: #000; border: 1px solid #27272a; color: #22c55e; padding: 10px; font-family: 'JetBrains Mono', monospace; font-size: 12px; outline: none; }
-.cyber-input:focus { border-color: #22c55e; }
-.btn-primary { background: #22c55e; color: #000; border: none; padding: 12px; font-weight: bold; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; }
-.btn-primary:hover { filter: brightness(1.2); }
+.terminal-pane { flex: 1; height: 100%; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.cyber-pane { width: 420px; height: 100%; border-left: 1px solid #27272a; display: none; }
+.cyber-pane.open { display: flex; }
+.status-bar { height: 32px; background: #09090b; border-top: 1px solid #18181b; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; font-size: 10px; flex-shrink: 0; }
+.status-left, .status-right { display: flex; align-items: center; gap: 10px; }
+.status-divider { width: 1px; height: 14px; background: #27272a; }
+.node-dot { width: 6px; height: 6px; border-radius: 50%; background: #a855f7; display: inline-block; margin-right: 4px; }
+.tiny-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; display: inline-block; margin-right: 4px; }
+.tiny-dot.active { box-shadow: 0 0 8px #22c55e; }
+.sidebar-toggle { color: #22c55e !important; cursor: pointer; }
+.status-btn { background: transparent; border: 1px solid transparent; color: #52525b; cursor: pointer; padding: 2px 6px; }
+.status-btn:hover { color: #fff; border-color: #27272a; }
+.lock-btn:hover { color: #ef4444 !important; }
+.context-menu { position: fixed; z-index: 10000; background: #09090b; border: 1px solid #22c55e; padding: 4px; min-width: 140px; }
+.menu-item { padding: 6px 12px; font-size: 11px; cursor: pointer; }
+.menu-item:hover { background: #22c55e; color: #000; }
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); display: flex; align-items: center; justify-content: center; z-index: 20000; }
+.cyber-card { background: #09090b; border: 1px solid #22c55e; padding: 20px; min-width: 300px; }
+.cyber-input { background: #000; border: 1px solid #27272a; color: #22c55e; padding: 8px; width: 100%; margin: 10px 0; }
 </style>
