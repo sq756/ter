@@ -18,75 +18,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-  android:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libgtk-3-dev \
-            libwebkit2gtk-4.1-dev \
-            libjavascriptcoregtk-4.1-dev \
-            libsoup-3.0-dev \
-            pkg-config \
-            build-essential \
-            curl \
-            wget \
-            libssl-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install NDK
-        run: |
-          sdkmanager "ndk;25.2.9519653"
-          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/25.2.9519653" >> $GITHUB_ENV
-
-      - name: Rust setup
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-          targets: aarch64-linux-android, armv7-linux-androideabi, i686-linux-android, x86_64-linux-android
-
-      - name: Rust cache
-        uses: swatinem/rust-cache@v2
-        with:
-          work-dir: src-tauri
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 'lts/*'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build Android
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Ter v__VERSION__ - Cyber Edition"
-          releaseBody: "Release including Android APK."
-          releaseDraft: false
-          prerelease: false
-          args: --target aarch64-linux-android
-
       - name: Install dependencies (ubuntu only)
         if: matrix.platform == 'ubuntu-22.04'
         run: |
@@ -133,21 +64,69 @@ jobs:
         shell: bash
         run: |
           cd ter_agent
-          GOOS=linux GOARCH=amd64 go build -o agent_linux_amd64 main.go
+          GOOS=linux GOARCH=amd64 go build -o agent_linux_amd64 main.go || true
           cd ..
 
       - name: Build the app
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CARGO_INCREMENTAL: 1
-          CARGO_PROFILE_RELEASE_LTO: thin
-          CARGO_HTTP_MULTIPLEXING: false
-          CARGO_NET_RETRY: 10
-          CARGO_TERM_COLOR: always
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Ter v__VERSION__ - Cyber Edition"
-          releaseBody: "Release of Ter SSH Visual Manager with God's View & Cyber-Transparency Mode."
+          releaseBody: "Desktop Release (Windows, Linux, macOS)"
           releaseDraft: false
           prerelease: false
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK
+        run: |
+          sdkmanager "ndk;25.2.9519653"
+          echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/25.2.9519653" >> $GITHUB_ENV
+
+      - name: Rust setup
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: aarch64-linux-android, armv7-linux-androideabi, i686-linux-android, x86_64-linux-android
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          work-dir: src-tauri
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Android
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "Ter v__VERSION__ - Android"
+          releaseBody: "Android APK Release."
+          releaseDraft: false
+          prerelease: false
+          args: --target aarch64-linux-android
