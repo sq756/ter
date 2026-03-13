@@ -438,8 +438,7 @@ onMounted(() => {
   background: rgba(9, 9, 11, 0.95) !important; 
   backdrop-filter: blur(10px);
   border: 1px solid #22c55e !important; 
-  padding: 4px !important; 
-  min-width: 140px; 
+  padding: 10px !important; 
   box-shadow: 0 10px 30px rgba(0,0,0,0.8) !important; 
   border-radius: 6px; 
 }

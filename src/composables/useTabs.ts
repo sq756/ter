@@ -58,9 +58,10 @@ export function useTabs(isConnected: Ref<boolean>, backendLogs: Ref<string[]>) {
       if (tab) {
         const s = terminalManager.getSelection(tab.id).trim();
         
-        // v2.9.11: Protect custom names
-        const isDefaultName = tab.title === 'Shell' || tab.title === 'Main Shell' || tab.title.startsWith('tab-') || tab.title.startsWith('Proc:');
-        if (isDefaultName) {
+        // v2.9.12: Protect custom names
+        const currentTitle = tab.title;
+        const isCustomName = currentTitle !== 'Shell' && currentTitle !== 'Main Shell' && !currentTitle.startsWith('Proc:') && !currentTitle.startsWith('tab-');
+        if (!isCustomName) {
           tab.title = s ? `Proc: ${s.substring(0, 10)}...` : `Proc: ${tid.substring(0, 5)}`;
         }
         

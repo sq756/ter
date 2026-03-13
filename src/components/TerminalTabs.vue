@@ -80,7 +80,7 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
 }
 
 .tab-bar::-webkit-scrollbar { height: 4px; }
-.tab-bar::-webkit-scrollbar-thumb { background: #27272a; border-radius: 2px; }
+.tab-bar::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
 
 .status-indicator-zone {
   padding: 0 12px;
