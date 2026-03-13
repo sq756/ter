@@ -48,6 +48,39 @@ const backendLogs = ref<string[]>([]);
 const isLogsPaused = ref(false);
 const skills = ref<any[]>([]);
 
+// v2.10.3: Resizable SFTP
+const sftpHeight = ref(200);
+const isResizingSFTP = ref(false);
+
+const startResizingSFTP = (e: MouseEvent) => {
+  isResizingSFTP.value = true;
+  document.body.style.cursor = 'ns-resize';
+};
+
+const stopResizingSFTP = () => {
+  isResizingSFTP.value = false;
+  document.body.style.cursor = '';
+};
+
+const handleGlobalMouseMove = (e: MouseEvent) => {
+  if (isResizingSFTP.value) {
+    sftpHeight.value = Math.max(100, Math.min(600, sftpHeight.value + e.movementY));
+  }
+};
+
+// v2.10.3: Privilege Menu
+const showPrivilegeMenu = ref(false);
+const privilegeModule = ref('');
+const privilegeMenuX = ref(0);
+const privilegeMenuY = ref(0);
+
+const onHeaderContextMenu = (p: { event: MouseEvent, module: string }) => {
+  privilegeModule.value = p.module;
+  privilegeMenuX.value = p.event.clientX;
+  privilegeMenuY.value = p.event.clientY;
+  showPrivilegeMenu.value = true;
+};
+
 const storageKey = (h: string) => `ter_tabs_${h.replace(/\s+/g, '_')}`;
 let statsIntervalId: any = null;
 
@@ -196,10 +229,11 @@ const handleGlobalKeyDown = (e: KeyboardEvent) => {
     if (isConnected.value) createNewTab();
   }
 };
-
 onMounted(() => {
   window.addEventListener('keydown', handleGlobalKeyDown);
   window.addEventListener('keyup', (e) => { if (!e.ctrlKey) isCtrlPressed.value = false; });
+  window.addEventListener('mousemove', handleGlobalMouseMove);
+  window.addEventListener('mouseup', stopResizingSFTP);
   listen<string>('backend-log', (e) => { 
     if (!isLogsPaused.value) {
       backendLogs.value.push(e.payload); 
@@ -210,7 +244,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="app-shell" @click="showContextMenu = false; showMorseMacro = false; showExplorerMenu = false">
+  <div class="app-shell" @click="showContextMenu = false; showMorseMacro = false; showExplorerMenu = false; showPrivilegeMenu = false">
     <CyberGate v-if="!isConnected" @connected="onConnected" />
     
     <div v-else class="main-view">
@@ -223,12 +257,15 @@ onMounted(() => {
         :cpuChartRef="cpuChartRef" :memChartRef="memChartRef" :netChartRef="netChartRef"
         :healthMode="healthMode" :currentNetSpeed="currentNetSpeed" :extraStats="extraStats"
         :isAutoPilot="isAutoPilot"
+        :sftpHeight="sftpHeight"
         @update:isAutoPilot="isAutoPilot = $event"
         @switch-tab="bringToForeground" @switch-mode="(mode: number) => cyberMode = mode"
         @view-history="viewHistory" @proc-context="(p: any) => onTerminalContextMenu({e: p.event, id: p.tab.id})" @run-skill="runSkill"
         @change-dir="changeDir" @open-trigger-settings="showSettings = true" @fast-access="onFastAccess"
         @explorer-context="onExplorerContextMenu" @cycle-health-mode="cycleHealthMode"
         @skill-context="onSkillContextMenu"
+        @header-context="onHeaderContextMenu"
+        @resize-sftp-start="startResizingSFTP"
       />
 
       <main class="workspace" @click.stop>
@@ -276,6 +313,14 @@ onMounted(() => {
         <div v-if="showMorseMacro" class="context-menu" :style="{ top: menuY + 'px', left: menuX + 'px' }">
           <header class="menu-header">QUICK MACROS</header>
           <div v-for="m in activeMacros" :key="m.name" class="menu-item" @click="runMacro(m.cmd)">⚡ {{ m.name }}</div>
+        </div>
+
+        <!-- Privilege Menu -->
+        <div v-if="showPrivilegeMenu" class="context-menu" :style="{ top: privilegeMenuY + 'px', left: privilegeMenuX + 'px' }">
+          <header class="menu-header">CYBER PRIVILEGE: {{ privilegeModule.toUpperCase() }}</header>
+          <div class="menu-item">🛠️ Deep Diagnostic</div>
+          <div class="menu-item">🛡️ Secure Isolation</div>
+          <div class="menu-item highlight">☢️ Core Override</div>
         </div>
 
         <div class="workspace-body">
@@ -446,8 +491,8 @@ onMounted(() => {
   backdrop-filter: blur(10px);
   border: 1px solid #22c55e !important; 
   padding: 10px !important; 
-  box-shadow: 0 10px 30px rgba(0,0,0,0.8) !important; 
-  border-radius: 6px; 
+  box-shadow: 0 0 10px #22c55e !important; 
+  border-radius: 6px !important; 
 }
 .menu-header { padding: 4px 8px; font-size: 10px; color: #166534; border-bottom: 1px solid #18181b; margin-bottom: 4px; letter-spacing: 0.5px; }
 .menu-item { padding: 6px 12px; font-size: 12px; cursor: pointer; color: #d4d4d8; border-radius: 4px; margin-bottom: 1px; }

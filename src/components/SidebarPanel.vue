@@ -14,9 +14,10 @@ const props = defineProps<{
   currentNetSpeed: { up: string, down: string };
   extraStats: any;
   isAutoPilot: boolean;
+  sftpHeight: number;
 }>();
 
-const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill', 'change-dir', 'view-history', 'open-trigger-settings', 'fast-access', 'morse-down', 'morse-up', 'morse-context', 'explorer-context', 'cycle-health-mode', 'skill-context']);
+const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill', 'change-dir', 'view-history', 'open-trigger-settings', 'fast-access', 'morse-down', 'morse-up', 'morse-context', 'explorer-context', 'cycle-health-mode', 'skill-context', 'header-context', 'resize-sftp-start']);
 
 // v2.6.0: Agentic Interaction (Drag & Drop + Context Menu)
 const draggedFile = ref<any>(null);
@@ -69,13 +70,13 @@ const isTabActive = (id: string) => {
 </script>
 
 <template>
-  <aside class="side-bar">
-    <div class="sidebar-branding" @click="$emit('open-trigger-settings')" title="Click for System Settings">
+  <aside class="side-bar" @contextmenu.prevent>
+    <div class="sidebar-branding" @click="$emit('open-trigger-settings')" @contextmenu.prevent="$emit('header-context', {event: $event, module: 'branding'})" title="Click for System Settings">
       <div class="branding-text">TER // ADVANCED_TERMINAL</div>
       <div class="scanline"></div>
     </div>
 
-    <div class="module sys-health" @click="$emit('cycle-health-mode')" @contextmenu.prevent="$emit('cycle-health-mode')" style="cursor: pointer;">
+    <div class="module sys-health" @click="$emit('cycle-health-mode')" @contextmenu.prevent="$emit('header-context', {event: $event, module: 'health'})" style="cursor: pointer;">
       <header>System Health ({{ healthMode.toUpperCase() }})</header>
       
       <!-- Resource Mode: CPU & RAM -->
@@ -111,7 +112,7 @@ const isTabActive = (id: string) => {
     </div>
 
     <div class="module scroller processes">
-      <header>Running Processes</header>
+      <header @contextmenu.prevent.stop="$emit('header-context', {event: $event, module: 'processes'})">Running Processes</header>
       <ul class="data-list">
         <li v-for="t in bgTabs" :key="t.id" @click="$emit('switch-tab', t.id)" @contextmenu.prevent="$emit('proc-context', {event: $event, tab: t})">
           <span class="icon">
@@ -125,7 +126,7 @@ const isTabActive = (id: string) => {
     </div>
 
     <div class="module scroller skills-hub">
-      <header class="header-with-action">
+      <header class="header-with-action" @contextmenu.prevent.stop="$emit('header-context', {event: $event, module: 'skills'})">
         <span>Skill Hub</span>
         <button class="header-btn" title="Configure AI Triggers" @click="$emit('open-trigger-settings')">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
@@ -152,7 +153,7 @@ const isTabActive = (id: string) => {
 
     <!-- v2.2.11: FAST ACCESS instead of Session History -->
     <div class="module scroller history">
-      <header>FAST ACCESS</header>
+      <header @contextmenu.prevent.stop="$emit('header-context', {event: $event, module: 'history'})">FAST ACCESS</header>
       <ul class="data-list">
         <li v-for="path in lastVisited" :key="path" 
             @click="onFastAccessClick(path)" 
@@ -167,8 +168,8 @@ const isTabActive = (id: string) => {
       </ul>
     </div>
 
-    <div class="module scroller explorer">
-      <header>
+    <div class="module scroller explorer" :style="{ height: sftpHeight + 'px', flex: 'none' }">
+      <header @contextmenu.prevent.stop="$emit('header-context', {event: $event, module: 'explorer'})">
         <span>SFTP Explorer</span>
         <div class="current-path">{{ currentPath }}</div>
       </header>
@@ -192,6 +193,7 @@ const isTabActive = (id: string) => {
           <span class="file-name">{{ f.name }}</span>
         </li>
       </ul>
+      <div class="resizable-handle" @mousedown="$emit('resize-sftp-start', $event)"></div>
     </div>
   </aside>
 </template>
@@ -311,8 +313,24 @@ const isTabActive = (id: string) => {
 }
 
 .explorer {
-  flex: 1;
-  max-height: none;
+  position: relative;
+  border-bottom: 1px solid #27272a;
+}
+
+.resizable-handle {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 4px;
+  cursor: ns-resize;
+  background: transparent;
+  z-index: 10;
+  transition: background 0.2s;
+}
+
+.resizable-handle:hover {
+  background: #22c55e;
 }
 
 .sys-health { height: 160px; flex-shrink: 0; transition: height 0.2s; overflow: hidden; }

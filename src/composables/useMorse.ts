@@ -33,12 +33,20 @@ export function useMorse(activeTabId: Ref<string | null>, calculateMenuPosition:
   };
 
   const handleMorseMouse = (e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (e.type === 'mouseup' || e.type === 'mouseleave') {
+      isMorsePressed.value = false;
+      return;
+    }
+
     if (e.button === 1) {
       onMorseMacro(e);
       return;
     }
+    
     isMorsePressed.value = true;
-    setTimeout(() => { isMorsePressed.value = false; }, 100);
     if (e.button === 0) morseSequence.value += '.';
     else if (e.button === 2) morseSequence.value += '-';
     
