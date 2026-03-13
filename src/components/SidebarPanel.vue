@@ -81,11 +81,11 @@ const isTabActive = (id: string) => {
       <!-- Resource Mode: CPU & RAM -->
       <div v-if="healthMode === 'resource'" class="chart-box">
         <div class="stat-item">
-          <div :ref="cpuChartRef" class="mini-chart"></div>
+          <canvas ref="cpuChartRef" width="100" height="40" class="mini-chart"></canvas>
           <span class="label">CPU</span>
         </div>
         <div class="stat-item">
-          <div :ref="memChartRef" class="mini-chart"></div>
+          <canvas ref="memChartRef" width="100" height="40" class="mini-chart"></canvas>
           <span class="label">RAM</span>
         </div>
       </div>
@@ -98,7 +98,7 @@ const isTabActive = (id: string) => {
         <div class="speed-row">
           <span class="label">DOWN:</span> <span class="val">{{ currentNetSpeed.down }}</span>
         </div>
-        <div :ref="netChartRef" class="net-chart"></div>
+        <canvas ref="netChartRef" width="200" height="40" class="net-chart"></canvas>
       </div>
 
       <!-- Detail Mode: Meta -->
@@ -153,7 +153,9 @@ const isTabActive = (id: string) => {
     <div class="module scroller history">
       <header>FAST ACCESS</header>
       <ul class="data-list">
-        <li v-for="path in lastVisited" :key="path" @click="onFastAccessClick(path)">
+        <li v-for="path in lastVisited" :key="path" 
+            @click="onFastAccessClick(path)" 
+            @contextmenu.prevent="$emit('explorer-context', { e: $event, file: { name: path, is_dir: true, path: path } })">
           <span class="icon">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg>
           </span>

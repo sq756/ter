@@ -310,7 +310,11 @@ onMounted(() => {
             </button>
             <div class="status-item"><span class="node-dot purple"></span> NODE: {{ host }}</div>
             <div class="status-divider"></div>
-            <div class="status-item stealth-zone" @mousedown.prevent="handleMorseMouse" @wheel.prevent="handleMorseWheel" @contextmenu.prevent="onMorseMacro">
+            <div class="status-item stealth-zone" 
+                 @mousedown="handleMorseMouse" 
+                 @mouseup="handleMorseMouse" 
+                 @mouseleave="handleMorseMouse"
+                 @contextmenu.prevent>
               <div class="tiny-dot" :class="{ 'active': isMorsePressed }"></div> AGENT: ACTIVE
             </div>
           </div>
