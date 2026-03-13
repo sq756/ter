@@ -40,7 +40,7 @@ class TerminalManager {
     const term = new Terminal({
       cursorBlink: true,
       fontSize: 14,
-      fontFamily: "'JetBrains Mono', 'Fira Code', monospace",
+      fontFamily: "'JetBrains Mono', 'Ubuntu Mono', 'Fira Code', monospace",
       theme: { background: '#09090b', foreground: '#d4d4d8' },
       allowTransparency: false,
       ...options

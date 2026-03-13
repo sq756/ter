@@ -339,7 +339,34 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.app-shell { height: 100vh; width: 100vw; background: #000; color: #d4d4d8; font-family: 'JetBrains Mono', monospace; overflow: hidden; display: flex; flex-direction: column; }
+.app-shell { 
+  height: 100vh; 
+  width: 100vw; 
+  background: #000; 
+  color: #d4d4d8; 
+  font-family: 'Inter', 'Ubuntu', 'Noto Sans', 'Segoe UI', system-ui, sans-serif;
+  overflow: hidden; 
+  display: flex; 
+  flex-direction: column; 
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+.app-shell :deep(*) {
+  font-family: 'Inter', 'Ubuntu', 'Noto Sans', 'Segoe UI', system-ui, sans-serif;
+}
+
+/* Maintain monospace for specific technical elements */
+.app-shell :deep(.terminal-pane *), 
+.app-shell :deep(.logs-container *), 
+.app-shell :deep(.kb-pendant),
+.app-shell :deep(.branding-text),
+.app-shell :deep(.cyber-input),
+.app-shell :deep(.address-bar-input) {
+  font-family: 'JetBrains Mono', 'Ubuntu Mono', 'Fira Code', monospace !important;
+}
+
 .main-view { display: flex; flex: 1; height: 100%; width: 100%; overflow: hidden; position: relative; }
 
 /* FIX: Ensure side-bar completely vanishes when collapsed */
@@ -347,6 +374,11 @@ onMounted(() => {
   width: 260px;
   flex-shrink: 0;
   transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1), padding 0.2s ease, opacity 0.2s ease;
+  overflow: hidden;
+}
+
+.app-shell :deep(.module) {
+  border-radius: 6px;
   overflow: hidden;
 }
 
@@ -377,39 +409,40 @@ onMounted(() => {
 .cyber-pane.open { display: flex; }
 .cyber-container { display: flex; flex-direction: column; height: 100%; }
 .cyber-logs-view { flex: 0 0 30%; border-bottom: 1px solid #27272a; overflow: hidden; display: flex; flex-direction: column; }
-.cyber-logs-view header { padding: 5px 10px; font-size: 9px; color: #71717a; border-bottom: 1px solid #18181b; }
-.logs-container { flex: 1; overflow-y: auto; padding: 10px; font-size: 10px; color: #a1a1aa; }
+.cyber-logs-view header { padding: 5px 10px; font-size: 11px; color: #71717a; border-bottom: 1px solid #18181b; letter-spacing: 0.5px; }
+.logs-container { flex: 1; overflow-y: auto; padding: 10px; font-size: 11px; color: #a1a1aa; }
 .cyber-webview-wrapper { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .webview-address-bar { padding: 5px; background: #09090b; border-bottom: 1px solid #27272a; display: flex; gap: 5px; }
-.address-bar-input { flex: 1; background: #000; border: 1px solid #27272a; color: #22c55e; padding: 2px 8px; font-size: 10px; outline: none; }
-.refresh-btn { background: #18181b; border: 1px solid #27272a; color: #22c55e; cursor: pointer; padding: 0 8px; }
+.address-bar-input { flex: 1; background: #000; border: 1px solid #27272a; color: #22c55e; padding: 2px 8px; font-size: 11px; outline: none; border-radius: 4px; }
+.refresh-btn { background: #18181b; border: 1px solid #27272a; color: #22c55e; cursor: pointer; padding: 0 8px; border-radius: 4px; }
 
-.status-bar { height: 32px; background: #09090b; border-top: 1px solid #18181b; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; font-size: 10px; flex-shrink: 0; z-index: 1000; }
+.status-bar { height: 32px; background: #09090b; border-top: 1px solid #18181b; display: flex; justify-content: space-between; align-items: center; padding: 0 12px; font-size: 11px; flex-shrink: 0; z-index: 1000; }
 .status-left, .status-right { display: flex; align-items: center; gap: 15px; }
 .status-divider { width: 1px; height: 14px; background: #27272a; }
 .node-dot { width: 6px; height: 6px; border-radius: 50%; background: #a855f7; display: inline-block; margin-right: 4px; box-shadow: 0 0 5px #a855f7; }
 .tiny-dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; display: inline-block; margin-right: 4px; }
 .tiny-dot.active { box-shadow: 0 0 8px #22c55e; }
-.sidebar-toggle { color: #22c55e !important; cursor: pointer; display: flex; align-items: center; }
-.status-btn { background: transparent; border: 1px solid transparent; color: #52525b; cursor: pointer; padding: 2px 6px; font-family: inherit; }
-.status-btn:hover { color: #fff; border-color: #27272a; }
+.sidebar-toggle { color: #22c55e !important; cursor: pointer; display: flex; align-items: center; border-radius: 4px; }
+.status-btn { background: transparent; border: 1px solid transparent; color: #52525b; cursor: pointer; padding: 2px 6px; font-family: inherit; border-radius: 4px; transition: all 0.2s; }
+.status-btn:hover { color: #fff; border-color: #27272a; background: rgba(255,255,255,0.05); }
 .lock-btn { border: 1px solid #27272a !important; }
-.lock-btn:hover { color: #ef4444 !important; border-color: rgba(239, 68, 68, 0.3) !important; }
+.lock-btn:hover { color: #ef4444 !important; border-color: rgba(239, 68, 68, 0.3) !important; background: rgba(239, 68, 68, 0.1) !important; }
 
-.context-menu { position: fixed; z-index: 10000; background: #09090b; border: 1px solid #22c55e; padding: 4px; min-width: 140px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); }
-.menu-header { padding: 4px 8px; font-size: 9px; color: #166534; border-bottom: 1px solid #18181b; margin-bottom: 4px; }
-.menu-item { padding: 6px 12px; font-size: 11px; cursor: pointer; color: #d4d4d8; }
+.context-menu { position: fixed; z-index: 10000; background: #09090b; border: 1px solid #22c55e; padding: 4px; min-width: 140px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); border-radius: 6px; }
+.menu-header { padding: 4px 8px; font-size: 10px; color: #166534; border-bottom: 1px solid #18181b; margin-bottom: 4px; letter-spacing: 0.5px; }
+.menu-item { padding: 6px 12px; font-size: 12px; cursor: pointer; color: #d4d4d8; border-radius: 4px; margin-bottom: 1px; }
 .menu-item:hover { background: #22c55e; color: #000; }
 .menu-item.danger { color: #ef4444; }
+.menu-item.danger:hover { background: #ef4444; color: #000; }
 .menu-divider { height: 1px; background: #18181b; margin: 4px 0; }
 
 .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(5px); display: flex; align-items: center; justify-content: center; z-index: 20000; }
-.cyber-card { background: #09090b; border: 1px solid #22c55e; padding: 30px; min-width: 400px; box-shadow: 0 0 30px rgba(34, 197, 94, 0.2); }
+.cyber-card { background: #09090b; border: 1px solid #22c55e; padding: 30px; min-width: 400px; box-shadow: 0 0 30px rgba(34, 197, 94, 0.2); border-radius: 8px; }
 .cyber-title { color: #22c55e; font-size: 18px; letter-spacing: 2px; margin-bottom: 15px; }
 .skill-form { display: flex; flex-direction: column; gap: 10px; }
-.label { font-size: 9px; color: #71717a; text-transform: uppercase; }
-.cyber-input { background: #000; border: 1px solid #27272a; color: #22c55e; padding: 8px; font-size: 12px; outline: none; width: 100%; }
-.btn-primary { background: #22c55e; color: #000; border: none; padding: 10px; font-weight: bold; cursor: pointer; margin-top: 15px; }
+.label { font-size: 10px; color: #71717a; text-transform: uppercase; }
+.cyber-input { background: #000; border: 1px solid #27272a; color: #22c55e; padding: 8px; font-size: 12px; outline: none; width: 100%; border-radius: 4px; }
+.btn-primary { background: #22c55e; color: #000; border: none; padding: 10px; font-weight: bold; cursor: pointer; margin-top: 15px; border-radius: 4px; }
 
 .mini-switch { position: relative; display: inline-block; width: 24px; height: 12px; }
 .mini-switch input { opacity: 0; width: 0; height: 0; }
@@ -417,9 +450,15 @@ onMounted(() => {
 .slider:before { position: absolute; content: ""; height: 8px; width: 8px; left: 2px; bottom: 2px; background-color: white; transition: .4s; border-radius: 50%; }
 input:checked + .slider { background-color: #3b82f6; }
 input:checked + .slider:before { transform: translateX(12px); }
-.status-toggle { display: flex; align-items: center; gap: 8px; font-size: 10px; color: #52525b; }
+.status-toggle { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #52525b; }
 
-.kb-pendant { background: rgba(39, 39, 42, 0.3); border: 0.5px solid rgba(255,255,255,0.05); color: #71717a; font-size: 9px; padding: 2px 8px; border-radius: 4px; cursor: pointer; transition: all 0.2s; }
+.kb-pendant { background: rgba(39, 39, 42, 0.3); border: 0.5px solid rgba(255,255,255,0.05); color: #71717a; font-size: 10px; padding: 2px 8px; border-radius: 4px; cursor: pointer; transition: all 0.2s; }
 .kb-pendant.active { background: #22c55e; color: #000; box-shadow: 0 0 10px #22c55e; }
 .hotkey-bar { display: flex; gap: 5px; }
+
+/* Higher specificity overrides for existing components */
+.app-shell :deep(.tab-item) { font-size: 12px; letter-spacing: 0.5px; border-radius: 4px 4px 0 0; }
+.app-shell :deep(.name), .app-shell :deep(.file-name) { font-size: 12px; }
+.app-shell :deep(.header-with-action) { font-size: 11px; letter-spacing: 0.5px; }
+.app-shell :deep(.stealth-zone) { border-radius: 4px; }
 </style>
