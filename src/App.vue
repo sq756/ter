@@ -34,6 +34,7 @@ const showSettings = ref(false);
 const activeMacros = ref<{name: string, cmd: string}[]>([]);
 
 const isLocked = ref(false);
+const isSidebarOpen = ref(false);
 const cyberMode = ref(0); 
 const agentToken = ref('');
 const currentAgentPort = ref<number | null>(null);
@@ -236,6 +237,7 @@ onUnmounted(() => {
     <div v-else class="main-view">
       <SettingsPanel :isOpen="showSettings" @close="showSettings = false" @update-macros="(m) => activeMacros = m" />
       <SidebarPanel 
+        :class="{ 'open': isSidebarOpen }"
         :files="realFiles" :currentPath="currentPath" :bgTabs="backgroundTabs" :skills="skills"
         :cpuChartRef="cpuChartRef" :memChartRef="memChartRef" :netChartRef="netChartRef"
         :healthMode="healthMode" :currentNetSpeed="currentNetSpeed" :extraStats="extraStats"
@@ -246,7 +248,7 @@ onUnmounted(() => {
         @explorer-context="onExplorerContextMenu" @cycle-health-mode="cycleHealthMode"
       />
 
-      <main class="workspace" ref="workspaceRef">
+      <main class="workspace" ref="workspaceRef" @click="isSidebarOpen = false">
         <!-- Context Menu -->
         <div v-if="showContextMenu" class="context-menu" :style="{ top: menuY + 'px', left: menuX + 'px' }">
           <header class="menu-header">TERMINAL ACTIONS</header>
@@ -290,7 +292,13 @@ onUnmounted(() => {
           <div class="candidates" v-if="possibleLetters">{{ possibleLetters }}</div>
         </div>
 
-        <nav class="tool-bar"><div class="status-chip"><span class="pulse purple"></span> {{ host }}</div><div class="actions"><button @click="isLocked = true" class="btn-tool">Lock System</button></div></nav>
+        <nav class="tool-bar">
+          <div class="status-chip">
+            <button class="mobile-menu-btn" @click.stop="isSidebarOpen = !isSidebarOpen">☰</button>
+            <span class="pulse purple"></span> {{ host }}
+          </div>
+          <div class="actions"><button @click="isLocked = true" class="btn-tool">Lock System</button></div>
+        </nav>
         
         <div class="workspace-body">
           <section class="terminal-pane">
@@ -299,9 +307,22 @@ onUnmounted(() => {
               @switch-tab="bringToForeground" @close-tab="closeTab" @new-tab="createNewTab()" 
               @terminal-context="onTerminalContextMenu" 
             />
+            
+            <!-- Virtual Keyboard Bar for Mobile -->
+            <div class="mobile-kb-bar">
+              <button class="kb-btn" @click="invoke('write_pty', { tabId: activeTabId, data: '\t' })">TAB</button>
+              <button class="kb-btn" @click="invoke('write_pty', { tabId: activeTabId, data: '\x03' })">CTRL+C</button>
+              <button class="kb-btn" @click="invoke('write_pty', { tabId: activeTabId, data: '\x1b' })">ESC</button>
+              <button class="kb-btn" @click="invoke('write_pty', { tabId: activeTabId, data: '\x1b[A' })">↑</button>
+              <button class="kb-btn" @click="invoke('write_pty', { tabId: activeTabId, data: '\x1b[B' })">↓</button>
+              <button class="kb-btn" @click="invoke('write_pty', { tabId: activeTabId, data: '\x1b[D' })">←</button>
+              <button class="kb-btn" @click="invoke('write_pty', { tabId: activeTabId, data: '\x1b[C' })">→</button>
+              <button class="kb-btn" @click="invoke('write_pty', { tabId: activeTabId, data: '/' })">/</button>
+              <button class="kb-btn" @click="invoke('write_pty', { tabId: activeTabId, data: ':' })">:</button>
+            </div>
           </section>
 
-          <section class="cyber-pane" v-if="cyberMode !== 0">
+          <section class="cyber-pane" :class="{ 'open': cyberMode === 1 }">
             <div class="cyber-container">
               <div class="cyber-logs-view">
                 <header><span class="title">Cyber Logs</span></header>

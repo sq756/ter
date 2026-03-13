@@ -34,3 +34,74 @@ body {
 .xterm-helper-textarea {
   opacity: 0 !important;
 }
+
+/* Mobile Responsiveness */
+@media (max-width: 768px) {
+  .side-bar { 
+    position: fixed !important; 
+    left: -260px; 
+    top: 0; 
+    bottom: 0; 
+    z-index: 1000; 
+    transition: left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 10px 0 30px rgba(0,0,0,0.5);
+    height: 100vh !important;
+  }
+  .side-bar.open { left: 0 !important; }
+  
+  .cyber-pane { 
+    width: 100% !important; 
+    position: fixed !important; 
+    right: -100%; 
+    top: 0; 
+    bottom: 0; 
+    z-index: 900; 
+    transition: right 0.3s; 
+    background: #000;
+  }
+  .cyber-pane.open { right: 0 !important; }
+  
+  .terminal-pane { width: 100% !important; }
+  .workspace { width: 100% !important; overflow: hidden; }
+  
+  /* Virtual Keyboard Helper */
+  .mobile-kb-bar {
+    display: flex !important;
+    height: 40px;
+    background: #09090b;
+    border-top: 1px solid #27272a;
+    gap: 8px;
+    padding: 0 10px;
+    align-items: center;
+    overflow-x: auto;
+    flex-shrink: 0;
+    white-space: nowrap;
+    z-index: 100;
+  }
+  .kb-btn {
+    background: #18181b;
+    color: #a1a1aa;
+    border: 1px solid #27272a;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+    flex-shrink: 0;
+  }
+  .kb-btn:active { background: #22c55e; color: #000; }
+}
+
+/* Hide KB bar on desktop */
+.mobile-menu-btn {
+  display: none;
+  background: transparent;
+  border: 1px solid #22c55e;
+  color: #22c55e;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-right: 8px;
+}
+@media (max-width: 768px) {
+  .mobile-menu-btn { display: flex; }
+}
