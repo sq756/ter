@@ -15,7 +15,22 @@ const props = defineProps<{
   isAutoPilot: boolean;
 }>();
 
-const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill', 'change-dir', 'view-history', 'open-trigger-settings', 'fast-access', 'morse-down', 'morse-up', 'morse-context', 'explorer-context', 'cycle-health-mode']);
+const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill', 'change-dir', 'view-history', 'open-trigger-settings', 'fast-access', 'morse-down', 'morse-up', 'morse-context', 'explorer-context', 'cycle-health-mode', 'skill-context']);
+
+// v2.6.0: Agentic Interaction (Drag & Drop + Context Menu)
+const draggedFile = ref<any>(null);
+
+const onDragStart = (f: any) => {
+  if (f.is_dir) return;
+  draggedFile.value = f;
+};
+
+const onDropOnSkill = (skill: any) => {
+  if (draggedFile.value) {
+    emit('run-skill', { ...skill, context_file: draggedFile.value });
+    draggedFile.value = null;
+  }
+};
 
 // v2.2.11: Track last visited directories for FAST ACCESS
 const lastVisited = computed(() => {
@@ -106,8 +121,13 @@ const onFastAccessClick = (path: string) => {
         </button>
       </header>
       <ul class="data-list">
-        <li v-for="s in skills" :key="s.id" @click="$emit('run-skill', s)" :title="s.description">
-          <span class="icon">
+        <li v-for="s in skills" :key="s.id" 
+          @click="$emit('run-skill', s)" 
+          @dragover.prevent 
+          @drop="onDropOnSkill(s)" 
+          :title="s.description"
+          class="skill-item">
+          <span class="icon" @contextmenu.prevent="$emit('skill-context', { event: $event, skill: s })">
             <svg v-if="!s.icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
             <span v-else>{{ s.icon }}</span>
           </span>
@@ -145,7 +165,12 @@ const onFastAccessClick = (path: string) => {
           </span>
           <span class="file-name">..</span>
         </li>
-        <li v-for="f in sortedFiles" :key="f.name" @click="onItemClick(f)" @contextmenu.prevent="$emit('explorer-context', { e: $event, file: f })" class="file-item">
+        <li v-for="f in sortedFiles" :key="f.name" 
+          @click="onItemClick(f)" 
+          @contextmenu.prevent="$emit('explorer-context', { e: $event, file: f })"
+          draggable="true"
+          @dragstart="onDragStart(f)"
+          class="file-item">
           <span class="file-icon">
             <svg v-if="f.is_dir" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
             <svg v-else viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>

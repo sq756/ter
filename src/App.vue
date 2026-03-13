@@ -188,8 +188,31 @@ const onConnected = async (hostLabel: string) => {
 
 const runMacro = async (c: string) => { if (activeTabId.value) await invoke('write_pty', { tabId: activeTabId.value, data: c + '\n' }); showMorseMacro.value = false; };
 
+const showSkillSettings = ref(false);
+const selectedSkill = ref<any>(null);
+
+const onSkillContextMenu = (p: { event: MouseEvent, skill: any }) => {
+  selectedSkill.value = p.skill;
+  showSkillSettings.value = true;
+};
+
 const runSkill = async (skill: any) => {
   if (!isConnected.value) return;
+  
+  // v2.6.0: Handle File Context (Drag & Drop)
+  if (skill.context_file) {
+    const f = skill.context_file;
+    backendLogs.value.push(`[AGENT] Processing file: ${f.name} with skill: ${skill.name}`);
+    
+    // If it's a visual skill or just any skill, we can inject the path
+    const fullPath = (currentPath.value === '/' ? '' : currentPath.value) + '/' + f.name;
+    const cmd = `${skill.rpc || skill.trigger} "${fullPath}"\r\n`;
+    if (activeTabId.value) {
+      invoke('write_pty', { tabId: activeTabId.value, data: cmd });
+    }
+    return;
+  }
+
   if (skill.context_requirement?.require_screenshot) {
     await captureAndUpload(true);
   }
@@ -249,9 +272,26 @@ onUnmounted(() => {
         @view-history="viewHistory" @proc-context="(p: any) => onTerminalContextMenu({e: p.event, id: p.tab.id})" @run-skill="runSkill"
         @change-dir="changeDir" @open-trigger-settings="showSettings = true" @fast-access="onFastAccess"
         @explorer-context="onExplorerContextMenu" @cycle-health-mode="cycleHealthMode"
+        @skill-context="onSkillContextMenu"
       />
 
       <main class="workspace" ref="workspaceRef" @click="isSidebarOpen = false">
+        <!-- Skill Settings Modal -->
+        <div v-if="showSkillSettings" class="modal-overlay" @click.self="showSkillSettings = false">
+          <div class="auth-card cyber-card">
+            <h2 class="cyber-title">SKILL_CONFIG: {{ selectedSkill?.name }}</h2>
+            <div class="cyber-subtitle">/// PARAMETER_ADJUSTMENT</div>
+            <div class="skill-form">
+              <label class="label">ID</label>
+              <input :value="selectedSkill?.id" disabled class="cyber-input" />
+              <label class="label">RPC_COMMAND</label>
+              <input v-model="selectedSkill.rpc" class="cyber-input" />
+              <label class="label">DESCRIPTION</label>
+              <textarea v-model="selectedSkill.description" class="cyber-input" rows="3"></textarea>
+            </div>
+            <button @click="showSkillSettings = false" class="btn-primary">APPLY_CHANGES</button>
+          </div>
+        </div>
         <!-- Context Menu -->
         <div v-if="showContextMenu" class="context-menu" :style="{ top: menuY + 'px', left: menuX + 'px' }">
           <header class="menu-header">TERMINAL ACTIONS</header>
