@@ -369,8 +369,37 @@ async fn load_remote_skills(state: State<'_, AppState>) -> Result<Vec<Skill>, St
     }
 }
 
-#[derive(serde::Serialize)]
-struct RemoteFile { name: String, is_dir: bool, size: u64 }
+#[tauri::command]
+async fn download_file(remote_path: String, local_path: String, state: State<'_, AppState>) -> Result<(), String> {
+    let session_guard = state.session.lock().await;
+    let session = session_guard.as_ref().ok_or("No active SSH session")?;
+
+    let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
+    channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
+    let sftp = SftpSession::new(channel.into_stream()).await.map_err(|e| e.to_string())?;
+
+    let mut remote_file = sftp.open(&remote_path).await.map_err(|e| e.to_string())?;
+    let mut local_file = tokio::fs::File::create(local_path).await.map_err(|e| e.to_string())?;
+
+    tokio::io::copy(&mut remote_file, &mut local_file).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn upload_file(remote_path: String, local_path: String, state: State<'_, AppState>) -> Result<(), String> {
+    let session_guard = state.session.lock().await;
+    let session = session_guard.as_ref().ok_or("No active SSH session")?;
+
+    let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
+    channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
+    let sftp = SftpSession::new(channel.into_stream()).await.map_err(|e| e.to_string())?;
+
+    let mut local_file = tokio::fs::File::open(local_path).await.map_err(|e| e.to_string())?;
+    let mut remote_file = sftp.create(&remote_path).await.map_err(|e| e.to_string())?;
+
+    tokio::io::copy(&mut local_file, &mut remote_file).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
 
 #[tauri::command]
 async fn connect_with_id(id: String, _app_handle: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
@@ -384,6 +413,9 @@ async fn connect_with_id(id: String, _app_handle: AppHandle, state: State<'_, Ap
     *state.session.lock().await = Some(Arc::new(sess));
     Ok(())
 }
+
+#[derive(serde::Serialize)]
+struct RemoteFile { name: String, is_dir: bool, size: u64 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -420,7 +452,7 @@ pub fn run() {
             spawn_new_pty, write_pty, close_pty, resize_pty, get_terminal_logs, get_active_ports,
             get_agent_token, open_dynamic_tunnel, ls_remote, load_remote_skills, ai_audit_ui,
             navigate_cyber_webview, reload_cyber_webview, extract_cyber_dom, eval_cyber_webview,
-            save_server_config, set_model_path, get_model_path
+            save_server_config, set_model_path, get_model_path, download_file, upload_file
         ])
         .run(tauri::generate_context!())
         .expect("error");

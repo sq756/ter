@@ -57,8 +57,9 @@ const {
 
 const {
   showExplorerMenu, explorerMenuX, explorerMenuY, selectedFile,
-  onExplorerContextMenu, explorerActionCd, explorerActionCat, explorerActionVim, explorerActionCopyPath, explorerActionRun
-} = useExplorerContextMenu(activeTabId, currentPath);
+  onExplorerContextMenu, explorerActionCd, explorerActionCat, explorerActionVim, explorerActionCopyPath, explorerActionRun,
+  explorerActionDownload, explorerActionUpload
+} = useExplorerContextMenu(activeTabId, currentPath, refreshExplorer);
 
 const {
   previewUrl, isWebviewLoading, refreshWebview, handleExtractDOM, onDomExtracted, captureAndUpload
@@ -227,9 +228,12 @@ onUnmounted(() => {
           <header class="menu-header">FILE ACTIONS</header>
           <template v-if="selectedFile?.is_dir">
             <div class="menu-item" @click="explorerActionCd">📂 CD into folder</div>
+            <div class="menu-item" @click="explorerActionUpload">📤 Upload to this dir</div>
             <div class="menu-item" @click="explorerActionCopyPath">📋 Copy Path</div>
           </template>
           <template v-else>
+            <div class="menu-item" @click="explorerActionDownload">📥 Download File</div>
+            <div class="menu-divider"></div>
             <div class="menu-item" @click="explorerActionRun">🚀 Run Executable</div>
             <div class="menu-item" @click="explorerActionCat">👁️ Cat File</div>
             <div class="menu-item" @click="explorerActionVim">✏️ Edit (Vim)</div>
