@@ -97,6 +97,7 @@ jobs:
         run: |
           sdkmanager "ndk;25.2.9519653"
           echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/25.2.9519653" >> $GITHUB_ENV
+          echo "${ANDROID_SDK_ROOT}/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
 
       - name: Rust setup
         uses: dtolnay/rust-toolchain@stable
