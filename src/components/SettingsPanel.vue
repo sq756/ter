@@ -103,7 +103,7 @@ const saveCondaPath = async () => {
           <header>🐍 BACKEND_ECOSYSTEM (Conda/Python)</header>
           <div class="setting-row">
             <span class="label">CONDA_EXECUTABLE_PATH</span>
-            <input v-model="condaPath" @change="saveCondaPath" class="cyber-input" placeholder="/path/to/conda" style="width: 200px;" />
+            <input v-model="condaPath" @change="saveCondaPath" class="cyber-input conda-input" placeholder="/path/to/conda" />
           </div>
           <p class="hint">Required for advanced document processing (e.g. pdftotext).</p>
         </section>
@@ -201,8 +201,11 @@ const saveCondaPath = async () => {
       </div>
 
       <footer class="drawer-footer">
-        <span class="ver">TER_CORE v2.2.14</span>
-        <span class="status">ENCRYPTION_ACTIVE</span>
+        <span class="ver">TER_CORE v2.13.2</span>
+        <div class="status-group">
+          <span class="status-tag">SYS_LOCK: OFF</span>
+          <span class="status-tag highlight">ENCRYPTION_ACTIVE</span>
+        </div>
       </footer>
     </div>
   </Transition>
@@ -263,6 +266,47 @@ const saveCondaPath = async () => {
 .macro-name { width: 80px; background: transparent; border: none; border-bottom: 1px dashed #3f3f46; color: #fff; font-size: 12px; outline: none; }
 .macro-cmd { flex: 1; background: transparent; border: none; color: #22c55e; font-size: 12px; font-family: monospace; outline: none; }
 
+.conda-input { width: 180px; font-size: 10px !important; padding: 4px 8px !important; color: #a1a1aa !important; }
+
+/* v2.13.2: Cyber Toggle Switch */
+.mini-switch {
+  position: relative;
+  display: inline-block;
+  width: 34px;
+  height: 18px;
+}
+.mini-switch input { opacity: 0; width: 0; height: 0; }
+.slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: #18181b;
+  border: 1px solid #3f3f46;
+  transition: .3s;
+  border-radius: 2px;
+}
+.slider:before {
+  position: absolute;
+  content: "";
+  height: 10px;
+  width: 10px;
+  left: 3px;
+  bottom: 3px;
+  background-color: #52525b;
+  transition: .3s;
+  border-radius: 1px;
+}
+input:checked + .slider {
+  border-color: #22c55e;
+  background-color: rgba(34, 197, 94, 0.1);
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.2);
+}
+input:checked + .slider:before {
+  transform: translateX(16px);
+  background-color: #22c55e;
+  box-shadow: 0 0 5px #22c55e;
+}
+
 .delete-btn { background: transparent; border: none; cursor: pointer; opacity: 0.4; transition: opacity 0.2s; }
 .delete-btn:hover { opacity: 1; }
 
@@ -284,7 +328,12 @@ const saveCondaPath = async () => {
 .auto-detect-btn { margin-top: auto; background: #18181b; border: 1px solid #27272a; color: #71717a; font-size: 8px; padding: 4px; border-radius: 2px; cursor: pointer; transition: all 0.1s; font-weight: bold; }
 .auto-detect-btn:hover { color: #22c55e; border-color: #22c55e; }
 
-.drawer-footer { padding: 15px 20px; border-top: 1px solid #27272a; display: flex; justify-content: space-between; align-items: center; font-family: monospace; font-size: 10px; color: #3f3f46; }
+.drawer-footer { padding: 15px 20px; border-top: 1px solid #27272a; display: flex; justify-content: space-between; align-items: center; font-family: 'JetBrains Mono', monospace; font-size: 9px; color: #52525b; }
+.status-group { display: flex; gap: 12px; }
+.status-tag { cursor: help; transition: color 0.2s; }
+.status-tag:hover { color: #a1a1aa; }
+.status-tag.highlight { color: #166534; }
+.status-tag.highlight:hover { color: #22c55e; text-shadow: 0 0 5px #22c55e; }
 
 .slide-enter-active, .slide-leave-active { transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
 .slide-enter-from, .slide-leave-to { transform: translateX(100%); }
