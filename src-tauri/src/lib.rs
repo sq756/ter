@@ -535,19 +535,40 @@ async fn read_remote_file(remote_path: String, state: State<'_, AppState>) -> Re
     Ok(String::from_utf8_lossy(&buffer).to_string())
 }
 
+async fn connect_to_server(config: &ServerConfig, servers: &[ServerConfig], crypto: &Option<Crypto>) -> Result<Arc<client::Handle<Client>>, String> {
+    let mut pass = String::new();
+    if let Some(enc) = &config.password_enc { if let Some(c) = crypto.as_ref() { pass = c.decrypt(enc).ok_or("Decrypt failed")?; } }
+
+    if let Some(proxy_id) = &config.proxy_id {
+        if !proxy_id.is_empty() {
+            let proxy_config = servers.iter().find(|s| &s.id == proxy_id).ok_or("Proxy not found")?;
+            let proxy_handle = Box::pin(connect_to_server(proxy_config, servers, crypto)).await?;
+            let channel = proxy_handle.channel_open_direct_tcpip(&config.host, config.port as u32, "127.0.0.1", 0).await.map_err(|e| e.to_string())?;
+            let mut russh_config = client::Config::default();
+            // russh_config.connection_timeout = Some(std::time::Duration::from_secs(10));
+            let mut sess = client::connect_stream(Arc::new(russh_config), channel.into_stream(), Client {}).await.map_err(|e| e.to_string())?;
+            let auth = sess.authenticate_password(&config.user, pass).await.map_err(|e| e.to_string())?;
+            if !matches!(auth, russh::client::AuthResult::Success) { return Err("Auth fail on target".to_string()); }
+            return Ok(Arc::new(sess));
+        }
+    }
+
+    let russh_config = client::Config::default();
+    let connect_future = client::connect(Arc::new(russh_config), (config.host.as_str(), config.port as u16), Client {});
+    let mut sess = tokio::time::timeout(std::time::Duration::from_secs(10), connect_future).await.map_err(|_| "Connection timeout".to_string())?.map_err(|e| e.to_string())?;
+    let auth = sess.authenticate_password(&config.user, pass).await.map_err(|e| e.to_string())?;
+    if !matches!(auth, russh::client::AuthResult::Success) { return Err("Auth fail".to_string()); }
+    Ok(Arc::new(sess))
+}
+
 #[tauri::command]
 async fn connect_with_id(id: String, _app_handle: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let db = get_db(&state).await?;
-    let config = db.list_servers().await.map_err(|e| e.to_string())?.into_iter().find(|c| c.id == id).ok_or("Not found")?;
-    let mut pass = String::new();
-    if let Some(enc) = &config.password_enc { if let Some(c) = state.crypto.lock().await.as_ref() { pass = c.decrypt(enc).ok_or("Decrypt failed")?; } }
-    let connect_future = client::connect(Arc::new(client::Config::default()), (config.host.as_str(), config.port as u16), Client {});
-    let mut sess = tokio::time::timeout(std::time::Duration::from_secs(10), connect_future)
-        .await.map_err(|_| "Connection timeout".to_string())?
-        .map_err(|e| e.to_string())?;
-    let auth = sess.authenticate_password(config.user, pass).await.map_err(|e| e.to_string())?;
-    if !matches!(auth, russh::client::AuthResult::Success) { return Err("Auth fail".to_string()); }
-    *state.session.lock().await = Some(Arc::new(sess));
+    let servers = db.list_servers().await.map_err(|e| e.to_string())?;
+    let config = servers.iter().find(|c| c.id == id).ok_or("Not found")?;
+    let crypto = state.crypto.lock().await;
+    let sess = connect_to_server(config, &servers, &*crypto).await?;
+    *state.session.lock().await = Some(sess);
     Ok(())
 }
 

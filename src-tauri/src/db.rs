@@ -11,6 +11,7 @@ pub struct ServerConfig {
     pub port: i32,
     pub password_enc: Option<String>,
     pub key_path: Option<String>,
+    pub proxy_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
@@ -40,11 +41,15 @@ impl Db {
                 user TEXT NOT NULL,
                 port INTEGER NOT NULL,
                 password_enc TEXT,
-                key_path TEXT
+                key_path TEXT,
+                proxy_id TEXT
             )"
         )
         .execute(&pool)
         .await?;
+
+        // Migration: v2.12.0: Ensure proxy_id exists (for upgrades)
+        let _ = sqlx::query("ALTER TABLE server_configs ADD COLUMN proxy_id TEXT").execute(&pool).await;
 
         // Migration: Terminal Logs
         sqlx::query(
@@ -166,8 +171,8 @@ impl Db {
 
     pub async fn save_server(&self, server: &ServerConfig) -> Result<()> {
         sqlx::query(
-            "INSERT OR REPLACE INTO server_configs (id, label, host, user, port, password_enc, key_path) 
-             VALUES (?, ?, ?, ?, ?, ?, ?)"
+            "INSERT OR REPLACE INTO server_configs (id, label, host, user, port, password_enc, key_path, proxy_id) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
         )
         .bind(&server.id)
         .bind(&server.label)
@@ -176,6 +181,7 @@ impl Db {
         .bind(&server.port)
         .bind(&server.password_enc)
         .bind(&server.key_path)
+        .bind(&server.proxy_id)
         .execute(&self.pool)
         .await?;
         Ok(())

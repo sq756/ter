@@ -230,7 +230,9 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
           </li>
           <!-- Webview Instances (v2.11.43) -->
           <li v-for="w in webviewInstances" :key="w.id" @click="$emit('switch-web', w.id)" @contextmenu.prevent.stop="$emit('web-context', {event: $event, web: w})">
-            <span class="icon">🌍</span>
+            <span class="icon">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+            </span>
             <span class="name">{{ w.title || 'Web Task' }}</span>
             <span class="val active" :class="{ 'highlight': activeWebviewId === w.id }">WEB</span>
           </li>
@@ -261,7 +263,11 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
         </header>
         <ul class="data-list">
           <li v-for="s in skills" :key="s.id" @click="$emit('run-skill', s)" @contextmenu.prevent.stop="$emit('skill-context', {event: $event, skill: s})" @dragover.prevent @drop="onDropOnSkill(s)">
-            <span class="icon">{{ s.icon || '🛠️' }}</span><span class="name">{{ s.name }}</span><span class="val">RUN</span>
+            <span class="icon">
+              <svg v-if="!s.icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path></svg>
+              <template v-else>{{ s.icon }}</template>
+            </span>
+            <span class="name">{{ s.name }}</span><span class="val">RUN</span>
           </li>
         </ul>
       </div>
@@ -273,7 +279,10 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
         <header>FAST ACCESS</header>
         <ul class="data-list">
           <li v-for="path in lastVisited" :key="path" @click="onFastAccessClick(path)">
-            <span class="icon">🚀</span><span class="name">{{ path.split('/').pop() || '/' }}</span><span class="val">GOTO</span>
+            <span class="icon">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"></path><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2s-7 7-6.05 11z"></path></svg>
+            </span>
+            <span class="name">{{ path.split('/').pop() || '/' }}</span><span class="val">GOTO</span>
           </li>
         </ul>
       </div>

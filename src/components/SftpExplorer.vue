@@ -54,7 +54,9 @@ const onItemClick = (f: any) => {
             :class="{ 'disabled': currentPath === '/' }"
             @click="currentPath !== '/' && $emit('change-dir', '..')" 
             @contextmenu.prevent="currentPath !== '/' && $emit('item-context', { event: $event, file: { name: '..', is_dir: true } })">
-          <span class="icon">⤴️</span>
+          <span class="icon">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10h10a8 8 0 0 1 8 8v2"></path><polyline points="7 14 3 10 7 6"></polyline></svg>
+          </span>
           <span class="name">..</span>
         </li>
         <!-- Files & Folders -->
@@ -64,7 +66,10 @@ const onItemClick = (f: any) => {
             @contextmenu.prevent="$emit('item-context', { event: $event, file: f })"
             draggable="true"
             @dragstart="$emit('item-drag-start', f)">
-          <span class="icon">{{ f.is_dir ? '📂' : '📄' }}</span>
+          <span class="icon">
+            <svg v-if="f.is_dir" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+            <svg v-else viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
+          </span>
           <span class="name" :title="f.path">{{ f.name }}</span>
         </li>
       </ul>

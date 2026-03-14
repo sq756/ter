@@ -764,7 +764,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
   width: 100vw; 
   background: #000; 
   color: #d4d4d8; 
-  font-family: 'Inter', 'Ubuntu', 'Noto Sans', 'Segoe UI', system-ui, sans-serif;
+  font-family: 'Inter', 'Segoe UI', 'Ubuntu', 'Noto Sans', 'Cantarell', 'Helvetica Neue', system-ui, sans-serif;
   overflow: hidden; 
   display: flex; 
   flex-direction: column; 
@@ -774,7 +774,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
 }
 
 .app-shell :deep(*) {
-  font-family: 'Inter', 'Ubuntu', 'Noto Sans', 'Segoe UI', system-ui, sans-serif;
+  font-family: 'Inter', 'Segoe UI', 'Ubuntu', 'Noto Sans', 'Cantarell', 'Helvetica Neue', system-ui, sans-serif;
 }
 
 /* Maintain monospace for specific technical elements */
@@ -784,7 +784,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
 .app-shell :deep(.branding-text),
 .app-shell :deep(.cyber-input),
 .app-shell :deep(.address-bar-input) {
-  font-family: 'JetBrains Mono', 'Ubuntu Mono', 'Fira Code', monospace !important;
+  font-family: 'JetBrains Mono', 'Ubuntu Mono', 'DejaVu Sans Mono', 'Liberation Mono', 'Fira Code', 'Courier New', monospace !important;
 }
 
 .main-view { display: flex; flex: 1; height: 100%; width: 100%; overflow: hidden; position: relative; }

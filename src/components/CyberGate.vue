@@ -9,7 +9,7 @@ const masterPasswordStr = ref('');
 const isConnecting = ref(false);
 const savedServers = ref<any[]>([]);
 const showAddServerForm = ref(false);
-const newServer = ref({ label: '', host: '', port: 22, user: 'root', password_enc: '' });
+const newServer = ref({ label: '', host: '', port: 22, user: 'root', password_enc: '', proxy_id: '' });
 
 const loadServers = async () => {
   savedServers.value = await invoke('list_server_configs');
@@ -82,6 +82,12 @@ onMounted(() => {
             </div>
             <input v-model="newServer.user" placeholder="USER" class="cyber-input" />
             <input v-model="newServer.password_enc" type="password" placeholder="PASSWORD" class="cyber-input" />
+            <select v-model="newServer.proxy_id" class="cyber-input cyber-select">
+              <option value="">NO JUMP HOST (DIRECT)</option>
+              <option v-for="s in savedServers" :key="'proxy-'+s.id" :value="s.id">
+                JUMP: {{ s.label || s.host }}
+              </option>
+            </select>
             <div class="actions">
               <button @click="saveNewServer" class="btn-primary mini">SAVE</button>
               <button @click="showAddServerForm = false" class="btn-primary mini danger">CANCEL</button>
@@ -106,6 +112,7 @@ onMounted(() => {
 .cyber-card { background: #09090b !important; border: 1px solid #22c55e !important; box-shadow: 0 0 15px rgba(34, 197, 94, 0.2) !important; border-radius: 0 !important; }
 .cyber-title { color: #22c55e !important; font-family: 'JetBrains Mono', monospace; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 5px; }
 .cyber-subtitle { font-size: 10px; color: #166534; margin-bottom: 20px; letter-spacing: 1px; }
+.cyber-select { appearance: none; cursor: pointer; background: #000 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2322c55e' viewBox='0 0 16 16'%3E%3Cpath d='M7.247 11.14 2.451 5.658C1.885 5.013 2.345 4 3.204 4h9.592a1 1 0 0 1 .753 1.659l-4.796 5.48a1 1 0 0 1-1.506 0z'/%3E%3C/svg%3E") no-repeat right 12px center !important; }
 .cyber-input { background: #000 !important; border: 1px solid #27272a !important; color: #22c55e !important; font-family: 'JetBrains Mono', monospace !important; border-radius: 0 !important; outline: none !important; padding: 10px !important; margin-bottom: 15px; width: 100%; box-sizing: border-box; }
 .cyber-input:focus { border-color: #22c55e !important; box-shadow: 0 0 5px rgba(34, 197, 94, 0.3); }
 .btn-primary { background: transparent !important; border: 1px solid #22c55e !important; color: #22c55e !important; font-family: 'JetBrains Mono', monospace !important; text-transform: uppercase; letter-spacing: 1px; border-radius: 0 !important; transition: all 0.2s ease !important; cursor: pointer; padding: 12px; font-weight: bold; width: 100%; }
