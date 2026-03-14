@@ -135,7 +135,7 @@ const setLogTab = (tab: any) => {
 const getLogColor = (log: string) => {
   if (log.includes('[ERROR]')) return '#ef4444';
   if (log.includes('[SYSTEM]') || log.includes('[STATUS]')) return '#22c55e';
-  if (log.includes('[DEBUG]') || log.includes('[INFO]')) return '#52525b';
+  if (log.includes('[DEBUG]') || log.includes('[INFO]')) return '#888888'; // Increased from #52525b
   if (log.includes('AI') || log.includes('Reasoning')) return '#a855f7';
   return '#a1a1aa';
 };

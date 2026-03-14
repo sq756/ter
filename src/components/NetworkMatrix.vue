@@ -300,8 +300,21 @@ onConnect((params) => addEdges([params]));
 .btn-launch.mini { padding: 8px; margin-bottom: 10px; font-size: 10px; }
 .btn-launch:hover { box-shadow: 0 0 20px rgba(34, 197, 94, 0.4); }
 .quick-links-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
-.quick-links-grid button { background: transparent; border: 1px solid #18181b; color: #52525b; font-size: 9px; padding: 8px; cursor: pointer; transition: all 0.2s; }
-.quick-links-grid button:hover { border-color: #3b82f6; color: #3b82f6; }
+.quick-links-grid button { 
+  background: rgba(24, 24, 27, 0.5); 
+  border: 1px solid #555555; 
+  color: #a1a1aa; 
+  font-size: 10px; 
+  padding: 8px; 
+  cursor: pointer; 
+  transition: all 0.25s ease; 
+}
+.quick-links-grid button:hover { 
+  border-color: #22c55e; 
+  color: #22c55e; 
+  background: rgba(34, 197, 94, 0.05);
+  box-shadow: 0 0 10px rgba(34, 197, 94, 0.2);
+}
 .picker-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(4px); z-index: 10; display: flex; align-items: center; justify-content: center; }
 .picker-card { width: 220px; padding: 20px; border: 1px solid #22c55e; background: #000; }
 .picker-card header { font-size: 10px; color: #22c55e; margin-bottom: 15px; border-bottom: 1px solid #22c55e; padding-bottom: 5px; text-align: center; }

@@ -76,7 +76,7 @@ let trafficTimeout: any = null;
 const getLogColor = (log: string) => {
   if (log.includes('[ERROR]')) return '#ef4444';
   if (log.includes('[SYSTEM]') || log.includes('[STATUS]')) return '#22c55e';
-  if (log.includes('[DEBUG]') || log.includes('[INFO]')) return '#52525b'; // Dim Gray for background noise
+  if (log.includes('[DEBUG]') || log.includes('[INFO]')) return '#888888'; // Increased brightness from #52525b
   if (log.includes('AI') || log.includes('Reasoning')) return '#a855f7';
   return '#a1a1aa';
 };
@@ -857,8 +857,8 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
 /* v2.11.43: Bookmarks Bar Styles */
 .bookmarks-bar { display: flex; gap: calc(8px * var(--ter-ui-scale)); padding: calc(4px * var(--ter-ui-scale)) calc(8px * var(--ter-ui-scale)); background: #000; border-bottom: 1px solid #18181b; overflow-x: auto; scrollbar-width: none; }
 .bookmarks-bar::-webkit-scrollbar { display: none; }
-.bookmark-item { font-size: calc(9px * var(--ter-ui-scale)); color: #71717a; padding: 2px 8px; border: 1px solid #27272a; border-radius: 4px; cursor: pointer; white-space: nowrap; transition: all 0.2s; }
-.bookmark-item:hover { color: #22c55e; border-color: #22c55e; background: rgba(34, 197, 94, 0.05); }
+.bookmark-item { font-size: calc(9px * var(--ter-ui-scale)); color: #a1a1aa; padding: 2px 8px; border: 1px solid rgba(113, 113, 122, 0.5); border-radius: 4px; cursor: pointer; white-space: nowrap; transition: all 0.25s ease; background: rgba(24, 24, 27, 0.5); }
+.bookmark-item:hover { color: #22c55e; border-color: #22c55e; background: rgba(34, 197, 94, 0.1); box-shadow: 0 0 calc(10px * var(--ter-ui-scale)) rgba(34, 197, 94, 0.3); transform: translateY(-1px); }
 
 .safe-mode-placeholder { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #09090b; color: #71717a; gap: calc(15px * var(--ter-ui-scale)); font-family: 'JetBrains Mono', monospace; }
 .safe-mode-placeholder .icon { font-size: calc(32px * var(--ter-ui-scale)); }
