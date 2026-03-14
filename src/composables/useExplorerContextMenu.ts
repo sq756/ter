@@ -147,7 +147,7 @@ export function useExplorerContextMenu(
     if (selectedFile.value && !selectedFile.value.is_dir) {
       const path = getFullPath();
       try {
-        const content = await invoke<string>('read_remote_file', { remote_path: path });
+        const content = await invoke<string>('read_remote_file', { remotePath: path });
         return content;
       } catch (e) {
         alert("Preview failed: " + e);

@@ -296,7 +296,7 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
     let session = state.session.lock().await.as_ref().ok_or("No session")?.clone();
     let mut channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
     channel.request_pty(true, "xterm-256color", 80, 24, 0, 0, &[]).await.map_err(|e| e.to_string())?;
-    let tmux_cmd = format!("tmux new-session -A -s {} \\; set-option status off", tab_id);
+    let tmux_cmd = format!("tmux new-session -A -s {0} \\; set-option status off || exec $SHELL || exec /bin/sh", tab_id);
     channel.exec(true, tmux_cmd.as_str()).await.map_err(|e| e.to_string())?;
     let (tx, mut rx) = mpsc::channel::<String>(100);
     let (ctrl_tx, mut ctrl_rx) = mpsc::channel::<PtyControl>(10);
@@ -541,7 +541,10 @@ async fn connect_with_id(id: String, _app_handle: AppHandle, state: State<'_, Ap
     let config = db.list_servers().await.map_err(|e| e.to_string())?.into_iter().find(|c| c.id == id).ok_or("Not found")?;
     let mut pass = String::new();
     if let Some(enc) = &config.password_enc { if let Some(c) = state.crypto.lock().await.as_ref() { pass = c.decrypt(enc).ok_or("Decrypt failed")?; } }
-    let mut sess = client::connect(Arc::new(client::Config::default()), (config.host.as_str(), config.port as u16), Client {}).await.map_err(|e| e.to_string())?;
+    let connect_future = client::connect(Arc::new(client::Config::default()), (config.host.as_str(), config.port as u16), Client {});
+    let mut sess = tokio::time::timeout(std::time::Duration::from_secs(10), connect_future)
+        .await.map_err(|_| "Connection timeout".to_string())?
+        .map_err(|e| e.to_string())?;
     let auth = sess.authenticate_password(config.user, pass).await.map_err(|e| e.to_string())?;
     if !matches!(auth, russh::client::AuthResult::Success) { return Err("Auth fail".to_string()); }
     *state.session.lock().await = Some(Arc::new(sess));

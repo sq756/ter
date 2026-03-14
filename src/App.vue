@@ -184,7 +184,7 @@ const handleQuickEdit = async () => {
   if (selectedFile.value) {
     const path = sanitizeSftpPath(selectedFile.value.path || (currentPath.value + '/' + selectedFile.value.name));
     try {
-      const content = await invoke<string>('read_remote_file', { remote_path: path });
+      const content = await invoke<string>('read_remote_file', { remotePath: path });
       await createNewTab(selectedFile.value.name, 'editor', { path, content });
     } catch (e) {
       backendLogs.value.push(`[ERROR] Failed to open editor: ${e}`);
@@ -500,7 +500,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
          '--ter-pulse-duration': (2.0 - (uiPrefs.pulse_speed / 100) * 1.8) + 's',
          'font-size': (14 * uiPrefs.ui_scale) + 'px'
        }"
-       @mousedown.capture="closeAllMenus">
+       @click="closeAllMenus" @contextmenu="closeAllMenus">
     <CyberGate v-if="!isConnected" @connected="onConnected" />
     
     <div v-else class="main-view">

@@ -110,7 +110,7 @@ watch(() => props.active, async (isActive) => {
 </script>
 
 <template>
-  <div ref="terminalRef" class="terminal-view-container"></div>
+  <div ref="terminalRef" class="terminal-view-container" @contextmenu.prevent.stop="$emit('terminal-context', { e: $event, id: props.id })"></div>
 </template>
 
 <style>
