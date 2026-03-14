@@ -235,7 +235,10 @@ onMounted(() => {
   window.addEventListener('keyup', (e) => { if (!e.ctrlKey) isCtrlPressed.value = false; });
   window.addEventListener('mousemove', handleGlobalMouseMove);
   window.addEventListener('mouseup', stopResizingSFTP);
-  window.addEventListener('close-all-menus', closeAllMenus);
+  
+  // v2.11.29: Listen for custom event from xterm to close all menus
+  window.addEventListener('close-all-menus', () => closeAllMenus());
+  
   listen<string>('backend-log', (e) => { 
     if (!isLogsPaused.value) {
       backendLogs.value.push(e.payload); 
