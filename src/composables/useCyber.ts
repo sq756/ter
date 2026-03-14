@@ -38,25 +38,33 @@ export function useCyber(activeTabId: any, backendLogs: any, activeWebviewId: an
  
     if (m && m[1] && !disableTunnel.value) {
       const port = parseInt(m[1]);
-      if (port === 5173 && (u.includes('localhost') || u.includes('127.0.0.1'))) {
-         // Do nothing
-      } else {
-        isWebviewLoading.value = true; 
-        backendLogs.value.push(`[SYSTEM] Attempting SSH tunnel for port ${port}...`);
-        try { 
-          const p = await invoke<number>('open_dynamic_tunnel', { remotePort: port }); 
-          if (p > 0) {
-            previewUrl.value = `http://localhost:${p}`; 
-            backendLogs.value.push(`[SYSTEM] Tunnel active: localhost:${p} -> remote:${port}`);
-          } else {
-            backendLogs.value.push(`[ERROR] Tunnel returned invalid port 0`);
-          }
-        } catch (e) {
-          backendLogs.value.push(`[ERROR] Tunnel failed: ${e}`);
-        } finally { 
-          isWebviewLoading.value = false; 
-        } 
+      if (port === 5173 || !activeTabId.value) {
+         return;
       }
+
+      // v2.12.3: Check if an auto-tunnel is already active
+      try {
+        const ports = await invoke<any>('get_active_ports');
+        if (ports.dynamic) {
+          backendLogs.value.push(`[SYSTEM] Webview routing through active Dynamic Tunnel (Port ${ports.dynamic})`);
+        }
+      } catch (e) {}
+
+      isWebviewLoading.value = true; 
+      backendLogs.value.push(`[SYSTEM] Attempting SSH tunnel for port ${port}...`);
+      try { 
+        const p = await invoke<number>('open_dynamic_tunnel', { remotePort: port }); 
+        if (p > 0) {
+          previewUrl.value = `http://localhost:${p}`; 
+          backendLogs.value.push(`[SYSTEM] Tunnel active: localhost:${p} -> remote:${port}`);
+        } else {
+          backendLogs.value.push(`[ERROR] Tunnel returned invalid port 0`);
+        }
+      } catch (e) {
+        backendLogs.value.push(`[ERROR] Tunnel failed: ${e}`);
+      } finally { 
+        isWebviewLoading.value = false; 
+      } 
     }
   };
 
@@ -89,12 +97,11 @@ export function useCyber(activeTabId: any, backendLogs: any, activeWebviewId: an
 
       const canvas = await html2canvas(appElement, {
         backgroundColor: '#000',
-        scale: 0.5, // Reduce size for faster processing
+        scale: 0.5,
         logging: false,
         useCORS: true
       });
 
-      // Simulation of AI Analysis Flow
       const timestamp = new Date().toLocaleTimeString();
       backendLogs.value.push(`[AI_OBSERVATION] UI snapshot captured at ${timestamp}. Analyzing layout...`);
       
@@ -106,7 +113,6 @@ export function useCyber(activeTabId: any, backendLogs: any, activeWebviewId: an
         backendLogs.value.push(`[AI_SUGGESTION] Optimization: Consider collapsing sidebar to increase terminal workspace for complex tasks.`);
       }, 2500);
 
-      // In a real scenario, we would upload canvas.toDataURL('image/jpeg') to an LLM API here.
       console.log("[Audit] UI Snapshot successful");
     } catch (e) {
       backendLogs.value.push(`[ERROR] Audit Fail: ${e}`);

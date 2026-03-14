@@ -1,15 +1,30 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 
 const emit = defineEmits(['connected']);
 
 const isMasterPasswordSet = ref(false);
 const masterPasswordStr = ref('');
 const isConnecting = ref(false);
+const connLogs = ref<string[]>([]);
 const savedServers = ref<any[]>([]);
 const showAddServerForm = ref(false);
-const newServer = ref({ label: '', host: '', port: 22, user: 'root', password_enc: '', proxy_id: '' });
+const newServer = ref({ 
+  label: '', host: '', port: 22, user: 'root', password_enc: '', 
+  proxy_id: '', pre_connect_script: '', auto_tunnel: false 
+});
+
+let unlistenConn: any = null;
+onMounted(async () => {
+  unlistenConn = await listen('conn-status', (e: any) => {
+    connLogs.value.push(e.payload);
+    if (connLogs.value.length > 5) connLogs.value.shift();
+  });
+});
+
+onUnmounted(() => { if (unlistenConn) unlistenConn(); });
 
 const loadServers = async () => {
   savedServers.value = await invoke('list_server_configs');
@@ -74,20 +89,31 @@ onMounted(() => {
         </header>
         
         <div v-if="showAddServerForm" class="add-server-overlay">
-          <div class="cyber-form">
-            <input v-model="newServer.label" placeholder="LABEL" class="cyber-input" />
+          <div class="cyber-form scroller-mini">
+            <input v-model="newServer.label" placeholder="LABEL (e.g. PKU Internal)" class="cyber-input" />
             <div class="row">
               <input v-model="newServer.host" placeholder="HOST" class="cyber-input" />
               <input v-model.number="newServer.port" placeholder="PORT" class="cyber-input small" />
             </div>
             <input v-model="newServer.user" placeholder="USER" class="cyber-input" />
             <input v-model="newServer.password_enc" type="password" placeholder="PASSWORD" class="cyber-input" />
+            
+            <div class="advanced-divider">NETWORK_ORCHESTRATION</div>
+            
             <select v-model="newServer.proxy_id" class="cyber-input cyber-select">
               <option value="">NO JUMP HOST (DIRECT)</option>
               <option v-for="s in savedServers" :key="'proxy-'+s.id" :value="s.id">
                 JUMP: {{ s.label || s.host }}
               </option>
             </select>
+
+            <textarea v-model="newServer.pre_connect_script" placeholder="PRE-CONNECT SCRIPT (e.g. pulse-login)" class="cyber-input cyber-area" rows="2"></textarea>
+            
+            <label class="check-row">
+              <input type="checkbox" v-model="newServer.auto_tunnel" />
+              <span>AUTO_DYNAMIC_FORWARD (-D SOCKS5)</span>
+            </label>
+
             <div class="actions">
               <button @click="saveNewServer" class="btn-primary mini">SAVE</button>
               <button @click="showAddServerForm = false" class="btn-primary mini danger">CANCEL</button>
@@ -98,9 +124,20 @@ onMounted(() => {
         <div class="server-list">
           <div v-for="s in savedServers" :key="s.id" class="server-card" @click="connectWithId(s.id)">
             <div class="icon-box">NODE</div>
-            <div class="info"><b>{{ (s.label || 'UNTITLED').toUpperCase() }}</b><br/><small>{{ s.user }}@{{ s.host }}</small></div>
+            <div class="info">
+              <b>{{ (s.label || 'UNTITLED').toUpperCase() }}</b><br/>
+              <small>{{ s.user }}@{{ s.host }}</small>
+              <div v-if="s.proxy_id" class="chain-tag">🔗 PROXY_ACTIVE</div>
+            </div>
           </div>
           <div v-if="savedServers.length === 0" class="empty-nodes">NO AUTHORIZED NODES FOUND</div>
+        </div>
+
+        <div v-if="isConnecting" class="conn-orchestrator">
+          <div class="conn-logs">
+            <div v-for="(log, i) in connLogs" :key="i" class="conn-log-line">>>> {{ log }}</div>
+          </div>
+          <div class="conn-loader"></div>
         </div>
       </div>
     </div>
@@ -132,6 +169,26 @@ onMounted(() => {
 .cyber-form .row { display: flex; gap: 10px; }
 .cyber-form .row .small { width: 100px; }
 .cyber-form .actions { display: flex; gap: 10px; margin-top: 10px; }
+
+.scroller-mini { max-height: 400px; overflow-y: auto; padding-right: 10px; }
+.scroller-mini::-webkit-scrollbar { width: 4px; }
+.scroller-mini::-webkit-scrollbar-thumb { background: #22c55e; }
+
+.advanced-divider { font-size: 9px; color: #166534; margin: 10px 0; border-bottom: 1px solid rgba(22, 101, 52, 0.3); padding-bottom: 4px; letter-spacing: 1px; }
+.cyber-area { resize: none; font-size: 11px; padding: 8px !important; }
+.check-row { display: flex; align-items: center; gap: 10px; color: #22c55e; font-size: 10px; margin-bottom: 15px; cursor: pointer; }
+.check-row input { accent-color: #22c55e; }
+
+.chain-tag { font-size: 8px; color: #3b82f6; margin-top: 4px; }
+
+.conn-orchestrator { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.95); z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 1px solid #22c55e; }
+.conn-logs { width: 80%; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #22c55e; margin-bottom: 30px; }
+.conn-log-line { margin-bottom: 6px; border-left: 2px solid #22c55e; padding-left: 10px; animation: slideIn 0.2s ease-out; }
+@keyframes slideIn { from { transform: translateX(-10px); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+.conn-loader { width: 100px; height: 2px; background: rgba(34, 197, 94, 0.2); position: relative; overflow: hidden; }
+.conn-loader::after { content: ''; position: absolute; left: 0; top: 0; height: 100%; width: 30%; background: #22c55e; box-shadow: 0 0 10px #22c55e; animation: load 1.5s infinite linear; }
+@keyframes load { from { left: -30%; } to { left: 130%; } }
 
 .server-list { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
 .server-card { background: #050505; border: 1px solid #18181b; padding: 15px; display: flex; align-items: center; cursor: pointer; transition: all 0.2s; gap: 15px; }

@@ -12,6 +12,9 @@ pub struct ServerConfig {
     pub password_enc: Option<String>,
     pub key_path: Option<String>,
     pub proxy_id: Option<String>,
+    pub proxy_type: Option<String>,      // "SSH" | "SOCKS5" | "HTTP"
+    pub pre_connect_script: Option<String>, // Command to run before/on jump host
+    pub auto_tunnel: Option<bool>,       // Automatically open dynamic -D tunnel
 }
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
@@ -42,14 +45,20 @@ impl Db {
                 port INTEGER NOT NULL,
                 password_enc TEXT,
                 key_path TEXT,
-                proxy_id TEXT
+                proxy_id TEXT,
+                proxy_type TEXT,
+                pre_connect_script TEXT,
+                auto_tunnel INTEGER
             )"
         )
         .execute(&pool)
         .await?;
 
-        // Migration: v2.12.0: Ensure proxy_id exists (for upgrades)
+        // Migration: v2.12.0+: Ensure new columns exist
         let _ = sqlx::query("ALTER TABLE server_configs ADD COLUMN proxy_id TEXT").execute(&pool).await;
+        let _ = sqlx::query("ALTER TABLE server_configs ADD COLUMN proxy_type TEXT").execute(&pool).await;
+        let _ = sqlx::query("ALTER TABLE server_configs ADD COLUMN pre_connect_script TEXT").execute(&pool).await;
+        let _ = sqlx::query("ALTER TABLE server_configs ADD COLUMN auto_tunnel INTEGER").execute(&pool).await;
 
         // Migration: Terminal Logs
         sqlx::query(
@@ -171,8 +180,8 @@ impl Db {
 
     pub async fn save_server(&self, server: &ServerConfig) -> Result<()> {
         sqlx::query(
-            "INSERT OR REPLACE INTO server_configs (id, label, host, user, port, password_enc, key_path, proxy_id) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT OR REPLACE INTO server_configs (id, label, host, user, port, password_enc, key_path, proxy_id, proxy_type, pre_connect_script, auto_tunnel) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )
         .bind(&server.id)
         .bind(&server.label)
@@ -182,6 +191,9 @@ impl Db {
         .bind(&server.password_enc)
         .bind(&server.key_path)
         .bind(&server.proxy_id)
+        .bind(&server.proxy_type)
+        .bind(&server.pre_connect_script)
+        .bind(&server.auto_tunnel)
         .execute(&self.pool)
         .await?;
         Ok(())

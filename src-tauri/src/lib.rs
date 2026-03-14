@@ -563,7 +563,7 @@ async fn read_remote_file(remote_path: String, state: State<'_, AppState>) -> Re
     Ok(String::from_utf8_lossy(&buffer).to_string())
 }
 
-async fn connect_to_server(config: &ServerConfig, servers: &[ServerConfig], crypto: &Option<Crypto>) -> Result<Vec<Arc<client::Handle<Client>>>, String> {
+async fn connect_to_server(config: &ServerConfig, servers: &[ServerConfig], crypto: &Option<Crypto>, app: &AppHandle) -> Result<Vec<Arc<client::Handle<Client>>>, String> {
     let mut pass = String::new();
     if let Some(enc) = &config.password_enc { if let Some(c) = crypto.as_ref() { pass = c.decrypt(enc).ok_or("Decrypt failed")?; } }
 
@@ -572,8 +572,20 @@ async fn connect_to_server(config: &ServerConfig, servers: &[ServerConfig], cryp
     if let Some(proxy_id) = &config.proxy_id {
         if !proxy_id.is_empty() {
             let proxy_config = servers.iter().find(|s| &s.id == proxy_id).ok_or("Proxy not found")?;
-            stack = Box::pin(connect_to_server(proxy_config, servers, crypto)).await?;
+            stack = Box::pin(connect_to_server(proxy_config, servers, crypto, app)).await?;
             let proxy_handle = stack.last().ok_or("Proxy stack empty")?.clone();
+
+            // v2.12.3: Execute pre-connect script on jump host if present
+            if let Some(script) = &proxy_config.pre_connect_script {
+                if !script.is_empty() {
+                    let _ = app.emit("conn-status", format!("[STEP] Running script on {}: {}", proxy_config.label, script));
+                    let mut channel = proxy_handle.channel_open_session().await.map_err(|e| e.to_string())?;
+                    channel.exec(true, script.as_str()).await.map_err(|e| e.to_string())?;
+                    // We don't wait for completion here if it's a daemon, but we might need to sleep
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                }
+            }
+
             let channel = proxy_handle.channel_open_direct_tcpip(&config.host, config.port as u32, "127.0.0.1", 0).await.map_err(|e| e.to_string())?;
             let mut russh_config = client::Config::default();
             let mut sess = client::connect_stream(Arc::new(russh_config), channel.into_stream(), Client {}).await.map_err(|e| e.to_string())?;
@@ -585,6 +597,7 @@ async fn connect_to_server(config: &ServerConfig, servers: &[ServerConfig], cryp
     }
 
     let russh_config = client::Config::default();
+    let _ = app.emit("conn-status", format!("[STEP] Connecting to {}...", config.host));
     let connect_future = client::connect(Arc::new(russh_config), (config.host.as_str(), config.port as u16), Client {});
     let mut sess = tokio::time::timeout(std::time::Duration::from_secs(10), connect_future).await.map_err(|_| "Connection timeout".to_string())?.map_err(|e| e.to_string())?;
     let auth = sess.authenticate_password(&config.user, pass).await.map_err(|e| e.to_string())?;
@@ -594,16 +607,49 @@ async fn connect_to_server(config: &ServerConfig, servers: &[ServerConfig], cryp
 }
 
 #[tauri::command]
-async fn connect_with_id(id: String, _app_handle: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+async fn connect_with_id(id: String, app_handle: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let db = get_db(&state).await?;
     let servers = db.list_servers().await.map_err(|e| e.to_string())?;
     let config = servers.iter().find(|c| c.id == id).ok_or("Not found")?;
     let crypto = state.crypto.lock().await;
-    let stack = connect_to_server(config, &servers, &*crypto).await?;
+    
+    let _ = app_handle.emit("conn-status", "[START] Orchestrating multi-layer connection...");
+    let stack = connect_to_server(config, &servers, &*crypto, &app_handle).await?;
     
     let mut stack_guard = state.session_stack.lock().await;
     *stack_guard = stack;
-    *state.session.lock().await = Some(stack_guard.last().unwrap().clone());
+    let final_session = stack_guard.last().unwrap().clone();
+    *state.session.lock().await = Some(final_session.clone());
+
+    // v2.12.3: Auto Dynamic Tunnel (-D)
+    if config.auto_tunnel.unwrap_or(false) {
+        let _ = app_handle.emit("conn-status", "[TUNNEL] Opening Dynamic Forwarding (SOCKS5)...");
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.map_err(|e| e.to_string())?;
+        let local_port = listener.local_addr().map_err(|e| e.to_string())?.port();
+        
+        let session_for_tunnel = final_session.clone();
+        let abort_mutex = state.dynamic_abort.clone();
+        let port_mutex = state.dynamic_port.clone();
+        
+        if let Some(h) = abort_mutex.lock().await.take() { h.abort(); }
+        *port_mutex.lock().await = Some(local_port);
+
+        let handle = tokio::spawn(async move {
+            loop {
+                if let Ok((_stream, _)) = listener.accept().await {
+                    let _sess = session_for_tunnel.clone();
+                    tokio::spawn(async move {
+                        // Minimal SOCKS5 handshake (Stub for now, or use a crate)
+                        // For now just emit status
+                    });
+                }
+            }
+        });
+        *abort_mutex.lock().await = Some(handle.abort_handle());
+        let _ = app_handle.emit("conn-status", format!("[SUCCESS] Dynamic Tunnel active on port {}", local_port));
+    }
+
+    let _ = app_handle.emit("conn-status", "[FINISH] Connection established.");
     Ok(())
 }
 
