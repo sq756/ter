@@ -43,13 +43,27 @@ class TerminalManager {
       fontFamily: "'JetBrains Mono', 'Ubuntu Mono', 'Fira Code', monospace",
       theme: { background: '#09090b', foreground: '#d4d4d8' },
       allowTransparency: false,
-      scrollback: 5000,
+      scrollback: 2000, // v2.11.56: Optimized scrollback limit
       wheelScrollSensitivity: 1,
       ...options
     });
 
     const fit = new FitAddon();
     term.loadAddon(fit);
+
+    // v2.11.56: Performance Push - Try WebGL with fallback
+    try {
+      const webgl = new WebglAddon();
+      term.loadAddon(webgl);
+      console.log(`[TerminalManager:${id}] WebglAddon loaded successfully`);
+      
+      webgl.onContextLoss(() => {
+        console.warn(`[TerminalManager:${id}] WebGL context lost, disposing...`);
+        webgl.dispose();
+      });
+    } catch (e) {
+      console.warn(`[TerminalManager:${id}] WebGL load failed, falling back to DOM`, e);
+    }
 
     // Atomic data binding
     term.onData((data) => {

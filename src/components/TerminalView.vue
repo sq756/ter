@@ -124,6 +124,9 @@ watch(() => props.active, async (isActive) => {
   position: relative;
   /* Ensure it has a block layout */
   display: block;
+  /* v2.11.56: Rendering Isolation */
+  contain: content;
+  will-change: transform;
 }
 
 .terminal-view-container .xterm {

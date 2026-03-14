@@ -3,6 +3,30 @@ import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { terminalManager } from '../TerminalManager';
 
+// v2.11.56: Rendering Throttling
+const writeQueues: Map<string, Uint8Array[]> = new Map();
+let rafActive = false;
+
+const processWriteQueues = () => {
+  writeQueues.forEach((queue, id) => {
+    if (queue.length > 0) {
+      const totalLength = queue.reduce((acc, curr) => acc + curr.length, 0);
+      const combined = new Uint8Array(totalLength);
+      let offset = 0;
+      for (const buf of queue) {
+        combined.set(buf, offset);
+        offset += buf.length;
+      }
+      terminalManager.write(id, combined);
+      queue.length = 0;
+    }
+  });
+  
+  if (rafActive) {
+    requestAnimationFrame(processWriteQueues);
+  }
+};
+
 export function usePtyListener(
   activeTabId: Ref<string | null>,
   connectionStatus: Ref<'connected' | 'busy' | 'disconnected'>,
@@ -67,8 +91,14 @@ export function usePtyListener(
         }
       }
 
-      // Write to xterm via manager
-      terminalManager.write(id, bytes);
+      // v2.11.56: Batched writes via RAF
+      if (!writeQueues.has(id)) writeQueues.set(id, []);
+      writeQueues.get(id)!.push(bytes);
+      
+      if (!rafActive) {
+        rafActive = true;
+        requestAnimationFrame(processWriteQueues);
+      }
       
       // Update status pulse
       if (connectionStatus.value === 'connected') { 

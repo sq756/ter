@@ -308,9 +308,19 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
         log::info!("[PTY:{}] Starting PTY read loop", tab_id_cap);
         let mut capture_active = false;
         let mut last_capture_time = std::time::Instant::now();
+        
+        // v2.11.56: 16ms Pulse Aggregation Buffer
+        let mut aggregation_buffer = Vec::new();
+        let mut interval = tokio::time::interval(std::time::Duration::from_millis(16));
 
         loop {
             tokio::select! {
+                _ = interval.tick() => {
+                    if !aggregation_buffer.is_empty() {
+                        let _ = app_handle.emit("pty-data", serde_json::json!({"id": tab_id_cap, "data": aggregation_buffer.clone()}));
+                        aggregation_buffer.clear();
+                    }
+                }
                 Some(ctrl) = ctrl_rx.recv() => { 
                     let PtyControl::Resize(c, r) = ctrl; 
                     let _ = channel.window_change(c, r, 0, 0).await; 
@@ -330,15 +340,15 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
                                 ARCHIVER.archive(&tab_id_cap, &data);
                                 last_capture_time = std::time::Instant::now();
                                 
-                                // v2.11.42: Prompt Detection to close capture loop
                                 if ARCHIVER.is_prompt(&data) {
                                     capture_active = false;
                                 }
                             }
-                            let _ = app_handle.emit("pty-data", serde_json::json!({"id": tab_id_cap, "data": data.to_vec()}));
+                            // Buffer the data instead of immediate emit
+                            aggregation_buffer.extend_from_slice(&data);
                         }
                         Some(russh::ChannelMsg::ExtendedData { data, .. }) => {
-                            let _ = app_handle.emit("pty-data", serde_json::json!({"id": tab_id_cap, "data": data.to_vec()}));
+                            aggregation_buffer.extend_from_slice(&data);
                         }
                         Some(russh::ChannelMsg::Eof) | Some(russh::ChannelMsg::Close) => break,
                         _ => {}
