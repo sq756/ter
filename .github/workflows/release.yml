@@ -131,7 +131,7 @@ jobs:
       - name: Build Android APK
         env:
           NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
-        run: npm run tauri android build -- --release
+        run: npm run tauri android build
 
       - name: Sign APK
         uses: r0adkll/sign-android-release@v1
