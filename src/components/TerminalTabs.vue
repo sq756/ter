@@ -236,6 +236,8 @@ const closeApp = () => appWindow.close();
   margin-left: auto;
   display: flex;
   height: 100%;
+  position: relative;
+  z-index: 9999;
 }
 
 .win-btn {
@@ -246,7 +248,7 @@ const closeApp = () => appWindow.close();
   justify-content: center;
   background: transparent;
   border: none;
-  color: #52525b;
+  color: #00ff9d;
   cursor: pointer;
   font-size: 12px;
   transition: all 0.2s;
@@ -254,9 +256,9 @@ const closeApp = () => appWindow.close();
 }
 
 .win-btn:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: #22c55e;
-  text-shadow: 0 0 8px #22c55e;
+  background: rgba(0, 255, 157, 0.1);
+  color: #fff;
+  text-shadow: 0 0 10px #00ff9d;
 }
 
 .win-btn.close:hover {

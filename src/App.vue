@@ -235,6 +235,7 @@ onMounted(() => {
   window.addEventListener('keyup', (e) => { if (!e.ctrlKey) isCtrlPressed.value = false; });
   window.addEventListener('mousemove', handleGlobalMouseMove);
   window.addEventListener('mouseup', stopResizingSFTP);
+  window.addEventListener('close-all-menus', closeAllMenus);
   listen<string>('backend-log', (e) => { 
     if (!isLogsPaused.value) {
       backendLogs.value.push(e.payload); 
@@ -270,7 +271,7 @@ watch(() => showPrivilegeMenu.value, (val) => { if (val) activeMenu.value = 'pri
 </script>
 
 <template>
-  <div class="app-shell" @click="closeAllMenus">
+  <div class="app-shell" @mousedown.capture="closeAllMenus">
     <CyberGate v-if="!isConnected" @connected="onConnected" />
     
     <div v-else class="main-view">

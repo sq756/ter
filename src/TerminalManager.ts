@@ -88,6 +88,14 @@ class TerminalManager {
     element.innerHTML = '';
     try {
       instance.term.open(element);
+      
+      // v2.11.27: Break the xterm event black hole to close menus
+      if (instance.term.element) {
+        instance.term.element.onmousedown = () => {
+          window.dispatchEvent(new CustomEvent('close-all-menus'));
+        };
+      }
+
       // Wait for next frame to ensure DOM is ready for measurement
       requestAnimationFrame(() => {
         if (element.offsetWidth > 0) {
