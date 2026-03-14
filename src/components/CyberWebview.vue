@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { open } from '@tauri-apps/plugin-shell';
-import { Webview } from '@tauri-apps/api/webview';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { AGENT_SCRIPT } from '../constants';
@@ -16,7 +14,6 @@ const props = defineProps<{
 const emit = defineEmits(['dom-extracted', 'web-context-menu']);
 
 const containerRef = ref<HTMLElement | null>(null);
-let webview: Webview | null = null;
 const isWebviewReady = ref(false);
 const isWebviewError = ref(false);
 let unlistenExtracted: any = null;
@@ -31,70 +28,56 @@ const WEB_CONTEXT_SCRIPT = `
 `;
 
 const updateWebviewBounds = async () => {
-  if (!webview || !containerRef.value) return;
+  if (!containerRef.value || !isWebviewReady.value) return;
   await nextTick();
   const rect = containerRef.value.getBoundingClientRect();
-  const dpr = window.devicePixelRatio;
 
   if (props.isActive) {
-    await webview.setSize({
-      type: 'Physical',
-      width: Math.floor(rect.width * dpr),
-      height: Math.floor(rect.height * dpr),
-    });
-    await webview.setPosition({
-      type: 'Physical',
-      x: Math.floor(rect.left * dpr),
-      y: Math.floor(rect.top * dpr),
-    });
+    await invoke('update_webview_bounds', { 
+      label: props.id,
+      x: rect.x,
+      y: rect.y,
+      width: rect.width,
+      height: rect.height
+    }).catch(() => {});
   } else {
-    // Move off-screen when inactive
-    await webview.setPosition({
-      type: 'Physical',
+    await invoke('update_webview_bounds', { 
+      label: props.id,
       x: -10000,
       y: -10000,
-    });
+      width: 100,
+      height: 100
+    }).catch(() => {});
   }
 };
 
 const initWebview = async () => {
-  if (!containerRef.value || webview || props.isSafeMode) return;
+  if (!containerRef.value || props.isSafeMode) return;
   
   isWebviewError.value = false;
   isWebviewReady.value = false;
 
-  const currentWin = getCurrentWindow();
   const rect = containerRef.value.getBoundingClientRect();
-  const dpr = window.devicePixelRatio;
 
   try {
-    webview = new Webview(currentWin, props.id, {
+    // v2.12.8: Use backend builder for unified security/graphics settings
+    await invoke('create_embedded_webview', {
+      label: props.id,
       url: props.url,
-      x: props.isActive ? Math.floor(rect.left * dpr) : -10000,
-      y: props.isActive ? Math.floor(rect.top * dpr) : -10000,
-      width: Math.floor(rect.width * dpr),
-      height: Math.floor(rect.height * dpr),
+      x: props.isActive ? rect.x : -10000,
+      y: props.isActive ? rect.y : -10000,
+      width: rect.width,
+      height: rect.height
     });
 
-    unlistenExtracted = await listen<string>('dom-extracted', (ev) => { emit('dom-extracted', ev.payload); });
+    unlistenExtracted = await listen<string>(`dom-extracted-${props.id}`, (ev) => { emit('dom-extracted', ev.payload); });
 
-    webview.once('tauri://created', async () => {
-      if (initTimeout) clearTimeout(initTimeout);
-      isWebviewReady.value = true;
-      await invoke('eval_cyber_webview', { label: props.id, code: AGENT_SCRIPT });
-      await invoke('eval_cyber_webview', { label: props.id, code: WEB_CONTEXT_SCRIPT });
-    });
+    // Mark as ready immediately after backend call success
+    isWebviewReady.value = true;
+    await invoke('eval_cyber_webview', { label: props.id, code: AGENT_SCRIPT });
+    await invoke('eval_cyber_webview', { label: props.id, code: WEB_CONTEXT_SCRIPT });
 
-    // v2.11.13: 5s Initialization Timeout Protection
-    initTimeout = setTimeout(() => {
-      if (!isWebviewReady.value) {
-        console.error("[CyberWebview] Initialization Timeout - Potential Renderer Crash");
-        isWebviewError.value = true;
-        destroyWebview();
-      }
-    }, 5000);
-
-    // Setup ResizeObserver for coordinate sync
+    if (resizeObserver) resizeObserver.disconnect();
     resizeObserver = new ResizeObserver(() => {
       updateWebviewBounds();
     });
@@ -115,13 +98,8 @@ const destroyWebview = async () => {
     resizeObserver.disconnect();
     resizeObserver = null;
   }
-  if (webview) {
-    try {
-      await webview.close();
-    } catch(e) {}
-    webview = null;
-    isWebviewReady.value = false;
-  }
+  await invoke('close_auth_window').catch(() => {}); // Re-using logic or we could have a specific close
+  isWebviewReady.value = false;
 };
 
 const handleRetry = async () => {
@@ -145,10 +123,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  // v2.11.43: Background persistence. Only destroy if explicitly closed.
-  // Actually, Vue might unmount when switching tabs. 
-  // For now, let's keep it tied to lifecycle but App.vue will keep it alive using v-show.
-  // destroyWebview(); 
+  // Persistence logic handled by App.vue
 });
 
 const openInBrowser = async () => { try { await open(props.url); } catch(e){} };

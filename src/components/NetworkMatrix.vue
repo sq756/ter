@@ -22,6 +22,7 @@ const nodes = ref<any[]>([]);
 const edges = ref<any[]>([]);
 const authUrl = ref('https://vpn.pku.edu.cn');
 const terminalRef = ref<HTMLElement | null>(null);
+const authPaneRef = ref<HTMLElement | null>(null);
 const allServers = ref<any[]>([]);
 const showServerPicker = ref(false);
 const isMihomoRunning = ref(false);
@@ -97,6 +98,36 @@ const buildTopology = async () => {
   } catch (e) { console.error("Topology fail", e); }
 };
 
+const openExternalAuth = async () => {
+  if (!authUrl.value.startsWith('http')) authUrl.value = 'https://' + authUrl.value;
+  
+  if (authPaneRef.value) {
+    const rect = authPaneRef.value.getBoundingClientRect();
+    await invoke('open_auth_window', { 
+      url: authUrl.value,
+      x: rect.x,
+      y: rect.y + 30, // Offset for pane header
+      width: rect.width,
+      height: rect.height - 30
+    });
+  }
+};
+
+const syncWebviewBounds = async () => {
+  if (authPaneRef.value) {
+    const rect = authPaneRef.value.getBoundingClientRect();
+    await invoke('update_webview_bounds', { 
+      label: 'auth-gateway',
+      x: rect.x,
+      y: rect.y + 30,
+      width: rect.width,
+      height: rect.height - 30
+    }).catch(() => {});
+  }
+};
+
+let resizeInterval: any = null;
+
 const toggleMihomo = async () => {
   if (isMihomoRunning.value) { isMihomoRunning.value = false; }
   else {
@@ -118,7 +149,6 @@ const createReverseTunnel = async () => {
     await invoke('open_reverse_tunnel', { remotePort: tunnelConfig.value.remote, localPort: tunnelConfig.value.local });
     alert(`Reverse Tunnel Initialized: Node -> Local:${tunnelConfig.value.local}`);
     showTunnelForm.value = false;
-    // Add visual edge
     edges.value.push({
       id: 'e-reverse', source: nodes.value[nodes.value.length - 2].id, target: 'local',
       animated: true, label: 'REVERSE', style: { stroke: '#ef4444', strokeDasharray: '5,5' }
@@ -137,14 +167,13 @@ const chainNewNode = async (serverId: string) => {
   }
 };
 
-const openExternalAuth = async () => {
-  if (!authUrl.value.startsWith('http')) authUrl.value = 'https://' + authUrl.value;
-  await invoke('open_auth_window', { url: authUrl.value });
-};
-
 onMounted(async () => {
   loadAllServers();
   buildTopology();
+  
+  window.addEventListener('resize', syncWebviewBounds);
+  resizeInterval = setInterval(syncWebviewBounds, 500);
+
   if (props.activeTabId) {
     let retries = 0;
     const mountLoop = () => {
@@ -157,7 +186,12 @@ onMounted(async () => {
   }
 });
 
-onUnmounted(() => { });
+onUnmounted(async () => {
+  window.removeEventListener('resize', syncWebviewBounds);
+  if (resizeInterval) clearInterval(resizeInterval);
+  await invoke('close_auth_window').catch(() => {});
+});
+
 onConnect((params) => addEdges([params]));
 </script>
 
@@ -189,7 +223,6 @@ onConnect((params) => addEdges([params]));
             <Background pattern-color="#22c55e" :gap="20" :size="0.5" />
           </VueFlow>
           
-          <!-- Popups -->
           <div v-if="showServerPicker" class="picker-overlay">
             <div class="picker-card cyber-card">
               <header>SELECT_NEXT_HOP</header>
@@ -218,14 +251,14 @@ onConnect((params) => addEdges([params]));
         </div>
       </section>
 
-      <section class="pane auth-pane">
+      <section class="pane auth-pane" ref="authPaneRef">
         <header class="pane-header">AUTHENTICATION_GATEWAY</header>
         <div class="auth-box">
           <div class="auth-placeholder">
-            <div class="glitch-text">AUTH_BYPASS_REQUIRED</div>
-            <p>VPN portals must open in a secure sub-window to bypass X-Frame-Options.</p>
+            <div class="glitch-text">NATIVE_ENGINE_READY</div>
+            <p>TLS verification disabled. Direct embedded access enabled.</p>
             <input v-model="authUrl" class="auth-input" @keyup.enter="openExternalAuth" />
-            <button class="btn-launch" @click="openExternalAuth">LAUNCH_SECURE_AUTH_WINDOW</button>
+            <button class="btn-launch" @click="openExternalAuth">MOUNT_SECURE_AUTH_WINDOW</button>
             <div class="quick-links-grid">
               <button @click="authUrl = 'https://vpn.pku.edu.cn'; openExternalAuth()">PKU_VPN</button>
               <button @click="authUrl = 'https://vpn.pkusz.edu.cn'; openExternalAuth()">SZ_VPN</button>

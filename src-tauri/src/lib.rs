@@ -169,21 +169,44 @@ async fn spawn_mihomo(config_path: String, bin_path: String, tab_id: Option<Stri
 }
 
 #[tauri::command]
-async fn open_auth_window(url: String, app: AppHandle) -> Result<(), String> {
-    let label = "auth-gateway";
-    let target_url = url.parse().map_err(|e| format!("Invalid URL: {}", e))?;
-    
-    if let Some(win) = app.get_webview_window(label) {
-        let _ = win.eval(&format!("window.location.href = '{}'", url));
-        let _ = win.show();
-        let _ = win.set_focus();
+async fn create_embedded_webview(label: String, url: String, x: f64, y: f64, width: f64, height: f64, app: AppHandle) -> Result<(), String> {
+    let target_url = url.parse::<Url>().map_err(|e| format!("Invalid URL: {}", e))?;
+
+    if let Some(wv) = app.get_webview_window(&label) {
+        let _ = wv.navigate(target_url).map_err(|e: tauri::Error| e.to_string())?;
+        let _ = wv.set_position(tauri::LogicalPosition::new(x, y)).map_err(|e: tauri::Error| e.to_string())?;
+        let _ = wv.set_size(tauri::LogicalSize::new(width, height)).map_err(|e: tauri::Error| e.to_string())?;
+        let _ = wv.show().map_err(|e: tauri::Error| e.to_string())?;
     } else {
-        let _win = tauri::WebviewWindowBuilder::new(&app, label, tauri::WebviewUrl::External(target_url))
-            .title("VPN_AUTHENTICATION_GATEWAY")
-            .inner_size(800.0, 600.0)
-            .decorations(true)
+        let _win = tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::External(target_url))
+            .position(x, y)
+            .inner_size(width, height)
+            .decorations(false) // Make it look embedded
+            .always_on_top(true)
             .build()
-            .map_err(|e| e.to_string())?;
+            .map_err(|e: tauri::Error| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn open_auth_window(url: String, x: f64, y: f64, width: f64, height: f64, app: AppHandle) -> Result<(), String> {
+    create_embedded_webview("auth-gateway".to_string(), url, x, y, width, height, app).await
+}
+
+#[tauri::command]
+async fn close_auth_window(app: AppHandle) -> Result<(), String> {
+    if let Some(wv) = app.get_webview_window("auth-gateway") {
+        let _ = wv.close();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn update_webview_bounds(label: String, x: f64, y: f64, width: f64, height: f64, app: AppHandle) -> Result<(), String> {
+    if let Some(wv) = app.get_webview_window(&label) {
+        let _ = wv.set_position(tauri::LogicalPosition::new(x, y)).map_err(|e: tauri::Error| e.to_string())?;
+        let _ = wv.set_size(tauri::LogicalSize::new(width, height)).map_err(|e: tauri::Error| e.to_string())?;
     }
     Ok(())
 }
@@ -771,7 +794,7 @@ pub fn run() {
             download_file, upload_file,
             delete_remote_file, read_remote_file, write_remote_file, dump_to_terminal,
             get_latest_ai_response, list_vault, read_local_file, get_connection_chain,
-            spawn_mihomo, open_auth_window, open_reverse_tunnel,
+            spawn_mihomo, open_auth_window, close_auth_window, update_webview_bounds, create_embedded_webview, open_reverse_tunnel,
             copy_latest_to_clipboard,
             list_remote_tmux_sessions,
             list_bookmarks, save_bookmark, delete_bookmark,

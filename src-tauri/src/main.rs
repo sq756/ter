@@ -12,6 +12,10 @@ fn main() {
     std::env::set_var("WEBKIT_DISABLE_GPU_PROCESS", "1");
     // 伪造音频环境，防止因找不到声卡而崩溃
     std::env::set_var("WEBKIT_MUTE_AUDIO", "1");
+    // v2.12.8: Extra stability for Mesa/Gallium and TLS bypass
+    std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
+    std::env::set_var("GALLIUM_DRIVER", "llvmpipe");
+    std::env::set_var("WEBKIT_TLS_ERRORS_POLICY", "ignore");
     
     ter_lib::run();
 }
