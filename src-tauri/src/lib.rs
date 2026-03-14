@@ -14,6 +14,7 @@ use tokio::sync::mpsc;
 use tauri::Emitter;
 use uuid::Uuid;
 use std::sync::OnceLock;
+use tauri_plugin_clipboard_manager::ClipboardExt;
 
 static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 
@@ -165,6 +166,12 @@ async fn eval_cyber_webview(code: String, app_handle: AppHandle) -> Result<(), S
         let _ = wv.eval(&code).map_err(|e: tauri::Error| e.to_string())?;
     }
     Ok(())
+}
+
+#[tauri::command]
+async fn copy_latest_to_clipboard(tab_id: String, app: AppHandle) -> Result<(), String> {
+    let text = ARCHIVER.get_latest(&tab_id)?;
+    app.clipboard().write_text(text).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -399,6 +406,9 @@ struct RemoteFile { name: String, is_dir: bool, size: u64 }
 pub fn run() {
     let _ = log::set_logger(&LOGGER); log::set_max_level(log::LevelFilter::Debug);
     tauri::Builder::default()
+        .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(AppState {
             pty_channels: DashMap::new(), ctrl_channels: DashMap::new(), session: TokioMutex::new(None),
             agent_token: TokioMutex::new(Uuid::new_v4().to_string()), db: tokio::sync::OnceCell::new(),
@@ -427,6 +437,7 @@ pub fn run() {
             navigate_cyber_webview, reload_cyber_webview, extract_cyber_dom, eval_cyber_webview,
             save_server_config, set_model_path, get_model_path, download_file, upload_file,
             delete_remote_file, read_remote_file, get_latest_ai_response, list_vault,
+            copy_latest_to_clipboard,
             list_remote_tmux_sessions
         ])
         .run(tauri::generate_context!())

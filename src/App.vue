@@ -118,12 +118,17 @@ const handlePreviewAction = async () => {
   }
 };
 
+const isClipFlashing = ref(false);
 const copyLatestAI = async () => {
   if (!activeTabId.value) return;
   try {
-    const text = await invoke<string>('get_latest_ai_response', { tabId: activeTabId.value });
-    await navigator.clipboard.writeText(text);
-    backendLogs.value.push(`[INFO] Latest AI response copied to clipboard.`);
+    // v2.11.38: Call Native Backend API to bypass browser hand-shake restrictions
+    await invoke('copy_latest_to_clipboard', { tabId: activeTabId.value });
+    backendLogs.value.push(`[INFO] Latest AI response copied via Native API.`);
+    
+    // Flash effect
+    isClipFlashing.value = true;
+    setTimeout(() => isClipFlashing.value = false, 500);
   } catch (e) {
     backendLogs.value.push(`[ERROR] CLIP failed: ${e}`);
   }
@@ -513,7 +518,7 @@ watch(() => showPrivilegeMenu.value, (val) => { if (val) activeMenu.value = 'pri
           </div>
 
           <div class="status-right">
-            <button class="status-btn" @click="copyLatestAI">📋 CLIP</button>
+            <button class="status-btn" :class="{ 'clip-flash': isClipFlashing }" @click="copyLatestAI">📋 CLIP</button>
             <span class="status-sep">|</span>
             <button class="status-btn" @click="captureAndUpload(false)">AUDIT_UI</button>
             <span class="status-sep">|</span>
@@ -625,6 +630,12 @@ watch(() => showPrivilegeMenu.value, (val) => { if (val) activeMenu.value = 'pri
   align-items: center;
 }
 .engine-indicator.native { color: #a855f7; border-color: rgba(168, 85, 247, 0.4); }
+
+.clip-flash {
+  color: #00ff9d !important;
+  text-shadow: 0 0 15px #00ff9d !important;
+  transform: scale(1.1);
+}
 
 .status-bar { 
   height: 32px; 
