@@ -357,8 +357,14 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
 
 .explorer-wrapper { padding: 0 !important; border-bottom: 1px solid #27272a; position: relative; overflow: hidden; display: flex; flex-direction: column; }
 .data-list { list-style: none; padding: 0; margin: 0; }
-.data-list li, .file-item { display: flex; align-items: center; gap: calc(10px * var(--ter-ui-scale)); padding: calc(6px * var(--ter-ui-scale)) calc(8px * var(--ter-ui-scale)); margin-bottom: 2px; border-radius: 6px; cursor: pointer; color: #d4d4d8; font-size: calc(13px * var(--ter-ui-scale)); transition: all 0.1s; }
-.data-list li:hover { background: rgba(34, 197, 94, 0.08); color: #22c55e; }
+.data-list li, .file-item { display: flex; align-items: center; gap: calc(10px * var(--ter-ui-scale)); padding: calc(8px * var(--ter-ui-scale)) calc(10px * var(--ter-ui-scale)); margin-bottom: 4px; border-radius: 4px; cursor: pointer; color: #d4d4d8; font-size: calc(13px * var(--ter-ui-scale)); transition: all 0.15s ease; border: 1px solid transparent; }
+.data-list li:hover { background: rgba(34, 197, 94, 0.05); color: #22c55e; border-color: rgba(34, 197, 94, 0.1); }
+
+.data-list li .val { font-size: 9px; padding: 2px 6px; border: 1px solid rgba(113, 113, 122, 0.3); border-radius: 3px; color: #71717a; transition: all 0.2s; margin-left: auto; letter-spacing: 1px; font-weight: bold; min-width: 40px; text-align: center; }
+.data-list li:hover .val { border-color: #22c55e; color: #22c55e; background: rgba(34, 197, 94, 0.1); box-shadow: 0 0 8px rgba(34, 197, 94, 0.2); }
+.data-list li .val.active { color: #22c55e; border-color: rgba(34, 197, 94, 0.4); }
+.data-list li .val.highlight { color: #a855f7; border-color: rgba(168, 85, 247, 0.4); }
+.data-list li:hover .val.highlight { color: #a855f7; border-color: #a855f7; background: rgba(168, 85, 247, 0.1); box-shadow: 0 0 8px rgba(168, 85, 247, 0.2); }
 
 /* v2.11.33: SFTP folder/icon spacing */
 .file-spacing { gap: calc(18px * var(--ter-ui-scale)) !important; }

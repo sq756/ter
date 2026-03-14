@@ -141,13 +141,14 @@ const onItemClick = (f: any) => {
 .file-item {
   display: flex;
   align-items: center;
-  padding: 6px 10px;
+  padding: 10px 14px;
   border-radius: 4px;
   cursor: pointer;
-  transition: background 0.1s;
+  transition: all 0.1s ease;
   font-size: 13px;
   color: #d4d4d8;
-  margin-bottom: 1px;
+  margin-bottom: 2px;
+  border: 1px solid transparent;
 }
 
 .file-item.disabled {
@@ -157,14 +158,23 @@ const onItemClick = (f: any) => {
 }
 
 .file-item:hover {
-  background: rgba(34, 197, 94, 0.08);
+  background: rgba(34, 197, 94, 0.05);
   color: #22c55e;
+  border-color: rgba(34, 197, 94, 0.1);
 }
 
 .file-item .icon {
-  margin-right: 8px; /* Fixed 8px spacing */
+  margin-right: 12px; /* Increased to 12px spacing */
   font-size: 14px;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s;
+}
+
+.file-item:hover .icon {
+  transform: scale(1.1);
 }
 
 .file-item .name {
