@@ -128,6 +128,61 @@ struct AppState {
     vnc_abort: Arc<TokioMutex<Option<tokio::task::AbortHandle>>>,
     #[allow(dead_code)]
     dynamic_abort: Arc<TokioMutex<Option<tokio::task::AbortHandle>>>,
+    mihomo_child: Arc<TokioMutex<Option<tokio::process::Child>>>,
+}
+
+use tokio::process::{Command as TokioCommand};
+use std::process::Stdio;
+use tokio::io::{BufReader, AsyncBufReadExt};
+
+#[tauri::command]
+async fn spawn_mihomo(config_path: String, bin_path: String, tab_id: Option<String>, state: State<'_, AppState>, app: AppHandle) -> Result<(), String> {
+    let mut guard = state.mihomo_child.lock().await;
+    if let Some(mut child) = guard.take() {
+        let _ = child.kill().await;
+    }
+
+    let mut cmd = TokioCommand::new(bin_path);
+    cmd.arg("-f").arg(config_path);
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+    let stdout = child.stdout.take().unwrap();
+
+    let app_clone = app.clone();
+    let tab_id_clone = tab_id.clone();
+    
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(stdout).lines();
+        while let Ok(Some(line)) = reader.next_line().await {
+            let log_msg = format!("\x1b[36m[MIHOMO]\x1b[0m {}\r\n", line);
+            if let Some(tid) = &tab_id_clone {
+                let _ = app_clone.emit(&format!("pty-data-{}", tid), log_msg.clone());
+            }
+            let _ = app_clone.emit("backend-log", format!("[PROXY] {}", line));
+        }
+    });
+
+    *guard = Some(child);
+    Ok(())
+}
+
+#[tauri::command]
+async fn open_auth_window(url: String, app: AppHandle) -> Result<(), String> {
+    let label = "auth-gateway";
+    if let Some(win) = app.get_webview_window(label) {
+        let _ = win.eval(&format!("window.location.href = '{}'", url));
+        let _ = win.set_focus();
+    } else {
+        let _win = tauri::WebviewWindowBuilder::new(&app, label, tauri::WebviewUrl::External(url.parse().unwrap()))
+            .title("VPN_AUTHENTICATION_GATEWAY")
+            .inner_size(800.0, 600.0)
+            .decorations(true)
+            .build()
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -681,6 +736,7 @@ pub fn run() {
             agent_port: Arc::new(TokioMutex::new(None)), vnc_port: Arc::new(TokioMutex::new(None)),
             dynamic_port: Arc::new(TokioMutex::new(None)), agent_abort: Arc::new(TokioMutex::new(None)),
             vnc_abort: Arc::new(TokioMutex::new(None)), dynamic_abort: Arc::new(TokioMutex::new(None)),
+            mihomo_child: Arc::new(TokioMutex::new(None)),
         })
         .setup(|app| {
             let ah = app.handle().clone(); let _ = APP_HANDLE.set(ah.clone());
@@ -705,6 +761,7 @@ pub fn run() {
             download_file, upload_file,
             delete_remote_file, read_remote_file, write_remote_file, dump_to_terminal,
             get_latest_ai_response, list_vault, read_local_file, get_connection_chain,
+            spawn_mihomo, open_auth_window,
             copy_latest_to_clipboard,
             list_remote_tmux_sessions,
             list_bookmarks, save_bookmark, delete_bookmark,

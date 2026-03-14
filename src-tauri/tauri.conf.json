@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "ter",
-  "version": "2.12.6",
+  "version": "2.12.7",
   "identifier": "com.sq756.ter",
   "build": {
     "frontendDist": "../dist",
@@ -19,6 +19,13 @@
         "fullscreen": false,
         "decorations": false,
         "transparent": true
+      },
+      {
+        "label": "auth-gateway",
+        "title": "VPN_AUTHENTICATION_GATEWAY",
+        "width": 800,
+        "height": 600,
+        "visible": false
       }
     ],
     "security": {

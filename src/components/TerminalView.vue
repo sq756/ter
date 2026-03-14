@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { listen } from '@tauri-apps/api/event';
 import { terminalManager } from '../TerminalManager';
 
 const props = defineProps<{
@@ -70,14 +71,20 @@ const initTerminal = async (retries = 5) => {
   }
 };
 
-onMounted(() => {
+let unlistenDirect: any = null;
+
+onMounted(async () => {
   initTerminal();
+  unlistenDirect = await listen(`pty-data-${props.id}`, (event: any) => {
+    terminalManager.write(props.id, event.payload);
+  });
 });
 
 onUnmounted(() => {
   if (resizeObserver) {
     resizeObserver.disconnect();
   }
+  if (unlistenDirect) unlistenDirect();
 });
 
 // v2.11.53: Real-time Terminal Scaling
