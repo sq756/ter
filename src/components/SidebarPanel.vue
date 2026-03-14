@@ -6,6 +6,8 @@ const props = defineProps<{
   files: any[];
   currentPath: string;
   bgTabs: any[];
+  webviewInstances?: any[];
+  activeWebviewId?: string | null;
   skills: any[];
   lastActivityMap: Record<string, number>;
   cpuChartRef: any;
@@ -15,13 +17,14 @@ const props = defineProps<{
   currentNetSpeed: { up: string, down: string };
   extraStats: any;
   isAutoPilot: boolean;
+  isSafeMode: boolean;
   sftpHeight: number;
   slots: string[];
   isLogsOverlay: boolean;
   logs: string[];
 }>();
 
-const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill', 'change-dir', 'view-history', 'open-trigger-settings', 'fast-access', 'morse-down', 'morse-up', 'morse-context', 'explorer-context', 'cycle-health-mode', 'skill-context', 'header-context', 'resize-sftp-start', 'resize-charts', 'view-changed']);
+const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill', 'change-dir', 'view-history', 'open-trigger-settings', 'fast-access', 'morse-down', 'morse-up', 'morse-context', 'explorer-context', 'cycle-health-mode', 'skill-context', 'header-context', 'resize-sftp-start', 'resize-charts', 'view-changed', 'switch-web', 'web-context']);
 
 const activeView = ref<string>('OPS');
 const activeLogsSubView = ref<'realtime' | 'vault'>('realtime');
@@ -86,6 +89,19 @@ const onItemClick = (f: any) => { if (f.is_dir) emit('change-dir', f.name); };
 const onFastAccessClick = (path: string) => { emit('fast-access', path); };
 const isTabActive = (id: string) => (Date.now() - (props.lastActivityMap[id] || 0)) < 1000;
 
+// v2.11.44: Throttled Log Rendering
+const throttledLogs = ref<string[]>([]);
+let throttleId: any = null;
+
+watch(() => props.logs, (newLogs) => {
+  if (!throttleId) {
+    throttleId = setTimeout(() => {
+      throttledLogs.value = newLogs;
+      throttleId = null;
+    }, 100);
+  }
+}, { immediate: true });
+
 // v2.11.33: Data protection for NaN values
 const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'number' && isNaN(v))) ? '[ SCANNING... ]' : v;
 </script>
@@ -145,10 +161,17 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
       <div class="module scroller processes">
         <header>Running Processes</header>
         <ul class="data-list">
+          <!-- Terminal Tabs -->
           <li v-for="t in bgTabs" :key="t.id" @click="$emit('switch-tab', t.id)" @contextmenu.prevent.stop="$emit('proc-context', {event: $event, tab: t})">
             <span class="icon"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17h16M4 7h16M4 12h16"></path></svg></span>
             <span class="name">{{ t.title }}</span>
             <span class="val active" :class="{ 'breathing': isTabActive(t.id) }">ACTIVE</span>
+          </li>
+          <!-- Webview Instances (v2.11.43) -->
+          <li v-for="w in webviewInstances" :key="w.id" @click="$emit('switch-web', w.id)" @contextmenu.prevent.stop="$emit('web-context', {event: $event, web: w})">
+            <span class="icon">🌍</span>
+            <span class="name">{{ w.title || 'Web Task' }}</span>
+            <span class="val active" :class="{ 'highlight': activeWebviewId === w.id }">WEB</span>
           </li>
         </ul>
       </div>
@@ -200,7 +223,7 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
       <div v-if="activeLogsSubView === 'realtime'" class="module scroller full-height">
         <header>Cyber Intelligence Logs</header>
         <div class="log-stream">
-          <div v-for="(log, i) in logs" :key="i" class="log-line">{{ log }}</div>
+          <div v-for="(log, i) in throttledLogs" :key="i" class="log-line">{{ log }}</div>
         </div>
       </div>
       <div v-else class="full-height">

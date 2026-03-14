@@ -8,6 +8,7 @@ use lazy_static::lazy_static;
 pub struct GhostArchiver {
     archives_dir: PathBuf,
     ansi_regex: Regex,
+    ui_regex: Regex,
     // v2.11.37: Semantic anchors for Agent's thought chain
     initiation_regex: Regex,
     action_keyword_regex: Regex,
@@ -22,7 +23,16 @@ impl GhostArchiver {
         }
         Self {
             archives_dir,
-            ansi_regex: Regex::new(r"\x1B\[([0-9;]*[a-zA-Z])").unwrap(),
+            // Comprehensive ANSI escape sequence regex
+            ansi_regex: Regex::new(r"(?x)
+                \x1B \[ [0-9;]* [a-zA-Z]
+                | \x1B \] [^\x07\x1B]* (\x07|\x1B\\)
+                | \x1B [PX] [^\x1B]* \x1B\\
+                | \x1B [\x40-\x5F]
+                | \x1B [()][A-Z0-9]
+            ").unwrap(),
+            // v2.11.42: Cleanse Protocol - Filter UI blocks and noise
+            ui_regex: Regex::new(r"(?m)^.*([▀▄█▌▐░▒▓]{3,}|auto edit|Type your message|Connected to).*$\n?").unwrap(),
             initiation_regex: Regex::new(r"(?i)(I will|Then, I'll|Finally, I'll)").unwrap(),
             action_keyword_regex: Regex::new(r"(?i)(I will|Then, I'll|Finally, I'll)\s+(\w+)").unwrap(),
         }
@@ -30,7 +40,48 @@ impl GhostArchiver {
 
     pub fn strip_ansi(&self, data: &[u8]) -> String {
         let s = String::from_utf8_lossy(data);
-        self.ansi_regex.replace_all(&s, "").to_string()
+        let clean = self.ansi_regex.replace_all(&s, "");
+        // Strip non-printable chars but keep basic formatting
+        clean.chars().filter(|c| c.is_alphanumeric() || c.is_whitespace() || c.is_ascii_punctuation()).collect()
+    }
+
+    pub fn clear_latest(&self, tab_id: &str) {
+        let latest_path = self.archives_dir.join(format!("{}_latest.md", tab_id));
+        let _ = fs::remove_file(latest_path);
+    }
+
+    pub fn archive(&self, tab_id: &str, data: &[u8]) {
+        let mut clean_text = self.strip_ansi(data);
+        
+        // v2.11.42: Apply UI Line Filtering
+        clean_text = self.ui_regex.replace_all(&clean_text, "").to_string();
+        
+        if clean_text.trim().is_empty() { return; }
+
+        let tab_id = tab_id.to_string();
+        let archives_dir = self.archives_dir.clone();
+        let timestamp_file = Local::now().format("%Y%m%d_%H%M%S").to_string();
+        let summary = self.extract_summary(&clean_text);
+
+        // v2.11.44: Move synchronous I/O to a background thread to prevent async executor deadlock
+        tokio::task::spawn_blocking(move || {
+            let file_name = format!("{}_{}_{}.md", timestamp_file, tab_id, summary);
+            let file_path = archives_dir.join(&file_name);
+            let latest_path = archives_dir.join(format!("{}_latest.md", tab_id));
+
+            if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(&file_path) {
+                let _ = file.write_all(clean_text.as_bytes());
+            }
+            
+            if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(&latest_path) {
+                let _ = file.write_all(clean_text.as_bytes());
+            }
+        });
+    }
+
+    pub fn is_prompt(&self, data: &[u8]) -> bool {
+        let s = String::from_utf8_lossy(data);
+        s.contains("$ ") || s.contains("# ") || s.contains("> ")
     }
 
     pub fn extract_summary(&self, text: &str) -> String {
@@ -40,26 +91,6 @@ impl GhostArchiver {
             }
         }
         "AI_INTERACTION".to_string()
-    }
-
-    pub fn archive(&self, tab_id: &str, data: &[u8]) {
-        let clean_text = self.strip_ansi(data);
-        if clean_text.trim().is_empty() { return; }
-
-        let timestamp_file = Local::now().format("%Y%m%d_%H%M%S");
-        let summary = self.extract_summary(&clean_text);
-        
-        // Create both a specific entry and update the 'latest' link
-        let file_name = format!("{}_{}_{}.md", timestamp_file, tab_id, summary);
-        let file_path = self.archives_dir.join(&file_name);
-        let latest_path = self.archives_dir.join(format!("{}_latest.md", tab_id));
-
-        if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(&file_path) {
-            let _ = file.write_all(clean_text.as_bytes());
-        }
-        
-        // v2.11.37: Update latest file for CLIP button
-        let _ = fs::write(latest_path, clean_text);
     }
 
     pub fn is_semantic_start(&self, data: &[u8]) -> bool {

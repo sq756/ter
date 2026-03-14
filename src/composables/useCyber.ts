@@ -1,10 +1,10 @@
 import { ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 
-export function useCyber(activeTabId: any, backendLogs: any) {
+export function useCyber(activeTabId: any, backendLogs: any, activeWebviewId: any, updateWebviewUrl: any) {
   const previewUrl = ref('http://localhost:5173');
   const isWebviewLoading = ref(false);
-  
+
   // v2.11.12: Persistent Native Webview Toggle
   const savedMode = localStorage.getItem('ter_use_native_webview');
   const useNativeWebview = ref(savedMode === null ? true : savedMode === 'true');
@@ -23,7 +23,13 @@ export function useCyber(activeTabId: any, backendLogs: any) {
       previewUrl.value = u;
     }
 
-    const m = u.match(/(?:localhost|127\.0\.0\.1|[\w\.-]+):(\d+)/); 
+    // Update instance state (v2.11.43)
+    if (activeWebviewId.value) {
+      updateWebviewUrl(activeWebviewId.value, u);
+    }
+
+    const m = u.match(/(?:localhost|127\.0\.0\.1|[\w\.-]+):(\d+)/);
+ 
     if (m && m[1]) {
       const port = parseInt(m[1]);
       if (port === 5173 && (u.includes('localhost') || u.includes('127.0.0.1'))) {

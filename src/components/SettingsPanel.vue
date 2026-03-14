@@ -4,10 +4,11 @@ import { ref, onMounted } from 'vue';
 const props = defineProps<{
   isOpen: boolean;
   useNativeWebview: boolean;
+  isSafeMode: boolean;
   sidebarSlots: string[];
 }>();
 
-const emit = defineEmits(['close', 'update-macros', 'update:useNativeWebview', 'update:sidebarSlots']);
+const emit = defineEmits(['close', 'update-macros', 'update:useNativeWebview', 'update:isSafeMode', 'update:sidebarSlots']);
 
 const allViews = ['OPS', 'ARS', 'NAV', 'LOGS'];
 
@@ -85,6 +86,18 @@ const removeMacro = (index: number) => {
             </button>
           </div>
           <p class="hint">The 3rd slot is dynamic and can be overridden by AGENT protocols.</p>
+        </section>
+
+        <section class="config-section">
+          <header>🛡️ SYSTEM_STABILITY (Emergency Rescue)</header>
+          <div class="setting-row">
+            <span class="label">SAFE_MODE (Disable Webviews & Glow)</span>
+            <label class="mini-switch">
+              <input type="checkbox" :checked="isSafeMode" @change="$emit('update:isSafeMode', $event.target.checked)" />
+              <span class="slider"></span>
+            </label>
+          </div>
+          <p class="hint">Enable this if you experience black screens or UI lag.</p>
         </section>
 
         <section class="config-section">

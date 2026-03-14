@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue';
+import { ref, onMounted, onUnmounted, nextTick, watch, computed, shallowRef } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -25,12 +25,15 @@ import { useExplorerContextMenu } from './composables/useExplorerContextMenu';
 import { useCyber } from './composables/useCyber';
 import { useContextMenu } from './composables/useContextMenu';
 import { usePtyListener } from './composables/usePtyListener';
+import { useWebviews } from './composables/useWebviews';
+import { useBookmarks } from './composables/useBookmarks';
 
 // ==========================================
 // --- GLOBAL STATE ---
 // ==========================================
 const isConnected = ref(false);
 const host = ref('Remote Server');
+const hostId = computed(() => isConnected.value ? host.value : 'GLOBAL');
 const isAutoPilot = ref(false);
 const lastAutoPilotTime = ref(0);
 const connectionStatus = ref<'connected' | 'busy' | 'disconnected'>('disconnected');
@@ -39,13 +42,28 @@ const showSettings = ref(false);
 const activeMacros = ref<{name: string, cmd: string}[]>([]);
 
 const isLocked = ref(false);
+const isSafeMode = ref(localStorage.getItem('ter_safe_mode') === 'true');
 const showNetworkMatrix = ref(false);
 const isSidebarOpen = ref(true);
 const isCtrlPressed = ref(false);
 const cyberMode = ref(0); 
 const agentToken = ref('');
 const currentAgentPort = ref<number | null>(null);
-const backendLogs = ref<string[]>([]);
+
+// v2.11.44: Log Throttling & shallowRef to prevent UI freezing
+const backendLogs = shallowRef<string[]>([]);
+const logQueue: string[] = [];
+let logThrottleId: any = null;
+
+const processLogQueue = () => {
+  if (logQueue.length > 0) {
+    const newLogs = [...backendLogs.value, ...logQueue];
+    backendLogs.value = newLogs.length > 500 ? newLogs.slice(-500) : newLogs;
+    logQueue.length = 0;
+  }
+  logThrottleId = null;
+};
+
 const isLogsPaused = ref(false);
 const skills = ref<any[]>([]);
 
@@ -146,8 +164,47 @@ const {
 } = useExplorerContextMenu(activeTabId, currentPath, refreshExplorer);
 
 const {
+  webviewInstances, activeWebviewId, createWebview, closeWebview, switchWebview, updateWebviewUrl
+} = useWebviews();
+
+const {
+  bookmarks, addBookmark, removeBookmark
+} = useBookmarks(hostId);
+
+const {
   previewUrl, isWebviewLoading, refreshWebview, handleExtractDOM, onDomExtracted, captureAndUpload, useNativeWebview
-} = useCyber(activeTabId, backendLogs);
+} = useCyber(activeTabId, backendLogs, activeWebviewId, updateWebviewUrl);
+
+// v2.11.43: Sync previewUrl when switching instances
+watch(activeWebviewId, (newId) => {
+  if (newId) {
+    const inst = webviewInstances.value.find(w => w.id === newId);
+    if (inst) previewUrl.value = inst.url;
+  }
+});
+
+// v2.11.43: Web Context Menu State
+const showWebMenu = ref(false);
+const webMenuX = ref(0);
+const webMenuY = ref(0);
+const contextWebId = ref<string | null>(null);
+
+const onWebContextMenu = (p: { event: MouseEvent, web: any }) => {
+  webMenuX.value = p.event.clientX;
+  webMenuY.value = p.event.clientY;
+  contextWebId.value = p.web.id;
+  showWebMenu.value = true;
+};
+
+// Handle event from Webview initialization script
+listen('web-context-menu', (ev: any) => {
+  const { x, y, id } = ev.payload;
+  // Convert relative coordinates to absolute if necessary
+  webMenuX.value = x; 
+  webMenuY.value = y;
+  contextWebId.value = id;
+  showWebMenu.value = true;
+});
 
 const {
   showContextMenu, menuX, menuY, contextMenuTabId, hasErrorSelection,
@@ -236,6 +293,11 @@ const onConnected = async (hostLabel: string) => {
   isConnected.value = true;
   connectionStatus.value = 'connected';
   
+  // Create initial webview if none exists (v2.11.43)
+  if (webviewInstances.value.length === 0) {
+    createWebview('http://localhost:5173', 'Main Deck');
+  }
+  
   const saved = localStorage.getItem(storageKey(host.value));
   if (saved) {
     try {
@@ -314,10 +376,17 @@ onMounted(() => {
   
   listen<string>('backend-log', (e) => { 
     if (!isLogsPaused.value) {
-      backendLogs.value.push(e.payload); 
-      if (backendLogs.value.length > 500) backendLogs.value.shift(); 
+      logQueue.push(e.payload);
+      if (!logThrottleId) {
+        logThrottleId = setTimeout(processLogQueue, 100);
+      }
     }
   });
+});
+
+watch(isSafeMode, (val) => {
+  localStorage.setItem('ter_safe_mode', val.toString());
+  if (val) cyberMode.value = 0; // Force disable webviews in safe mode
 });
 
 // v2.11.18 FIX: Unified Menu Mutex (Moved to bottom to prevent ReferenceError)
@@ -329,6 +398,7 @@ const closeAllMenus = () => {
   showExplorerMenu.value = false;
   showMorseMacro.value = false;
   showPrivilegeMenu.value = false;
+  showWebMenu.value = false;
 };
 
 watch(activeMenu, (newVal) => {
@@ -337,6 +407,7 @@ watch(activeMenu, (newVal) => {
     showExplorerMenu.value = false;
     showMorseMacro.value = false;
     showPrivilegeMenu.value = false;
+    showWebMenu.value = false;
   }
 });
 
@@ -344,27 +415,32 @@ watch(() => showContextMenu.value, (val) => { if (val) activeMenu.value = 'termi
 watch(() => showExplorerMenu.value, (val) => { if (val) activeMenu.value = 'explorer'; });
 watch(() => showMorseMacro.value, (val) => { if (val) activeMenu.value = 'morse'; });
 watch(() => showPrivilegeMenu.value, (val) => { if (val) activeMenu.value = 'privilege'; });
+watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
 </script>
 
 <template>
-  <div class="app-shell" @mousedown.capture="closeAllMenus">
+  <div class="app-shell" :class="{ 'safe-mode': isSafeMode }" @mousedown.capture="closeAllMenus">
     <CyberGate v-if="!isConnected" @connected="onConnected" />
     
     <div v-else class="main-view">
       <SettingsPanel :isOpen="showSettings" 
                      :useNativeWebview="useNativeWebview" 
+                     :isSafeMode="isSafeMode"
                      :sidebarSlots="sidebarSlots"
                      @update:useNativeWebview="useNativeWebview = $event" 
+                     @update:isSafeMode="isSafeMode = $event"
                      @update:sidebarSlots="sidebarSlots = $event"
                      @close="showSettings = false" @update-macros="(m) => activeMacros = m" />
       
       <SidebarPanel 
         :class="{ 'collapsed': !isSidebarOpen }"
         :files="realFiles" :currentPath="currentPath" :bgTabs="backgroundTabs" :skills="skills"
+        :webviewInstances="webviewInstances" :activeWebviewId="activeWebviewId"
         :lastActivityMap="lastActivityMap"
         :cpuChartRef="cpuChartRef" :memChartRef="memChartRef" :netChartRef="netChartRef"
         :healthMode="healthMode" :currentNetSpeed="currentNetSpeed" :extraStats="extraStats"
         :isAutoPilot="isAutoPilot"
+        :isSafeMode="isSafeMode"
         :sftpHeight="sftpHeight"
         :slots="sidebarSlots"
         :isLogsOverlay="!!previousSlot3"
@@ -379,9 +455,21 @@ watch(() => showPrivilegeMenu.value, (val) => { if (val) activeMenu.value = 'pri
         @resize-sftp-start="startResizingSFTP"
         @resize-charts="resizeCharts"
         @view-changed="handleSidebarViewRevert"
+        @switch-web="switchWebview"
+        @web-context="onWebContextMenu"
       />
 
       <main class="workspace" @click.stop>
+        <!-- ... existing modals ... -->
+
+        <!-- Web Context Menu (v2.11.43) -->
+        <div v-if="showWebMenu" class="context-menu" :style="{ top: webMenuY + 'px', left: webMenuX + 'px' }">
+          <header class="menu-header">WEB ACTIONS</header>
+          <div class="menu-item" @click="invoke('reload_cyber_webview', { label: contextWebId! }); activeMenu = null">🔄 Reload</div>
+          <div class="menu-item" @click="createWebview(); activeMenu = null">➕ New Web Instance</div>
+          <div class="menu-divider"></div>
+          <div class="menu-item danger" @click="closeWebview(contextWebId!); activeMenu = null">❌ Close Page</div>
+        </div>
         <!-- Skill Settings Modal -->
         <div v-if="showSkillSettings" class="modal-overlay" @click.self="showSkillSettings = false">
           <div class="auth-card cyber-card">
@@ -480,11 +568,37 @@ watch(() => showPrivilegeMenu.value, (val) => { if (val) activeMenu.value = 'pri
                   <div class="engine-indicator" :class="{ 'native': useNativeWebview }">
                     {{ useNativeWebview ? '⚡ Native' : '🐢 Iframe' }}
                   </div>
-                  <input v-model="previewUrl" @keyup.enter="refreshWebview()" class="address-bar-input" />
-                  <button @click="refreshWebview()" class="refresh-btn">⚡</button>
+                  <input v-model="previewUrl" @keyup.enter="refreshWebview(previewUrl)" class="address-bar-input" />
+                  <button @click="refreshWebview(previewUrl)" class="refresh-btn">⚡</button>
+                  <button @click="addBookmark(activeWebviewId || 'Web', previewUrl)" class="refresh-btn">🔖</button>
                 </nav>
-                <div class="webview-container" style="flex: 1; display: flex; flex-direction: column; height: 100%;">
-                   <CyberWebview v-if="cyberMode === 1 && useNativeWebview" :url="previewUrl" @dom-extracted="onDomExtracted" />
+                
+                <!-- v2.11.43: Bookmarks Bar -->
+                <div class="bookmarks-bar" v-if="bookmarks.length > 0">
+                  <div v-for="b in bookmarks" :key="b.id" class="bookmark-item" @click="refreshWebview(b.url)" @contextmenu.prevent="removeBookmark(b.id)">
+                    {{ b.title }}
+                  </div>
+                </div>
+
+                <div class="webview-container" style="flex: 1; display: flex; flex-direction: column; height: 100%; background: #000;">
+                   <!-- Multi-Instance Renderer -->
+                   <template v-if="cyberMode === 1 && useNativeWebview && !isSafeMode">
+                     <CyberWebview 
+                       v-for="inst in webviewInstances" 
+                       :key="inst.id"
+                       v-show="activeWebviewId === inst.id"
+                       :id="inst.id"
+                       :url="inst.url"
+                       :isActive="activeWebviewId === inst.id"
+                       :isSafeMode="isSafeMode"
+                       @dom-extracted="onDomExtracted"
+                     />
+                   </template>
+                   <div v-else-if="isSafeMode" class="safe-mode-placeholder">
+                     <span class="icon">🛡️</span>
+                     <div class="msg">WEB_ENGINE_DISABLED_IN_SAFE_MODE</div>
+                     <button class="os-browser-btn" @click="isSafeMode = false">DISABLE_SAFE_MODE</button>
+                   </div>
                    <iframe v-else-if="cyberMode === 1 && !useNativeWebview" :src="previewUrl" class="cyber-iframe" frameborder="0" style="flex: 1; width: 100%; height: 100%; background: #ffffff;"></iframe>
                 </div>
               </div>
@@ -518,6 +632,10 @@ watch(() => showPrivilegeMenu.value, (val) => { if (val) activeMenu.value = 'pri
           </div>
 
           <div class="status-right">
+            <button class="status-btn" :class="{ 'active': isSafeMode }" @click="isSafeMode = !isSafeMode">
+              🛡️ {{ isSafeMode ? 'SAFE_MODE: ON' : 'SAFE_MODE: OFF' }}
+            </button>
+            <span class="status-sep">|</span>
             <button class="status-btn" :class="{ 'clip-flash': isClipFlashing }" @click="copyLatestAI">📋 CLIP</button>
             <span class="status-sep">|</span>
             <button class="status-btn" @click="captureAndUpload(false)">AUDIT_UI</button>
@@ -618,6 +736,17 @@ watch(() => showPrivilegeMenu.value, (val) => { if (val) activeMenu.value = 'pri
 .address-bar-input { flex: 1; background: #000; border: 1px solid #27272a; color: #22c55e; padding: 2px 8px; font-size: 11px; outline: none; border-radius: 4px; }
 .refresh-btn { background: #18181b; border: 1px solid #27272a; color: #22c55e; cursor: pointer; padding: 0 8px; border-radius: 4px; }
 
+/* v2.11.43: Bookmarks Bar Styles */
+.bookmarks-bar { display: flex; gap: 8px; padding: 4px 8px; background: #000; border-bottom: 1px solid #18181b; overflow-x: auto; scrollbar-width: none; }
+.bookmarks-bar::-webkit-scrollbar { display: none; }
+.bookmark-item { font-size: 9px; color: #71717a; padding: 2px 8px; border: 1px solid #27272a; border-radius: 4px; cursor: pointer; white-space: nowrap; transition: all 0.2s; }
+.bookmark-item:hover { color: #22c55e; border-color: #22c55e; background: rgba(34, 197, 94, 0.05); }
+
+.safe-mode-placeholder { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #09090b; color: #71717a; gap: 15px; font-family: 'JetBrains Mono', monospace; }
+.safe-mode-placeholder .icon { font-size: 32px; }
+.safe-mode-placeholder .msg { font-size: 12px; letter-spacing: 1px; }
+.safe-mode-placeholder .os-browser-btn { background: #18181b; border: 1px solid #27272a; color: #22c55e; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 11px; }
+
 .engine-indicator { 
   font-size: 9px; 
   padding: 2px 6px; 
@@ -633,7 +762,7 @@ watch(() => showPrivilegeMenu.value, (val) => { if (val) activeMenu.value = 'pri
 
 .clip-flash {
   color: #00ff9d !important;
-  text-shadow: 0 0 15px #00ff9d !important;
+  text-shadow: 0 0 8px #00ff9d !important;
   transform: scale(1.1);
 }
 
@@ -674,10 +803,10 @@ watch(() => showPrivilegeMenu.value, (val) => { if (val) activeMenu.value = 'pri
   transform: scale(1.05);
 }
 
-.status-btn.active { color: #fff; text-shadow: 0 0 8px currentColor; animation: breathe 2s infinite ease-in-out; }
+.status-btn.active { color: #fff; text-shadow: 0 0 4px currentColor; animation: breathe 2s infinite ease-in-out; }
 
 /* Theme Colors */
-.agent-zone.active { color: #22c55e; text-shadow: 0 0 10px rgba(34, 197, 94, 0.5); animation: breathe 2s infinite ease-in-out; }
+.agent-zone.active { color: #22c55e; text-shadow: 0 0 5px rgba(34, 197, 94, 0.5); animation: breathe 2s infinite ease-in-out; }
 .agent-zone.pressing { transform: scale(0.95); filter: brightness(1.5); }
 .agent-zone { position: relative; cursor: crosshair; padding: 4px 8px; transition: all 0.1s; }
 
@@ -698,10 +827,10 @@ watch(() => showPrivilegeMenu.value, (val) => { if (val) activeMenu.value = 'pri
 }
 .agent-zone.pressing .morse-preview, .agent-zone:hover .morse-preview { opacity: 1; }
 
-.web-toggle.active { color: #3b82f6; text-shadow: 0 0 10px rgba(59, 130, 246, 0.5); }
-.auto-toggle.active { color: #a855f7; text-shadow: 0 0 10px rgba(168, 85, 247, 0.5); }
+.web-toggle.active { color: #3b82f6; text-shadow: 0 0 5px rgba(59, 130, 246, 0.5); }
+.auto-toggle.active { color: #a855f7; text-shadow: 0 0 5px rgba(168, 85, 247, 0.5); }
 .modifier.active { color: #a855f7; background: rgba(168, 85, 247, 0.1); border: 1px solid rgba(168, 85, 247, 0.2); }
-.lock-btn:hover { color: #ef4444 !important; text-shadow: 0 0 10px rgba(239, 68, 68, 0.5); }
+.lock-btn:hover { color: #ef4444 !important; text-shadow: 0 0 5px rgba(239, 68, 68, 0.5); }
 
 @keyframes breathe {
   0%, 100% { opacity: 1; filter: brightness(1); }
@@ -771,4 +900,12 @@ input:checked + .slider:before { transform: translateX(12px); }
   cursor: crosshair !important;
   z-index: 99999 !important;
 }
+.app-shell.safe-mode :deep(*) {
+  text-shadow: none !important;
+  box-shadow: none !important;
+  animation: none !important;
+  backdrop-filter: none !important;
+  transition: none !important;
+}
+.app-shell.safe-mode :deep(.scanline) { display: none !important; }
 </style>

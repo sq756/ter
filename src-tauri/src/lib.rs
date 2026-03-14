@@ -2,7 +2,7 @@ mod db;
 mod crypto;
 mod archiver;
 
-use db::{Db, ServerConfig};
+use db::{Db, ServerConfig, Bookmark};
 use crypto::Crypto;
 use archiver::ARCHIVER;
 use std::sync::Arc;
@@ -134,8 +134,26 @@ async fn list_server_configs(state: State<'_, AppState>) -> Result<Vec<ServerCon
 async fn delete_server_config(id: String, state: State<'_, AppState>) -> Result<(), String> { let db = get_db(&state).await?; db.delete_server(&id).await.map_err(|e| e.to_string()) }
 
 #[tauri::command]
-async fn navigate_cyber_webview(url: String, app_handle: AppHandle) -> Result<(), String> {
-    if let Some(wv) = app_handle.get_webview_window("cyber-native-view") {
+async fn list_bookmarks(host_id: String, state: State<'_, AppState>) -> Result<Vec<Bookmark>, String> {
+    let db = get_db(&state).await?;
+    db.list_bookmarks(&host_id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn save_bookmark(bookmark: Bookmark, state: State<'_, AppState>) -> Result<(), String> {
+    let db = get_db(&state).await?;
+    db.save_bookmark(&bookmark).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn delete_bookmark(id: String, state: State<'_, AppState>) -> Result<(), String> {
+    let db = get_db(&state).await?;
+    db.delete_bookmark(&id).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn navigate_cyber_webview(label: String, url: String, app_handle: AppHandle) -> Result<(), String> {
+    if let Some(wv) = app_handle.get_webview_window(&label) {
         let url_parsed = url.parse::<Url>().map_err(|e| format!("{}", e))?;
         let _ = wv.navigate(url_parsed).map_err(|e: tauri::Error| e.to_string())?;
         let _ = wv.eval(AGENT_SCRIPT).map_err(|e: tauri::Error| e.to_string())?;
@@ -144,8 +162,8 @@ async fn navigate_cyber_webview(url: String, app_handle: AppHandle) -> Result<()
 }
 
 #[tauri::command]
-async fn reload_cyber_webview(app_handle: AppHandle) -> Result<(), String> {
-    if let Some(wv) = app_handle.get_webview_window("cyber-native-view") {
+async fn reload_cyber_webview(label: String, app_handle: AppHandle) -> Result<(), String> {
+    if let Some(wv) = app_handle.get_webview_window(&label) {
         let _ = wv.eval("window.location.reload()").map_err(|e: tauri::Error| e.to_string())?;
         let _ = wv.eval(AGENT_SCRIPT).map_err(|e: tauri::Error| e.to_string())?;
     }
@@ -153,16 +171,16 @@ async fn reload_cyber_webview(app_handle: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-async fn extract_cyber_dom(app_handle: AppHandle) -> Result<(), String> {
-    if let Some(wv) = app_handle.get_webview_window("cyber-native-view") {
+async fn extract_cyber_dom(label: String, app_handle: AppHandle) -> Result<(), String> {
+    if let Some(wv) = app_handle.get_webview_window(&label) {
         let _ = wv.eval("window.emit('dom-extracted', window.TerAgent.extractDOM())").map_err(|e: tauri::Error| e.to_string())?;
     }
     Ok(())
 }
 
 #[tauri::command]
-async fn eval_cyber_webview(code: String, app_handle: AppHandle) -> Result<(), String> {
-    if let Some(wv) = app_handle.get_webview_window("cyber-native-view") {
+async fn eval_cyber_webview(label: String, code: String, app_handle: AppHandle) -> Result<(), String> {
+    if let Some(wv) = app_handle.get_webview_window(&label) {
         let _ = wv.eval(&code).map_err(|e: tauri::Error| e.to_string())?;
     }
     Ok(())
@@ -216,11 +234,17 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
                         Some(russh::ChannelMsg::Data { data }) => {
                             if ARCHIVER.is_semantic_start(&data) {
                                 capture_active = true;
+                                ARCHIVER.clear_latest(&tab_id_cap);
                                 last_capture_time = std::time::Instant::now();
                             }
                             if capture_active {
                                 ARCHIVER.archive(&tab_id_cap, &data);
                                 last_capture_time = std::time::Instant::now();
+                                
+                                // v2.11.42: Prompt Detection to close capture loop
+                                if ARCHIVER.is_prompt(&data) {
+                                    capture_active = false;
+                                }
                             }
                             let _ = app_handle.emit("pty-data", serde_json::json!({"id": tab_id_cap, "data": data.to_vec()}));
                         }
@@ -438,7 +462,8 @@ pub fn run() {
             save_server_config, set_model_path, get_model_path, download_file, upload_file,
             delete_remote_file, read_remote_file, get_latest_ai_response, list_vault,
             copy_latest_to_clipboard,
-            list_remote_tmux_sessions
+            list_remote_tmux_sessions,
+            list_bookmarks, save_bookmark, delete_bookmark
         ])
         .run(tauri::generate_context!())
         .expect("error");

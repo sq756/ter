@@ -13,6 +13,15 @@ pub struct ServerConfig {
     pub key_path: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct Bookmark {
+    pub id: String,
+    pub host_id: String, // 'GLOBAL' or specific host id
+    pub title: String,
+    pub url: String,
+    pub icon: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct Db {
     pool: SqlitePool,
@@ -49,12 +58,59 @@ impl Db {
         .execute(&pool)
         .await?;
 
+        // Migration: Bookmarks (v2.11.43)
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS bookmarks (
+                id TEXT PRIMARY KEY,
+                host_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                url TEXT NOT NULL,
+                icon TEXT
+            )"
+        )
+        .execute(&pool)
+        .await?;
+
         // Index for performance
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_tab_id ON terminal_logs(tab_id)")
             .execute(&pool)
             .await?;
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_host_id ON bookmarks(host_id)")
+            .execute(&pool)
+            .await?;
 
         Ok(Self { pool })
+    }
+
+    pub async fn list_bookmarks(&self, host_id: &str) -> Result<Vec<Bookmark>> {
+        let bookmarks = sqlx::query_as::<_, Bookmark>("SELECT * FROM bookmarks WHERE host_id = ? OR host_id = 'GLOBAL'")
+            .bind(host_id)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(bookmarks)
+    }
+
+    pub async fn save_bookmark(&self, bookmark: &Bookmark) -> Result<()> {
+        sqlx::query(
+            "INSERT OR REPLACE INTO bookmarks (id, host_id, title, url, icon) 
+             VALUES (?, ?, ?, ?, ?)"
+        )
+        .bind(&bookmark.id)
+        .bind(&bookmark.host_id)
+        .bind(&bookmark.title)
+        .bind(&bookmark.url)
+        .bind(&bookmark.icon)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_bookmark(&self, id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM bookmarks WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     pub async fn append_log(&self, tab_id: &str, content: &[u8]) -> Result<()> {

@@ -7,8 +7,13 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { AGENT_SCRIPT } from '../constants';
 
-const props = defineProps<{ url: string; }>();
-const emit = defineEmits(['dom-extracted']);
+const props = defineProps<{ 
+  id: string;
+  url: string; 
+  isActive: boolean;
+  isSafeMode?: boolean;
+}>();
+const emit = defineEmits(['dom-extracted', 'web-context-menu']);
 
 const containerRef = ref<HTMLElement | null>(null);
 let webview: Webview | null = null;
@@ -18,26 +23,42 @@ let unlistenExtracted: any = null;
 let resizeObserver: ResizeObserver | null = null;
 let initTimeout: any = null;
 
+const WEB_CONTEXT_SCRIPT = `
+  window.addEventListener('contextmenu', e => {
+    e.preventDefault();
+    window.__TAURI__.emit('web-context-menu', { x: e.clientX, y: e.clientY, id: '${props.id}' });
+  });
+`;
+
 const updateWebviewBounds = async () => {
   if (!webview || !containerRef.value) return;
   await nextTick();
   const rect = containerRef.value.getBoundingClientRect();
   const dpr = window.devicePixelRatio;
 
-  await webview.setSize({
-    type: 'Physical',
-    width: Math.floor(rect.width * dpr),
-    height: Math.floor(rect.height * dpr),
-  });
-  await webview.setPosition({
-    type: 'Physical',
-    x: Math.floor(rect.left * dpr),
-    y: Math.floor(rect.top * dpr),
-  });
+  if (props.isActive) {
+    await webview.setSize({
+      type: 'Physical',
+      width: Math.floor(rect.width * dpr),
+      height: Math.floor(rect.height * dpr),
+    });
+    await webview.setPosition({
+      type: 'Physical',
+      x: Math.floor(rect.left * dpr),
+      y: Math.floor(rect.top * dpr),
+    });
+  } else {
+    // Move off-screen when inactive
+    await webview.setPosition({
+      type: 'Physical',
+      x: -10000,
+      y: -10000,
+    });
+  }
 };
 
 const initWebview = async () => {
-  if (!containerRef.value || webview) return;
+  if (!containerRef.value || webview || props.isSafeMode) return;
   
   isWebviewError.value = false;
   isWebviewReady.value = false;
@@ -47,10 +68,10 @@ const initWebview = async () => {
   const dpr = window.devicePixelRatio;
 
   try {
-    webview = new Webview(currentWin, 'cyber-native-view', {
+    webview = new Webview(currentWin, props.id, {
       url: props.url,
-      x: Math.floor(rect.left * dpr),
-      y: Math.floor(rect.top * dpr),
+      x: props.isActive ? Math.floor(rect.left * dpr) : -10000,
+      y: props.isActive ? Math.floor(rect.top * dpr) : -10000,
       width: Math.floor(rect.width * dpr),
       height: Math.floor(rect.height * dpr),
     });
@@ -60,7 +81,8 @@ const initWebview = async () => {
     webview.once('tauri://created', async () => {
       if (initTimeout) clearTimeout(initTimeout);
       isWebviewReady.value = true;
-      await invoke('eval_cyber_webview', { code: AGENT_SCRIPT });
+      await invoke('eval_cyber_webview', { label: props.id, code: AGENT_SCRIPT });
+      await invoke('eval_cyber_webview', { label: props.id, code: WEB_CONTEXT_SCRIPT });
     });
 
     // v2.11.13: 5s Initialization Timeout Protection
@@ -110,8 +132,12 @@ const handleRetry = async () => {
 
 watch(() => props.url, (newUrl) => {
   if (isWebviewReady.value) {
-    invoke('navigate_cyber_webview', { url: newUrl });
+    invoke('navigate_cyber_webview', { label: props.id, url: newUrl });
   }
+});
+
+watch(() => props.isActive, (active) => {
+  updateWebviewBounds();
 });
 
 onMounted(() => {
@@ -119,11 +145,14 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  destroyWebview();
+  // v2.11.43: Background persistence. Only destroy if explicitly closed.
+  // Actually, Vue might unmount when switching tabs. 
+  // For now, let's keep it tied to lifecycle but App.vue will keep it alive using v-show.
+  // destroyWebview(); 
 });
 
 const openInBrowser = async () => { try { await open(props.url); } catch(e){} };
-defineExpose({ reload: () => invoke('reload_cyber_webview') });
+defineExpose({ reload: () => invoke('reload_cyber_webview', { label: props.id }), destroy: destroyWebview });
 </script>
 
 <template>

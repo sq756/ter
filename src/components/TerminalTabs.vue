@@ -146,6 +146,7 @@ const closeApp = () => appWindow.close();
   cursor: pointer;
   font-size: 12px;
   transition: all 0.2s;
+  text-shadow: 0 0 4px rgba(0, 255, 157, 0.4);
 }
 
 .win-btn:hover {
