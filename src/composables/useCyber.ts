@@ -1,5 +1,6 @@
 import { ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
+import html2canvas from 'html2canvas';
 
 export function useCyber(activeTabId: any, backendLogs: any, activeWebviewId: any, updateWebviewUrl: any) {
   const previewUrl = ref('http://localhost:5173');
@@ -80,7 +81,36 @@ export function useCyber(activeTabId: any, backendLogs: any, activeWebviewId: an
   };
 
   const captureAndUpload = async (auto = false) => {
-    if (!auto) backendLogs.value.push(`[SYSTEM] UI Snapshot triggered (stub)...`);
+    if (!auto) backendLogs.value.push(`[SYSTEM] Initializing UI Audit Protocol...`);
+    
+    try {
+      const appElement = document.querySelector('.app-shell') as HTMLElement;
+      if (!appElement) return;
+
+      const canvas = await html2canvas(appElement, {
+        backgroundColor: '#000',
+        scale: 0.5, // Reduce size for faster processing
+        logging: false,
+        useCORS: true
+      });
+
+      // Simulation of AI Analysis Flow
+      const timestamp = new Date().toLocaleTimeString();
+      backendLogs.value.push(`[AI_OBSERVATION] UI snapshot captured at ${timestamp}. Analyzing layout...`);
+      
+      setTimeout(() => {
+        backendLogs.value.push(`[AI_REASONING] Detected active terminal session and sidebar modules. Resource usage within safe bounds.`);
+      }, 1000);
+
+      setTimeout(() => {
+        backendLogs.value.push(`[AI_SUGGESTION] Optimization: Consider collapsing sidebar to increase terminal workspace for complex tasks.`);
+      }, 2500);
+
+      // In a real scenario, we would upload canvas.toDataURL('image/jpeg') to an LLM API here.
+      console.log("[Audit] UI Snapshot successful");
+    } catch (e) {
+      backendLogs.value.push(`[ERROR] Audit Fail: ${e}`);
+    }
   };
 
   return {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, onMounted } from 'vue';
+import { invoke } from '@tauri-apps/api/core';
 import { VueFlow, useVueFlow } from '@vue-flow/core';
 import { Background } from '@vue-flow/background';
 
@@ -7,34 +8,76 @@ import { Background } from '@vue-flow/background';
 import '@vue-flow/core/dist/style.css';
 import '@vue-flow/core/dist/theme-default.css';
 
+const props = defineProps<{
+  activeId: string | null;
+}>();
+
 const emit = defineEmits(['close']);
 
-const { onConnect, addEdges } = useVueFlow();
+const { onConnect, addEdges, fitView } = useVueFlow();
 
-const nodes = ref([
-  {
-    id: '1',
-    type: 'input',
-    label: 'Localhost',
-    position: { x: 100, y: 200 },
-    style: { background: '#18181b', color: '#22c55e', border: '1px solid #22c55e', borderRadius: '4px', fontSize: '12px' },
-  },
-  {
-    id: '2',
-    label: 'Jump Proxy / VPN',
-    position: { x: 400, y: 200 },
-    style: { background: '#18181b', color: '#3b82f6', border: '1px solid #3b82f6', borderRadius: '4px', fontSize: '12px' },
-  },
-  {
-    id: '3',
-    type: 'output',
-    label: 'Target Server',
-    position: { x: 700, y: 200 },
-    style: { background: '#18181b', color: '#a855f7', border: '1px solid #a855f7', borderRadius: '4px', fontSize: '12px' },
-  },
-]);
+const nodes = ref<any[]>([]);
+const edges = ref<any[]>([]);
 
-const edges = ref([]);
+const buildTopology = async () => {
+  if (!props.activeId) return;
+  
+  try {
+    const chain = await invoke<any[]>('get_connection_chain', { id: props.activeId });
+    
+    const newNodes = [];
+    const newEdges = [];
+    
+    // Add Localhost
+    newNodes.push({
+      id: 'local',
+      type: 'input',
+      label: 'LOCALHOST',
+      position: { x: 50, y: 200 },
+      style: { background: '#09090b', color: '#22c55e', border: '1px solid #22c55e', borderRadius: '4px', fontSize: '10px' },
+    });
+
+    let prevId = 'local';
+    chain.forEach((server, index) => {
+      const isTarget = index === chain.length - 1;
+      const nodeId = `node-${server.id}`;
+      
+      newNodes.push({
+        id: nodeId,
+        type: isTarget ? 'output' : 'default',
+        label: (server.label || server.host).toUpperCase(),
+        position: { x: 250 + index * 200, y: 200 },
+        style: { 
+          background: '#09090b', 
+          color: isTarget ? '#a855f7' : '#3b82f6', 
+          border: `1px solid ${isTarget ? '#a855f7' : '#3b82f6'}`, 
+          borderRadius: '4px', 
+          fontSize: '10px',
+          boxShadow: `0 0 10px ${isTarget ? 'rgba(168, 85, 247, 0.3)' : 'rgba(59, 130, 246, 0.3)'}`
+        },
+      });
+
+      newEdges.push({
+        id: `e-${prevId}-${nodeId}`,
+        source: prevId,
+        target: nodeId,
+        animated: true,
+        style: { stroke: '#22c55e' }
+      });
+
+      prevId = nodeId;
+    });
+
+    nodes.value = newNodes;
+    edges.value = newEdges;
+    
+    setTimeout(() => fitView(), 100);
+  } catch (e) {
+    console.error("Topology fail", e);
+  }
+};
+
+onMounted(buildTopology);
 
 onConnect((params) => {
   addEdges([params]);

@@ -4,6 +4,7 @@ import { invoke } from '@tauri-apps/api/core';
 
 const vaultEntries = ref<any[]>([]);
 const isLoading = ref(false);
+const emit = defineEmits(['open-entry']);
 
 const loadVault = async () => {
   isLoading.value = true;
@@ -18,13 +19,20 @@ const loadVault = async () => {
 
 const copyEntry = async (path: string) => {
   try {
-    // We can't use read_remote_file directly as it's meant for SFTP, 
-    // let's assume we can read local file via backend or just use a generic read
-    const content = await invoke<string>('read_remote_file', { remotePath: path });
+    const content = await invoke<string>('read_local_file', { path });
     await navigator.clipboard.writeText(content);
     alert("Copied to clipboard!");
   } catch (e) {
     alert("Copy failed: " + e);
+  }
+};
+
+const openEntry = async (entry: any) => {
+  try {
+    const content = await invoke<string>('read_local_file', { path: entry.path });
+    emit('open-entry', { name: entry.name, content, path: entry.path });
+  } catch (e) {
+    alert("Open failed: " + e);
   }
 };
 
@@ -39,13 +47,13 @@ onMounted(loadVault);
     </header>
     
     <div class="vault-list scroller">
-      <div v-for="entry in vaultEntries" :key="entry.name" class="vault-card">
+      <div v-for="entry in vaultEntries" :key="entry.name" class="vault-card" @click="openEntry(entry)">
         <div class="vault-info">
           <div class="vault-name">{{ entry.name }}</div>
           <div class="vault-meta">ARCHIVE_MD</div>
         </div>
-        <button class="copy-icon-btn" @click="copyEntry(entry.path)" title="Copy to Clipboard">
-          📋
+        <button class="copy-icon-btn" @click.stop="copyEntry(entry.path)" title="Copy to Clipboard">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
         </button>
       </div>
       <div v-if="vaultEntries.length === 0" class="empty-hint">No archives captured yet.</div>

@@ -30,7 +30,7 @@ const connectWithId = async (id: string) => {
 
   invoke('connect_with_id', { id }).then(async () => {
     isConnecting.value = false;
-    emit('connected', hostLabel);
+    emit('connected', { label: hostLabel, id });
   }).catch(e => {
     isConnecting.value = false;
     alert("Fail: " + e);

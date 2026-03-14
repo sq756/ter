@@ -34,6 +34,7 @@ import { useUIPreferences } from './composables/useUIPreferences';
 // ==========================================
 const isConnected = ref(false);
 const host = ref('Remote Server');
+const activeServerId = ref<string | null>(null);
 const hostId = computed(() => isConnected.value ? host.value : 'GLOBAL');
 const isAutoPilot = ref(false);
 const lastAutoPilotTime = ref(0);
@@ -354,10 +355,14 @@ const viewHistory = async (originalTabId: string) => {
   } catch (e) { terminalManager.write(playbackId, `\r\n[ERROR] History Fail: ${e}\r\n`); }
 };
 
-const onConnected = async (hostLabel: string) => {
+const onConnected = async (data: { label: string, id: string }) => {
+  const hostLabel = data.label;
+  const hostIdValue = data.id;
+  
   if (isConnected.value && host.value === hostLabel) return; // Prevent duplicate triggers
   
   host.value = hostLabel;
+  activeServerId.value = hostIdValue;
   isConnected.value = true;
   connectionStatus.value = 'connected';
   
@@ -374,8 +379,8 @@ const onConnected = async (hostLabel: string) => {
     try {
       const ts = JSON.parse(saved); 
       if (Array.isArray(ts) && ts.length > 0) {
-        // v2.12.1: Limit restoration to 10 tabs to prevent lag
-        const restoreList = ts.slice(0, 10);
+        // v2.12.1: Limit restoration to 5 tabs to prevent channel limit issues
+        const restoreList = ts.slice(0, 5);
         for (const t of restoreList) {
           await createNewTab(t.title, 'terminal', {}, false, t.id);
         }
@@ -549,6 +554,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
         @view-changed="handleSidebarViewRevert"
         @switch-web="switchWebview"
         @web-context="onWebContextMenu"
+        @open-vault-entry="(e) => createNewTab(e.name, 'editor', { path: e.path, content: e.content })"
       />
 
       <main class="workspace" @click.stop>
@@ -766,7 +772,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
       </main>
     </div>
     <MatrixScreen :isLocked="isLocked" :logs="backendLogs" :cpuUsage="currentCpuUsage ?? 0" @unlock="isLocked = false" />
-    <NetworkMatrix v-if="showNetworkMatrix" @close="showNetworkMatrix = false" />
+    <NetworkMatrix v-if="showNetworkMatrix" :activeId="activeServerId" @close="showNetworkMatrix = false" />
   </div>
 </template>
 

@@ -26,7 +26,7 @@ const props = defineProps<{
   hostName?: string;
 }>();
 
-const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill', 'change-dir', 'view-history', 'open-trigger-settings', 'fast-access', 'morse-down', 'morse-up', 'morse-context', 'explorer-context', 'cycle-health-mode', 'skill-context', 'header-context', 'resize-sftp-start', 'resize-charts', 'view-changed', 'switch-web', 'web-context']);
+const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill', 'change-dir', 'view-history', 'open-trigger-settings', 'fast-access', 'morse-down', 'morse-up', 'morse-context', 'explorer-context', 'cycle-health-mode', 'skill-context', 'header-context', 'resize-sftp-start', 'resize-charts', 'view-changed', 'switch-web', 'web-context', 'open-vault-entry']);
 
 const activeView = ref<string>('OPS');
 const activeLogsSubView = ref<'realtime' | 'vault'>('realtime');
@@ -322,7 +322,7 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
       </div>
 
       <div v-else class="full-height">
-        <VaultView />
+        <VaultView @open-entry="(e) => $emit('open-vault-entry', e)" />
       </div>
     </div>
   </aside>

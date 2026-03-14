@@ -112,6 +112,7 @@ struct AppState {
     pty_channels: DashMap<String, mpsc::Sender<String>>,
     ctrl_channels: DashMap<String, mpsc::Sender<PtyControl>>,
     session: TokioMutex<Option<Arc<client::Handle<Client>>>>,
+    session_stack: TokioMutex<Vec<Arc<client::Handle<Client>>>>, // v2.12.1: Keep proxies alive
     agent_token: TokioMutex<String>,
     db: tokio::sync::OnceCell<Db>,
     db_error: TokioMutex<Option<String>>,
@@ -287,6 +288,30 @@ async fn get_latest_ai_response(tab_id: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+async fn get_connection_chain(id: String, state: State<'_, AppState>) -> Result<Vec<ServerConfig>, String> {
+    let db = get_db(&state).await?;
+    let servers = db.list_servers().await.map_err(|e| e.to_string())?;
+    let mut chain: Vec<ServerConfig> = Vec::new();
+    let mut current_id = Some(id);
+
+    while let Some(sid) = current_id {
+        if let Some(config) = servers.iter().find(|s| s.id == sid) {
+            chain.push(config.clone());
+            current_id = config.proxy_id.clone().filter(|id| !id.is_empty());
+        } else {
+            break;
+        }
+    }
+    chain.reverse(); // Local -> Proxy -> Target
+    Ok(chain)
+}
+
+#[tauri::command]
+async fn read_local_file(path: String) -> Result<String, String> {
+    std::fs::read_to_string(path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn list_vault() -> Result<Vec<serde_json::Value>, String> {
     ARCHIVER.list_vault()
 }
@@ -325,8 +350,11 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
                     let PtyControl::Resize(c, r) = ctrl; 
                     let _ = channel.window_change(c, r, 0, 0).await; 
                 }
-                Some(data) = rx.recv() => { 
-                    let _ = channel.data(data.as_bytes()).await; 
+                res = rx.recv() => { 
+                    match res {
+                        Some(data) => { let _ = channel.data(data.as_bytes()).await; }
+                        None => break,
+                    }
                 }
                 msg = channel.wait() => { 
                     match msg {
@@ -535,21 +563,24 @@ async fn read_remote_file(remote_path: String, state: State<'_, AppState>) -> Re
     Ok(String::from_utf8_lossy(&buffer).to_string())
 }
 
-async fn connect_to_server(config: &ServerConfig, servers: &[ServerConfig], crypto: &Option<Crypto>) -> Result<Arc<client::Handle<Client>>, String> {
+async fn connect_to_server(config: &ServerConfig, servers: &[ServerConfig], crypto: &Option<Crypto>) -> Result<Vec<Arc<client::Handle<Client>>>, String> {
     let mut pass = String::new();
     if let Some(enc) = &config.password_enc { if let Some(c) = crypto.as_ref() { pass = c.decrypt(enc).ok_or("Decrypt failed")?; } }
+
+    let mut stack = Vec::new();
 
     if let Some(proxy_id) = &config.proxy_id {
         if !proxy_id.is_empty() {
             let proxy_config = servers.iter().find(|s| &s.id == proxy_id).ok_or("Proxy not found")?;
-            let proxy_handle = Box::pin(connect_to_server(proxy_config, servers, crypto)).await?;
+            stack = Box::pin(connect_to_server(proxy_config, servers, crypto)).await?;
+            let proxy_handle = stack.last().ok_or("Proxy stack empty")?.clone();
             let channel = proxy_handle.channel_open_direct_tcpip(&config.host, config.port as u32, "127.0.0.1", 0).await.map_err(|e| e.to_string())?;
             let mut russh_config = client::Config::default();
-            // russh_config.connection_timeout = Some(std::time::Duration::from_secs(10));
             let mut sess = client::connect_stream(Arc::new(russh_config), channel.into_stream(), Client {}).await.map_err(|e| e.to_string())?;
             let auth = sess.authenticate_password(&config.user, pass).await.map_err(|e| e.to_string())?;
             if !matches!(auth, russh::client::AuthResult::Success) { return Err("Auth fail on target".to_string()); }
-            return Ok(Arc::new(sess));
+            stack.push(Arc::new(sess));
+            return Ok(stack);
         }
     }
 
@@ -558,7 +589,8 @@ async fn connect_to_server(config: &ServerConfig, servers: &[ServerConfig], cryp
     let mut sess = tokio::time::timeout(std::time::Duration::from_secs(10), connect_future).await.map_err(|_| "Connection timeout".to_string())?.map_err(|e| e.to_string())?;
     let auth = sess.authenticate_password(&config.user, pass).await.map_err(|e| e.to_string())?;
     if !matches!(auth, russh::client::AuthResult::Success) { return Err("Auth fail".to_string()); }
-    Ok(Arc::new(sess))
+    stack.push(Arc::new(sess));
+    Ok(stack)
 }
 
 #[tauri::command]
@@ -567,8 +599,11 @@ async fn connect_with_id(id: String, _app_handle: AppHandle, state: State<'_, Ap
     let servers = db.list_servers().await.map_err(|e| e.to_string())?;
     let config = servers.iter().find(|c| c.id == id).ok_or("Not found")?;
     let crypto = state.crypto.lock().await;
-    let sess = connect_to_server(config, &servers, &*crypto).await?;
-    *state.session.lock().await = Some(sess);
+    let stack = connect_to_server(config, &servers, &*crypto).await?;
+    
+    let mut stack_guard = state.session_stack.lock().await;
+    *stack_guard = stack;
+    *state.session.lock().await = Some(stack_guard.last().unwrap().clone());
     Ok(())
 }
 
@@ -586,7 +621,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(AppState {
-            pty_channels: DashMap::new(), ctrl_channels: DashMap::new(), session: TokioMutex::new(None),
+            pty_channels: DashMap::new(), ctrl_channels: DashMap::new(), 
+            session: TokioMutex::new(None),
+            session_stack: TokioMutex::new(Vec::new()),
             agent_token: TokioMutex::new(Uuid::new_v4().to_string()), db: tokio::sync::OnceCell::new(),
             db_error: TokioMutex::new(None), crypto: TokioMutex::new(None), model_path: TokioMutex::new(None),
             conda_path: TokioMutex::new(None),
@@ -616,7 +653,7 @@ pub fn run() {
             set_conda_path, get_conda_path,
             download_file, upload_file,
             delete_remote_file, read_remote_file, write_remote_file, dump_to_terminal,
-            get_latest_ai_response, list_vault,
+            get_latest_ai_response, list_vault, read_local_file, get_connection_chain,
             copy_latest_to_clipboard,
             list_remote_tmux_sessions,
             list_bookmarks, save_bookmark, delete_bookmark,

@@ -2,7 +2,7 @@ use sqlx::sqlite::SqlitePool;
 use serde::{Serialize, Deserialize};
 use anyhow::Result;
 
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow, Clone)]
 pub struct ServerConfig {
     pub id: String,
     pub label: String,
