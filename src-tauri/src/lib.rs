@@ -241,8 +241,9 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
                     let _ = channel.window_change(c, r, 0, 0).await; 
                 }
                 Some(data) = rx.recv() => { 
-                    // v2.11.32: Logic to trigger capture on AI keywords
-                    if data.to_lowercase().contains("gemini") || data.to_lowercase().contains("claude") {
+                    // v2.11.34: Broader trigger logic for Ghost Archive
+                    let lower = data.to_lowercase();
+                    if lower.contains("gemini") || lower.contains("claude") || lower.contains("ter agent") {
                         capture_active = true;
                     }
                     let _ = channel.data(data.as_bytes()).await; 

@@ -125,7 +125,7 @@ const copyLatestAI = async () => {
     await navigator.clipboard.writeText(text);
     backendLogs.value.push(`[INFO] Latest AI response copied to clipboard.`);
   } catch (e) {
-    backendLogs.value.push(`[ERROR] No AI response found to copy.`);
+    backendLogs.value.push(`[ERROR] CLIP failed: ${e}`);
   }
 };
 
