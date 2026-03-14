@@ -355,6 +355,8 @@ const viewHistory = async (originalTabId: string) => {
 };
 
 const onConnected = async (hostLabel: string) => {
+  if (isConnected.value && host.value === hostLabel) return; // Prevent duplicate triggers
+  
   host.value = hostLabel;
   isConnected.value = true;
   connectionStatus.value = 'connected';
@@ -365,19 +367,26 @@ const onConnected = async (hostLabel: string) => {
   }
   
   const saved = localStorage.getItem(storageKey(host.value));
+  // Clear current tabs before restoring to prevent "shell explosion"
+  terminalTabs.value = [];
+  
   if (saved) {
     try {
       const ts = JSON.parse(saved); 
       if (Array.isArray(ts) && ts.length > 0) {
-        terminalTabs.value = ts;
-        for (const t of ts) {
+        // v2.12.1: Limit restoration to 10 tabs to prevent lag
+        const restoreList = ts.slice(0, 10);
+        for (const t of restoreList) {
           await createNewTab(t.title, 'terminal', {}, false, t.id);
         }
-        activeTabId.value = ts.find((t: any) => !t.isBackground)?.id || ts[0]?.id;
+        activeTabId.value = restoreList.find((t: any) => !t.isBackground)?.id || restoreList[0]?.id;
       } else {
         await createNewTab("Main Shell", 'terminal', {}, false, "tab-1");
       }
-    } catch (e) { await createNewTab("Main Shell", 'terminal', {}, false, "tab-1"); }
+    } catch (e) { 
+      console.error("Restore failed:", e);
+      await createNewTab("Main Shell", 'terminal', {}, false, "tab-1"); 
+    }
   } else {
     await createNewTab("Main Shell", 'terminal', {}, false, "tab-1");
   }

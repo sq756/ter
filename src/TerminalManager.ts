@@ -52,6 +52,8 @@ class TerminalManager {
     term.loadAddon(fit);
 
     // v2.11.56: Performance Push - Try WebGL with fallback
+    // DISABLED: v2.12.1 - Too many WebGL contexts cause lag/crashes
+    /*
     try {
       const webgl = new WebglAddon();
       term.loadAddon(webgl);
@@ -64,6 +66,7 @@ class TerminalManager {
     } catch (e) {
       console.warn(`[TerminalManager:${id}] WebGL load failed, falling back to DOM`, e);
     }
+    */
 
     // Atomic data binding
     term.onData((data) => {

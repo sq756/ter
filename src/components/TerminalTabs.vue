@@ -67,13 +67,13 @@ const closeApp = () => appWindow.close();
 
       <!-- v2.11.29: Stealth Window Controls (Isolated) -->
       <div class="window-controls">
-        <button class="win-btn" @click="minimize">
+        <button class="win-btn" @click.stop="minimize">
           <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"></line></svg>
         </button>
-        <button class="win-btn" @click="toggleMaximize">
+        <button class="win-btn" @click.stop="toggleMaximize">
           <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect></svg>
         </button>
-        <button class="win-btn close" @click="closeApp">
+        <button class="win-btn close" @click.stop="closeApp">
           <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
         </button>
       </div>
