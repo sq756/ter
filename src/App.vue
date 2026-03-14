@@ -230,7 +230,7 @@ watch(() => uiPrefs.value.ui_scale, (newScale) => {
 });
 
 const {
-  previewUrl, isWebviewLoading, refreshWebview, handleExtractDOM, onDomExtracted, captureAndUpload, useNativeWebview
+  previewUrl, isWebviewLoading, refreshWebview, handleExtractDOM, onDomExtracted, captureAndUpload, useNativeWebview, disableTunnel
 } = useCyber(activeTabId, backendLogs, activeWebviewId, updateWebviewUrl);
 
 // v2.11.43: Sync previewUrl when switching instances
@@ -344,7 +344,7 @@ watch(terminalTabs, (val) => {
 // RESTORED: Terminal Playback (Recording)
 const viewHistory = async (originalTabId: string) => {
   const t = terminalTabs.value.find(x => x.id === originalTabId);
-  const playbackId = await createNewTab(`Playback: ${t?.title || originalTabId}`, true);
+  const playbackId = await createNewTab(`Playback: ${t?.title || originalTabId}`, 'terminal', {}, true);
   try {
     const logs = await invoke<number[][]>('get_terminal_logs', { tabId: originalTabId, limit: 1000 });
     for (const chunk of logs) { 
@@ -371,15 +371,15 @@ const onConnected = async (hostLabel: string) => {
       if (Array.isArray(ts) && ts.length > 0) {
         terminalTabs.value = ts;
         for (const t of ts) {
-          await createNewTab(t.title, false, t.id);
+          await createNewTab(t.title, 'terminal', {}, false, t.id);
         }
         activeTabId.value = ts.find((t: any) => !t.isBackground)?.id || ts[0]?.id;
       } else {
-        await createNewTab("Main Shell", false, "tab-1");
+        await createNewTab("Main Shell", 'terminal', {}, false, "tab-1");
       }
-    } catch (e) { await createNewTab("Main Shell", false, "tab-1"); }
+    } catch (e) { await createNewTab("Main Shell", 'terminal', {}, false, "tab-1"); }
   } else {
-    await createNewTab("Main Shell", false, "tab-1");
+    await createNewTab("Main Shell", 'terminal', {}, false, "tab-1");
   }
 
   setTimeout(() => {
@@ -666,6 +666,9 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
                   </div>
                   <input v-model="previewUrl" @keyup.enter="refreshWebview(previewUrl)" class="address-bar-input" />
                   <button @click="refreshWebview(previewUrl)" class="refresh-btn">⚡</button>
+                  <button @click="disableTunnel = !disableTunnel" class="refresh-btn" :title="disableTunnel ? 'Enable Remote Tunnel' : 'Disable Remote Tunnel'" :style="{ color: disableTunnel ? '#ef4444' : '#22c55e' }">
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v5"></path><rect x="5" y="11" width="14" height="10" rx="2"></rect><circle cx="12" cy="16" r="1"></circle></svg>
+                  </button>
                   <button @click="addBookmark(activeWebviewId || 'Web', previewUrl)" class="refresh-btn">🔖</button>
                 </nav>
                 

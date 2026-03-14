@@ -4,6 +4,11 @@ import { invoke } from '@tauri-apps/api/core';
 export function useCyber(activeTabId: any, backendLogs: any, activeWebviewId: any, updateWebviewUrl: any) {
   const previewUrl = ref('http://localhost:5173');
   const isWebviewLoading = ref(false);
+  const disableTunnel = ref(localStorage.getItem('ter_disable_tunnel') === 'true');
+
+  watch(disableTunnel, (val) => {
+    localStorage.setItem('ter_disable_tunnel', val.toString());
+  });
 
   // v2.11.12: Persistent Native Webview Toggle
   const savedMode = localStorage.getItem('ter_use_native_webview');
@@ -30,7 +35,7 @@ export function useCyber(activeTabId: any, backendLogs: any, activeWebviewId: an
 
     const m = u.match(/(?:localhost|127\.0\.0\.1|[\w\.-]+):(\d+)/);
  
-    if (m && m[1]) {
+    if (m && m[1] && !disableTunnel.value) {
       const port = parseInt(m[1]);
       if (port === 5173 && (u.includes('localhost') || u.includes('127.0.0.1'))) {
          // Do nothing
@@ -82,6 +87,7 @@ export function useCyber(activeTabId: any, backendLogs: any, activeWebviewId: an
     previewUrl,
     isWebviewLoading,
     useNativeWebview,
+    disableTunnel,
     refreshWebview,
     handleExtractDOM,
     onDomExtracted,
