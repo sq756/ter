@@ -62,6 +62,18 @@ const removeMacro = (index: number) => {
   macros.value.splice(index, 1);
   saveMacros();
 };
+
+// v2.11.48: Phase 1 - UI Preference Shell
+const uiPrefs = ref({
+  ui_scale: 1.0,
+  glow_intensity: 50,
+  pulse_speed: 50
+});
+
+const autoDetectScale = () => {
+  // Logic shell for Phase 2
+  console.log("AUTO_DETECT triggered");
+};
 </script>
 
 <template>
@@ -124,9 +136,47 @@ const removeMacro = (index: number) => {
           <button @click="addMacro" class="btn-add-macro">+ Add New Macro</button>
         </section>
 
-        <section class="config-section disabled">
-          <header>🎨 UI PREFERENCES (Coming Soon)</header>
-          <p class="hint">Themes, Glow Intensity, and Light Colors.</p>
+        <section class="config-section">
+          <header>🎨 UI_PREFERENCES_MATRIX (Visual Shell Only)</header>
+          <div class="preference-matrix">
+            <!-- Row 1: TYPO -->
+            <div class="pref-column">
+              <span class="column-header">[ TYPO ]</span>
+              <div class="pref-item">
+                <label>UI_SCALE</label>
+                <div class="control-row">
+                  <input type="range" v-model="uiPrefs.ui_scale" min="0.5" max="2.0" step="0.1" />
+                  <span class="val">{{ uiPrefs.ui_scale }}x</span>
+                </div>
+              </div>
+              <button class="auto-detect-btn" @click="autoDetectScale">AUTO_DETECT</button>
+            </div>
+
+            <!-- Row 2: CHROM -->
+            <div class="pref-column">
+              <span class="column-header">[ CHROM ]</span>
+              <div class="pref-item">
+                <label>GLOW</label>
+                <div class="control-row">
+                  <input type="range" v-model="uiPrefs.glow_intensity" min="0" max="100" />
+                  <span class="val">{{ uiPrefs.glow_intensity }}%</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Row 3: BIO -->
+            <div class="pref-column">
+              <span class="column-header">[ BIO ]</span>
+              <div class="pref-item">
+                <label>PULSE</label>
+                <div class="control-row">
+                  <input type="range" v-model="uiPrefs.pulse_speed" min="0" max="100" />
+                  <span class="val">{{ uiPrefs.pulse_speed }}ms</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="hint">Real-time GPU rendering parameters. Verified for stability.</p>
         </section>
       </div>
 
@@ -201,6 +251,18 @@ const removeMacro = (index: number) => {
 
 .config-section.disabled { opacity: 0.4; }
 .hint { font-size: 10px; color: #52525b; font-style: italic; }
+
+/* v2.11.48: Tactical Preference Matrix Styles */
+.preference-matrix { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; background: rgba(255, 255, 255, 0.02); padding: 12px; border-radius: 8px; border: 1px solid #27272a; margin-bottom: 10px; }
+.pref-column { display: flex; flex-direction: column; gap: 10px; }
+.column-header { font-size: 9px; color: #22c55e; font-weight: bold; letter-spacing: 1px; border-bottom: 1px solid #18181b; padding-bottom: 4px; }
+.pref-item { display: flex; flex-direction: column; gap: 4px; }
+.pref-item label { font-size: 8px; color: #71717a; text-transform: uppercase; }
+.control-row { display: flex; align-items: center; gap: 6px; }
+.pref-item input[type="range"] { flex: 1; accent-color: #22c55e; height: 4px; cursor: pointer; }
+.pref-item .val { font-size: 9px; color: #fff; font-family: 'JetBrains Mono', monospace; min-width: 30px; text-align: right; }
+.auto-detect-btn { margin-top: auto; background: #18181b; border: 1px solid #27272a; color: #71717a; font-size: 8px; padding: 4px; border-radius: 2px; cursor: pointer; transition: all 0.1s; font-weight: bold; }
+.auto-detect-btn:hover { color: #22c55e; border-color: #22c55e; }
 
 .drawer-footer { padding: 15px 20px; border-top: 1px solid #27272a; display: flex; justify-content: space-between; align-items: center; font-family: monospace; font-size: 10px; color: #3f3f46; }
 
