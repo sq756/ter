@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
+import { invoke } from '@tauri-apps/api/core';
 
 const props = defineProps<{
   isOpen: boolean;
@@ -38,6 +39,7 @@ const toggleSlot = (view: string) => {
 const macros = ref<{name: string, cmd: string}[]>([]);
 
 onMounted(() => {
+  loadCondaPath();
   const saved = localStorage.getItem('ter_macros');
   if (saved) {
     macros.value = JSON.parse(saved);
@@ -67,6 +69,20 @@ const removeMacro = (index: number) => {
   macros.value.splice(index, 1);
   saveMacros();
 };
+
+// v2.11.54: Conda Path Logic
+const condaPath = ref('');
+const loadCondaPath = async () => {
+  try {
+    const p = await invoke<string>('get_conda_path');
+    condaPath.value = p || '';
+  } catch (e) {}
+};
+const saveCondaPath = async () => {
+  try {
+    await invoke('set_conda_path', { path: condaPath.value });
+  } catch (e) {}
+};
 </script>
 
 <template>
@@ -81,6 +97,15 @@ const removeMacro = (index: number) => {
       </header>
 
       <div class="drawer-content">
+        <section class="config-section">
+          <header>🐍 BACKEND_ECOSYSTEM (Conda/Python)</header>
+          <div class="setting-row">
+            <span class="label">CONDA_EXECUTABLE_PATH</span>
+            <input v-model="condaPath" @change="saveCondaPath" class="cyber-input" placeholder="/path/to/conda" style="width: 200px;" />
+          </div>
+          <p class="hint">Required for advanced document processing (e.g. pdftotext).</p>
+        </section>
+
         <section class="config-section">
           <header>📐 SIDEBAR_DECK SLOTS (Select 3)</header>
           <div class="slot-selector">

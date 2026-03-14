@@ -5,6 +5,7 @@ import { terminalManager } from '../TerminalManager';
 const props = defineProps<{
   id: string;
   active: boolean;
+  uiScale: number;
 }>();
 
 const terminalRef = ref<HTMLElement | null>(null);
@@ -76,6 +77,18 @@ onMounted(() => {
 onUnmounted(() => {
   if (resizeObserver) {
     resizeObserver.disconnect();
+  }
+});
+
+// v2.11.53: Real-time Terminal Scaling
+watch(() => props.uiScale, (newScale) => {
+  const instance = terminalManager.getOrCreate(props.id);
+  if (instance) {
+    instance.term.options.fontSize = 14 * newScale;
+    // Debounced fit via nextTick/requestAnimationFrame
+    nextTick(() => {
+      performFit();
+    });
   }
 });
 

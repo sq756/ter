@@ -122,7 +122,7 @@ let statsIntervalId: any = null;
 // --- DECOUPLED LOGIC ---
 // ==========================================
 const { 
-  terminalTabs, activeTabId, backgroundTabs, lastActivityMap,
+  terminalTabs, activeTabId, activeTabIdSecondary, splitMode, toggleSplit, backgroundTabs, lastActivityMap,
   createNewTab, closeTab, sendToBackground, bringToForeground, renameTab 
 } = useTabs(isConnected, backendLogs);
 
@@ -175,8 +175,36 @@ const updateStatus = (msg: string) => {
 const {
   showExplorerMenu, explorerMenuX, explorerMenuY, selectedFile,
   onExplorerContextMenu, explorerActionCd, explorerActionCat, explorerActionVim, explorerActionCopyPath, explorerActionRun,
-  explorerActionDownload, explorerActionUpload, explorerActionDelete, explorerActionPreview
+  explorerActionDownload, explorerActionUpload, explorerActionDelete, explorerActionPreview,
+  explorerActionDump, explorerActionWrite
 } = useExplorerContextMenu(activeTabId, currentPath, refreshExplorer);
+
+// v2.11.54: Quick Edit & Webview Integration
+const handleQuickEdit = async () => {
+  if (selectedFile.value) {
+    const path = selectedFile.value.path || (currentPath.value + '/' + selectedFile.value.name);
+    try {
+      const content = await invoke<string>('read_remote_file', { remote_path: path });
+      await createNewTab(selectedFile.value.name, 'editor', { path, content });
+    } catch (e) {
+      backendLogs.value.push(`[ERROR] Failed to open editor: ${e}`);
+    }
+  }
+  showExplorerMenu.value = false;
+};
+
+const onSaveComplete = () => {
+  updateStatus("[FILE_SYNC_COMPLETE] Remote instance updated.");
+};
+
+const handleOpenInWebview = async () => {
+  if (selectedFile.value) {
+    const path = selectedFile.value.path || (currentPath.value + '/' + selectedFile.value.name);
+    const url = path.toLowerCase().endsWith('.pdf') ? `pdf://viewer?file=${encodeURIComponent(path)}` : `file://${path}`;
+    await createNewTab(selectedFile.value.name, 'webview', { url, path });
+  }
+  showExplorerMenu.value = false;
+};
 
 const {
   webviewInstances, activeWebviewId, createWebview, closeWebview, switchWebview, updateWebviewUrl
@@ -189,6 +217,17 @@ const {
 const {
   uiPrefs, loadUIPreferences, autoDetectScale
 } = useUIPreferences();
+
+// v2.11.53: Debounced UI Scale for Terminal Performance
+const debouncedUIScale = ref(uiPrefs.value.ui_scale);
+let scaleDebounceTimer: any = null;
+
+watch(() => uiPrefs.value.ui_scale, (newScale) => {
+  if (scaleDebounceTimer) clearTimeout(scaleDebounceTimer);
+  scaleDebounceTimer = setTimeout(() => {
+    debouncedUIScale.value = newScale;
+  }, 150); // 150ms debounce
+});
 
 const {
   previewUrl, isWebviewLoading, refreshWebview, handleExtractDOM, onDomExtracted, captureAndUpload, useNativeWebview
@@ -555,6 +594,10 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
             <div class="menu-item" @click="explorerActionUpload">📤 Upload</div>
           </template>
           <template v-else>
+            <div class="menu-item highlight" @click="handleOpenInWebview">👁️ OPEN_IN_WEBVIEW</div>
+            <div class="menu-item" @click="explorerActionDump">📟 DUMP_TO_TERMINAL</div>
+            <div class="menu-item" @click="handleQuickEdit">📝 QUICK_EDIT</div>
+            <div class="menu-divider"></div>
             <div class="menu-item" @click="handleExplorerDownload">📥 Download</div>
             <div class="menu-item" @click="handlePreviewAction">👁️ Preview</div>
             <div class="menu-divider"></div>
@@ -594,7 +637,14 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
             <TerminalTabs 
               :tabs="terminalTabs" :activeTabId="activeTabId" :connectionStatus="connectionStatus" 
               :isMorsePressed="isMorsePressed" :morseSequence="morseSequence"
-              @switch-tab="bringToForeground" @close-tab="closeTab" @new-tab="createNewTab()" 
+              :uiScale="debouncedUIScale"
+              :activeTabIdSecondary="activeTabIdSecondary"
+              :splitMode="splitMode"
+              @switch-tab="bringToForeground" 
+              @switch-tab-secondary="(id) => activeTabIdSecondary = id"
+              @toggle-split="toggleSplit"
+              @save-complete="onSaveComplete"
+              @close-tab="closeTab" @new-tab="createNewTab()" 
               @terminal-context="onTerminalContextMenu" 
               @morse-input="handleMorseMouse"
             />
@@ -741,14 +791,14 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
 
 /* FIX: Ensure side-bar completely vanishes when collapsed */
 :deep(.side-bar) {
-  width: 260px;
+  width: var(--ter-sidebar-width);
   flex-shrink: 0;
   transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1), padding 0.2s ease, opacity 0.2s ease;
   overflow: hidden;
 }
 
 .app-shell :deep(.module) {
-  border-radius: 6px;
+  border-radius: calc(6px * var(--ter-ui-scale));
   overflow: hidden;
 }
 
@@ -775,30 +825,30 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
 }
 .workspace-body { flex: 1; display: flex; overflow: hidden; position: relative; width: 100%; }
 .terminal-pane { flex: 1; height: 100%; min-width: 0; display: flex; flex-direction: column; overflow: hidden; background: #000; }
-.cyber-pane { width: 420px; height: 100%; border-left: 1px solid #27272a; display: none; flex-direction: column; background: #000; }
+.cyber-pane { width: calc(420px * var(--ter-ui-scale)); height: 100%; border-left: 1px solid #27272a; display: none; flex-direction: column; background: #000; }
 .cyber-pane.open { display: flex; }
 .cyber-container { display: flex; flex-direction: column; height: 100%; }
 .cyber-logs-view { flex: 0 0 30%; border-bottom: 1px solid #27272a; overflow: hidden; display: flex; flex-direction: column; }
-.cyber-logs-view header { padding: 5px 10px; font-size: 11px; color: #71717a; border-bottom: 1px solid #18181b; letter-spacing: 0.5px; }
-.logs-container { flex: 1; overflow-y: auto; padding: 10px; font-size: 11px; color: #a1a1aa; }
+.cyber-logs-view header { padding: calc(5px * var(--ter-ui-scale)) calc(100px * var(--ter-ui-scale)); font-size: calc(11px * var(--ter-ui-scale)); color: #71717a; border-bottom: 1px solid #18181b; letter-spacing: 0.5px; }
+.logs-container { flex: 1; overflow-y: auto; padding: calc(10px * var(--ter-ui-scale)); font-size: calc(11px * var(--ter-ui-scale)); color: #a1a1aa; }
 .cyber-webview-wrapper { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-.webview-address-bar { padding: 5px; background: #09090b; border-bottom: 1px solid #27272a; display: flex; gap: 5px; }
-.address-bar-input { flex: 1; background: #000; border: 1px solid #27272a; color: #22c55e; padding: 2px 8px; font-size: 11px; outline: none; border-radius: 4px; }
-.refresh-btn { background: #18181b; border: 1px solid #27272a; color: #22c55e; cursor: pointer; padding: 0 8px; border-radius: 4px; }
+.webview-address-bar { padding: calc(5px * var(--ter-ui-scale)); background: #09090b; border-bottom: 1px solid #27272a; display: flex; gap: calc(5px * var(--ter-ui-scale)); }
+.address-bar-input { flex: 1; background: #000; border: 1px solid #27272a; color: #22c55e; padding: 2px 8px; font-size: calc(11px * var(--ter-ui-scale)); outline: none; border-radius: 4px; }
+.refresh-btn { background: #18181b; border: 1px solid #27272a; color: #22c55e; cursor: pointer; padding: 0 calc(8px * var(--ter-ui-scale)); border-radius: 4px; }
 
 /* v2.11.43: Bookmarks Bar Styles */
-.bookmarks-bar { display: flex; gap: 8px; padding: 4px 8px; background: #000; border-bottom: 1px solid #18181b; overflow-x: auto; scrollbar-width: none; }
+.bookmarks-bar { display: flex; gap: calc(8px * var(--ter-ui-scale)); padding: calc(4px * var(--ter-ui-scale)) calc(8px * var(--ter-ui-scale)); background: #000; border-bottom: 1px solid #18181b; overflow-x: auto; scrollbar-width: none; }
 .bookmarks-bar::-webkit-scrollbar { display: none; }
-.bookmark-item { font-size: 9px; color: #71717a; padding: 2px 8px; border: 1px solid #27272a; border-radius: 4px; cursor: pointer; white-space: nowrap; transition: all 0.2s; }
+.bookmark-item { font-size: calc(9px * var(--ter-ui-scale)); color: #71717a; padding: 2px 8px; border: 1px solid #27272a; border-radius: 4px; cursor: pointer; white-space: nowrap; transition: all 0.2s; }
 .bookmark-item:hover { color: #22c55e; border-color: #22c55e; background: rgba(34, 197, 94, 0.05); }
 
-.safe-mode-placeholder { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #09090b; color: #71717a; gap: 15px; font-family: 'JetBrains Mono', monospace; }
-.safe-mode-placeholder .icon { font-size: 32px; }
-.safe-mode-placeholder .msg { font-size: 12px; letter-spacing: 1px; }
-.safe-mode-placeholder .os-browser-btn { background: #18181b; border: 1px solid #27272a; color: #22c55e; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 11px; }
+.safe-mode-placeholder { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #09090b; color: #71717a; gap: calc(15px * var(--ter-ui-scale)); font-family: 'JetBrains Mono', monospace; }
+.safe-mode-placeholder .icon { font-size: calc(32px * var(--ter-ui-scale)); }
+.safe-mode-placeholder .msg { font-size: calc(12px * var(--ter-ui-scale)); letter-spacing: 1px; }
+.safe-mode-placeholder .os-browser-btn { background: #18181b; border: 1px solid #27272a; color: #22c55e; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: calc(11px * var(--ter-ui-scale)); }
 
 .engine-indicator { 
-  font-size: 9px; 
+  font-size: calc(9px * var(--ter-ui-scale)); 
   padding: 2px 6px; 
   border-radius: 4px; 
   background: #18181b; 
@@ -812,19 +862,19 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
 
 .clip-flash {
   color: #00ff9d !important;
-  text-shadow: 0 0 8px #00ff9d !important;
+  text-shadow: 0 0 calc(8px * var(--ter-ui-scale)) #00ff9d !important;
   transform: scale(1.1);
 }
 
 .status-bar { 
-  height: 32px; 
+  height: var(--ter-status-bar-height); 
   background: #09090b; 
   border-top: 1px solid #18181b; 
   display: flex; 
   justify-content: space-between; 
   align-items: center; 
   padding: 0 12px; 
-  font-size: 11px; 
+  font-size: calc(11px * var(--ter-ui-scale)); 
   flex-shrink: 0; 
   z-index: 1000;
   text-transform: uppercase;

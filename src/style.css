@@ -15,6 +15,12 @@
   --ter-base-font-size: 14px;
   --ter-glow-opacity: 0.5;
   --ter-pulse-duration: 1.0s;
+
+  /* Scaled Measurements */
+  --ter-sidebar-width: calc(260px * var(--ter-ui-scale));
+  --ter-status-bar-height: calc(32px * var(--ter-ui-scale));
+  --ter-header-height: calc(40px * var(--ter-ui-scale));
+  --ter-tab-bar-height: calc(36px * var(--ter-ui-scale));
 }
 
 body {
@@ -25,7 +31,7 @@ body {
   overflow: hidden;
   user-select: auto;
   -webkit-user-select: auto;
-  font-size: var(--ter-base-font-size);
+  font-size: calc(var(--ter-base-font-size) * var(--ter-ui-scale));
 }
 
 /* Global Scrollbar Reset */

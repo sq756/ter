@@ -146,7 +146,7 @@ export function useExplorerContextMenu(
     if (selectedFile.value && !selectedFile.value.is_dir) {
       const path = getFullPath();
       try {
-        const content = await invoke<string>('read_remote_file', { remotePath: path });
+        const content = await invoke<string>('read_remote_file', { remote_path: path });
         return content;
       } catch (e) {
         alert("Preview failed: " + e);
@@ -154,6 +154,29 @@ export function useExplorerContextMenu(
     }
     showExplorerMenu.value = false;
     return null;
+  };
+
+  const explorerActionDump = async () => {
+    if (activeTabId.value && selectedFile.value && !selectedFile.value.is_dir) {
+      try {
+        await invoke('dump_to_terminal', { tabId: activeTabId.value, remotePath: getFullPath() });
+      } catch (e) {
+        alert("Dump failed: " + e);
+      }
+    }
+    showExplorerMenu.value = false;
+  };
+
+  const explorerActionWrite = async (content: string) => {
+    if (selectedFile.value && !selectedFile.value.is_dir) {
+      try {
+        await invoke('write_remote_file', { remotePath: getFullPath(), content });
+        return true;
+      } catch (e) {
+        alert("Save failed: " + e);
+      }
+    }
+    return false;
   };
 
   return {
@@ -170,6 +193,8 @@ export function useExplorerContextMenu(
     explorerActionDownload,
     explorerActionUpload,
     explorerActionDelete,
-    explorerActionPreview
+    explorerActionPreview,
+    explorerActionDump,
+    explorerActionWrite
   };
 }

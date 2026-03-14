@@ -78,6 +78,34 @@ const lastVisited = computed(() => {
   return [];
 });
 
+// v2.11.54: Sidebar Vertical Splitter Logic
+const processesHeightPercent = ref(Number(localStorage.getItem('ter_sidebar_split')) || 40);
+const isResizingVertical = ref(false);
+
+const startResizingVertical = (e: MouseEvent) => {
+  isResizingVertical.value = true;
+  document.addEventListener('mousemove', handleVerticalResize);
+  document.addEventListener('mouseup', stopVerticalResize);
+};
+
+const handleVerticalResize = (e: MouseEvent) => {
+  if (!isResizingVertical.value) return;
+  const sidebar = document.querySelector('.side-bar');
+  if (sidebar) {
+    const rect = sidebar.getBoundingClientRect();
+    const relativeY = e.clientY - rect.top;
+    const percent = Math.max(10, Math.min(90, (relativeY / rect.height) * 100));
+    processesHeightPercent.value = percent;
+  }
+};
+
+const stopVerticalResize = () => {
+  isResizingVertical.value = false;
+  localStorage.setItem('ter_sidebar_split', processesHeightPercent.value.toString());
+  document.removeEventListener('mousemove', handleVerticalResize);
+  document.removeEventListener('mouseup', stopVerticalResize);
+};
+
 const sortedFiles = computed(() => {
   const baseFiles = props.files.filter(f => f.name !== '..');
   return [...baseFiles].sort((a, b) => {
@@ -153,8 +181,8 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
     </div>
 
     <!-- OPS View -->
-    <div v-show="activeView === 'OPS'" class="safe-view-wrapper">
-      <div class="module sys-health" @click="$emit('cycle-health-mode')" style="cursor: pointer;">
+    <div v-show="activeView === 'OPS'" class="safe-view-wrapper safe-flex-wrapper" style="flex-direction: column;">
+      <div class="module sys-health" @click="$emit('cycle-health-mode')" style="cursor: pointer; flex-shrink: 0;">
         <header>System Health ({{ healthMode.toUpperCase() }})</header>
         
         <!-- v2.11.33: Resource View with high-fidelity fallback bars -->
@@ -189,7 +217,8 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
           <div class="meta-row"><span class="label highlight">DISK:</span> <span class="val">{{ safeVal(extraStats.disk) }}</span></div>
         </div>
       </div>
-      <div class="module scroller processes">
+
+      <div class="module scroller processes" :style="{ height: processesHeightPercent + '%', flex: 'none' }">
         <header>Running Processes</header>
         <ul class="data-list">
           <!-- Terminal Tabs -->
@@ -205,6 +234,21 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
             <span class="val active" :class="{ 'highlight': activeWebviewId === w.id }">WEB</span>
           </li>
         </ul>
+      </div>
+
+      <!-- v2.11.54: Vertical Splitter -->
+      <div class="v-splitter" @mousedown="startResizingVertical">
+        <div class="v-line"></div>
+      </div>
+
+      <div class="module scroller explorer-wrapper" :style="{ flex: '1', minHeight: '0' }">
+        <SftpExplorer 
+          :currentPath="currentPath" 
+          :files="files"
+          @change-dir="(d) => $emit('change-dir', d)"
+          @item-context="(p) => $emit('explorer-context', { e: p.event, file: p.file })"
+          @item-drag-start="onDragStart"
+        />
       </div>
     </div>
 
@@ -282,30 +326,36 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
 
 @keyframes border-pulse { 0%, 100% { border-bottom-width: 2px; } 50% { border-bottom-width: 4px; } }
 
-.side-bar { background: #09090b; width: 260px; height: 100%; display: flex; flex-direction: column; flex-shrink: 0; border-right: 1px solid #27272a; overflow: hidden; }
-.sidebar-branding { height: 40px; display: flex; align-items: center; padding: 0 16px; background: rgba(34, 197, 94, 0.05); border-bottom: 1px solid #27272a; position: relative; overflow: hidden; cursor: pointer; }
-.branding-text { font-size: 10px; color: #22c55e; letter-spacing: 0.2em; font-family: 'JetBrains Mono', monospace; font-weight: bold; z-index: 1; }
+.side-bar { background: #09090b; width: var(--ter-sidebar-width); height: 100%; display: flex; flex-direction: column; flex-shrink: 0; border-right: 1px solid #27272a; overflow: hidden; }
+.sidebar-branding { height: var(--ter-header-height); display: flex; align-items: center; padding: 0 calc(16px * var(--ter-ui-scale)); background: rgba(34, 197, 94, 0.05); border-bottom: 1px solid #27272a; position: relative; overflow: hidden; cursor: pointer; }
+.branding-text { font-size: calc(10px * var(--ter-ui-scale)); color: #22c55e; letter-spacing: 0.2em; font-family: 'JetBrains Mono', monospace; font-weight: bold; z-index: 1; }
 .safe-view-wrapper { display: flex; flex-direction: column; flex: 1; overflow: hidden; height: 100%; }
 .safe-flex-wrapper .module.scroller { flex: 1 !important; max-height: none !important; height: 100% !important; }
-.module { padding: 16px; border-bottom: 1px solid #27272a; }
+.module { padding: calc(16px * var(--ter-ui-scale)); border-bottom: 1px solid #27272a; }
 
 /* v2.11.33: Unified Header Letter Spacing */
-.module header { font-size: 11px; color: #71717a; margin-bottom: 12px; text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; letter-spacing: 2px; }
+.module header { font-size: calc(11px * var(--ter-ui-scale)); color: #71717a; margin-bottom: calc(12px * var(--ter-ui-scale)); text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; letter-spacing: 2px; }
 .header-minimal { display: block; }
 
 .scroller { min-height: 0; overflow-y: auto !important; }
 .processes { flex: 1; height: 100%; min-height: 0; }
-.explorer-wrapper { padding: 0 !important; border-bottom: 1px solid #27272a; position: relative; overflow: hidden; display: flex; flex-direction: column; min-height: 100px; }
+
+/* v2.11.54: Vertical Splitter Styles */
+.v-splitter { height: 6px; cursor: row-resize; display: flex; align-items: center; justify-content: center; background: #000; flex-shrink: 0; z-index: 10; }
+.v-splitter:hover .v-line { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+.v-line { width: 100%; height: 1px; background: #27272a; transition: all 0.1s; }
+
+.explorer-wrapper { padding: 0 !important; border-bottom: 1px solid #27272a; position: relative; overflow: hidden; display: flex; flex-direction: column; }
 .data-list { list-style: none; padding: 0; margin: 0; }
-.data-list li, .file-item { display: flex; align-items: center; gap: 10px; padding: 6px 8px; margin-bottom: 2px; border-radius: 6px; cursor: pointer; color: #d4d4d8; font-size: 13px; transition: all 0.15s; }
+.data-list li, .file-item { display: flex; align-items: center; gap: calc(10px * var(--ter-ui-scale)); padding: calc(6px * var(--ter-ui-scale)) calc(8px * var(--ter-ui-scale)); margin-bottom: 2px; border-radius: 6px; cursor: pointer; color: #d4d4d8; font-size: calc(13px * var(--ter-ui-scale)); transition: all 0.1s; }
 .data-list li:hover { background: rgba(34, 197, 94, 0.08); color: #22c55e; }
 
 /* v2.11.33: SFTP folder/icon spacing */
-.file-spacing { gap: 18px !important; }
+.file-spacing { gap: calc(18px * var(--ter-ui-scale)) !important; }
 
 /* v2.11.47: Tactical LOGS Matrix Styles */
-.tactical-logs-matrix { display: grid; grid-template-columns: repeat(3, 1fr); background: #000; border-bottom: 1px solid #18181b; padding: 6px; gap: 4px; flex-shrink: 0; }
-.tactical-logs-matrix button { background: transparent; border: 1px solid #27272a; color: #52525b; font-size: 9px; cursor: pointer; height: 24px; display: flex; align-items: center; justify-content: center; border-radius: 2px; text-transform: uppercase; font-weight: bold; transition: all 0.1s; font-family: 'JetBrains Mono', monospace; }
+.tactical-logs-matrix { display: grid; grid-template-columns: repeat(3, 1fr); background: #000; border-bottom: 1px solid #18181b; padding: calc(6px * var(--ter-ui-scale)); gap: calc(4px * var(--ter-ui-scale)); flex-shrink: 0; }
+.tactical-logs-matrix button { background: transparent; border: 1px solid #27272a; color: #52525b; font-size: calc(9px * var(--ter-ui-scale)); cursor: pointer; height: calc(24px * var(--ter-ui-scale)); display: flex; align-items: center; justify-content: center; border-radius: 2px; text-transform: uppercase; font-weight: bold; transition: all 0.1s; font-family: 'JetBrains Mono', monospace; }
 .tactical-logs-matrix button:hover { border-color: #3f3f46; color: #71717a; }
 .tactical-logs-matrix button.active { color: #fff; background: #18181b; border-color: #3f3f46; }
 .tactical-logs-matrix button.is-special.active { color: #00ff9d; border-color: #00ff9d; }

@@ -117,6 +117,7 @@ struct AppState {
     db_error: TokioMutex<Option<String>>,
     crypto: TokioMutex<Option<Crypto>>,
     model_path: TokioMutex<Option<std::path::PathBuf>>,
+    conda_path: TokioMutex<Option<String>>,
     agent_port: Arc<TokioMutex<Option<u16>>>,
     vnc_port: Arc<TokioMutex<Option<u16>>>,
     dynamic_port: Arc<TokioMutex<Option<u16>>>,
@@ -150,7 +151,44 @@ async fn set_model_path(path: String, state: State<'_, AppState>) -> Result<(), 
 #[tauri::command]
 async fn get_model_path(state: State<'_, AppState>) -> Result<Option<String>, String> { Ok(state.model_path.lock().await.as_ref().map(|p| p.to_string_lossy().into_owned())) }
 #[tauri::command]
-async fn set_master_password(password: String, state: State<'_, AppState>) -> Result<(), String> { let crypto = tokio::task::spawn_blocking(move || Crypto::new(&password)).await.map_err(|e| e.to_string())?; *state.crypto.lock().await = Some(crypto); Ok(()) }
+async fn set_conda_path(path: String, state: State<'_, AppState>) -> Result<(), String> { *state.conda_path.lock().await = Some(path); Ok(()) }
+#[tauri::command]
+async fn get_conda_path(state: State<'_, AppState>) -> Result<Option<String>, String> { Ok(state.conda_path.lock().await.clone()) }
+
+#[tauri::command]
+async fn write_remote_file(remote_path: String, content: String, state: State<'_, AppState>) -> Result<(), String> {
+    let session_guard = state.session.lock().await;
+    let session = session_guard.as_ref().ok_or("No active SSH session")?;
+    let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
+    channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
+    let sftp = SftpSession::new(channel.into_stream()).await.map_err(|e| e.to_string())?;
+    let mut remote_file = sftp.create(&remote_path).await.map_err(|e| e.to_string())?;
+    tokio::io::AsyncWriteExt::write_all(&mut remote_file, content.as_bytes()).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn dump_to_terminal(tab_id: String, remote_path: String, state: State<'_, AppState>) -> Result<(), String> {
+    let is_pdf = remote_path.to_lowercase().ends_with(".pdf");
+    let cmd = if is_pdf { format!("pdftotext \"{}\" -", remote_path) } else { format!("cat \"{}\"", remote_path) };
+
+    let final_cmd = if let Some(conda) = &*state.conda_path.lock().await {
+        format!("{} run -n base {}", conda, cmd)
+    } else {
+        cmd
+    };
+
+    if let Some(tx) = state.pty_channels.get(&tab_id) {
+        let _ = tx.send(format!("{}\r", final_cmd)).await;
+    } else {
+        return Err("Target terminal tab not found or not a terminal".to_string());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn set_master_password(password: String, state: State<'_, AppState>) -> Result<(), String> {
+ let crypto = tokio::task::spawn_blocking(move || Crypto::new(&password)).await.map_err(|e| e.to_string())?; *state.crypto.lock().await = Some(crypto); Ok(()) }
 async fn get_db(state: &State<'_, AppState>) -> Result<Db, String> { if let Some(db) = state.db.get() { Ok(db.clone()) } else { match &*state.db_error.lock().await { Some(e) => Err(e.clone()), None => Err("DB not init".to_string()) } } }
 #[tauri::command]
 async fn save_server_config(mut config: ServerConfig, state: State<'_, AppState>) -> Result<(), String> { if let Some(pass) = config.password_enc.as_ref() { if let Some(c) = state.crypto.lock().await.as_ref() { config.password_enc = Some(c.encrypt(pass)); } else { return Err("No crypto".to_string()); } } let db = get_db(&state).await?; db.save_server(&config).await.map_err(|e| e.to_string()) }
@@ -513,6 +551,7 @@ pub fn run() {
             pty_channels: DashMap::new(), ctrl_channels: DashMap::new(), session: TokioMutex::new(None),
             agent_token: TokioMutex::new(Uuid::new_v4().to_string()), db: tokio::sync::OnceCell::new(),
             db_error: TokioMutex::new(None), crypto: TokioMutex::new(None), model_path: TokioMutex::new(None),
+            conda_path: TokioMutex::new(None),
             agent_port: Arc::new(TokioMutex::new(None)), vnc_port: Arc::new(TokioMutex::new(None)),
             dynamic_port: Arc::new(TokioMutex::new(None)), agent_abort: Arc::new(TokioMutex::new(None)),
             vnc_abort: Arc::new(TokioMutex::new(None)), dynamic_abort: Arc::new(TokioMutex::new(None)),
@@ -535,8 +574,11 @@ pub fn run() {
             spawn_new_pty, write_pty, close_pty, resize_pty, get_terminal_logs, get_active_ports,
             get_agent_token, open_dynamic_tunnel, ls_remote, load_remote_skills,
             navigate_cyber_webview, reload_cyber_webview, extract_cyber_dom, eval_cyber_webview,
-            save_server_config, set_model_path, get_model_path, download_file, upload_file,
-            delete_remote_file, read_remote_file, get_latest_ai_response, list_vault,
+            save_server_config, set_model_path, get_model_path, 
+            set_conda_path, get_conda_path,
+            download_file, upload_file,
+            delete_remote_file, read_remote_file, write_remote_file, dump_to_terminal,
+            get_latest_ai_response, list_vault,
             copy_latest_to_clipboard,
             list_remote_tmux_sessions,
             list_bookmarks, save_bookmark, delete_bookmark,

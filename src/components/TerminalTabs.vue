@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import TerminalView from './TerminalView.vue';
+import TerEditor from './TerEditor.vue';
+import CyberPdfViewer from './CyberPdfViewer.vue';
 import { terminalManager } from '../TerminalManager';
 
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -8,10 +10,13 @@ const appWindow = getCurrentWindow();
 const props = defineProps<{
   tabs: any[];
   activeTabId: string | null;
+  activeTabIdSecondary: string | null;
+  splitMode: boolean;
   connectionStatus: 'connected' | 'busy' | 'disconnected';
+  uiScale: number;
 }>();
 
-defineEmits(['switch-tab', 'close-tab', 'new-tab', 'terminal-context', 'rename-tab', 'pin-tab', 'copy-tab-id']);
+const emit = defineEmits(['switch-tab', 'switch-tab-secondary', 'close-tab', 'new-tab', 'terminal-context', 'rename-tab', 'pin-tab', 'copy-tab-id', 'toggle-split', 'save-complete']);
 
 const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
 
@@ -35,15 +40,17 @@ const closeApp = () => appWindow.close();
       <div v-for="t in getVisibleTabs()" 
            :key="t.id" 
            class="tab-item" 
-           :class="{ 'active': t.id === activeTabId }" 
-           @click="$emit('switch-tab', t.id)"
+           :class="{ 'active': t.id === activeTabId || (splitMode && t.id === activeTabIdSecondary) }" 
+           @click="splitMode && activeTabId ? $emit('switch-tab-secondary', t.id) : $emit('switch-tab', t.id)"
            @contextmenu.prevent.stop="$emit('terminal-context', { e: $event, id: t.id })">
-        <span class="tab-icon">🐚</span>
+        <span class="tab-icon">{{ t.viewType === 'terminal' ? '🐚' : t.viewType === 'webview' ? '🌍' : '📝' }}</span>
         <span class="title">{{ t.title }}</span>
         <button class="btn-close" @click.stop="$emit('close-tab', t.id)">×</button>
         <div class="active-bar" v-if="t.id === activeTabId"></div>
+        <div class="active-bar-secondary" v-if="splitMode && t.id === activeTabIdSecondary"></div>
       </div>
       <button class="btn-new-tab" @click="$emit('new-tab')">+</button>
+      <button class="btn-split" :class="{ 'active': splitMode }" @click="$emit('toggle-split')">◫</button>
 
       <!-- v2.11.29: Dedicated Drag Region -->
       <div class="drag-region" data-tauri-drag-region></div>
@@ -56,16 +63,42 @@ const closeApp = () => appWindow.close();
       </div>
     </nav>
 
-    <div class="workspace-body">
-      <section class="terminal-pane">
-        <!-- Persistent Terminal Views: Preserve physical instance with v-show -->
+    <div class="workspace-body" :class="{ 'split-mode': splitMode }">
+      <!-- Primary Pane -->
+      <section class="pane primary-pane">
         <div v-for="t in tabs" :key="t.id" 
-             class="terminal-wrapper"
+             class="tab-view-wrapper"
              v-show="t.id === activeTabId"
-             @click="terminalManager.focus(t.id)"
-             @contextmenu.prevent.stop="$emit('terminal-context', { e: $event, id: t.id })">
-          <TerminalView :id="t.id" :active="t.id === activeTabId" />
+             @click="t.viewType === 'terminal' && terminalManager.focus(t.id)">
+          <TerminalView v-if="t.viewType === 'terminal'" :id="t.id" :active="t.id === activeTabId" :uiScale="uiScale" />
+          <TerEditor v-else-if="t.viewType === 'editor'" 
+                     :id="t.id" 
+                     :path="t.data?.path" 
+                     :initialContent="t.data?.content"
+                     @save-complete="$emit('save-complete')" />
+          <CyberPdfViewer v-else-if="t.viewType === 'webview'" 
+                          :url="t.data?.url" 
+                          :title="t.title" />
         </div>
+      </section>
+
+      <!-- Secondary Pane (Visible only in Split Mode) -->
+      <section v-if="splitMode" class="pane secondary-pane">
+        <div v-for="t in tabs" :key="'sec-' + t.id" 
+             class="tab-view-wrapper"
+             v-show="t.id === activeTabIdSecondary"
+             @click="t.viewType === 'terminal' && terminalManager.focus(t.id)">
+          <TerminalView v-if="t.viewType === 'terminal'" :id="t.id" :active="t.id === activeTabIdSecondary" :uiScale="uiScale" />
+          <TerEditor v-else-if="t.viewType === 'editor'" 
+                     :id="t.id" 
+                     :path="t.data?.path" 
+                     :initialContent="t.data?.content"
+                     @save-complete="$emit('save-complete')" />
+          <CyberPdfViewer v-else-if="t.viewType === 'webview'" 
+                          :url="t.data?.url" 
+                          :title="t.title" />
+        </div>
+        <div v-if="!activeTabIdSecondary" class="empty-pane-msg">SELECT_TAB_FOR_DECK_2</div>
       </section>
     </div>
   </div>
@@ -88,7 +121,7 @@ const closeApp = () => appWindow.close();
   display: flex; 
   align-items: center; 
   padding: 0; 
-  height: 36px; 
+  height: var(--ter-tab-bar-height); 
   flex-shrink: 0; 
   z-index: 10; 
   overflow: hidden;
@@ -106,17 +139,17 @@ const closeApp = () => appWindow.close();
 }
 
 .tab-item { 
-  padding: 0 16px; 
+  padding: 0 calc(16px * var(--ter-ui-scale)); 
   height: 100%; 
   display: flex; 
   align-items: center; 
-  font-size: 12px; 
+  font-size: calc(12px * var(--ter-ui-scale)); 
   color: #52525b; 
   cursor: pointer; 
   position: relative; 
-  min-width: 120px; 
-  max-width: 200px;
-  transition: all 0.2s; 
+  min-width: calc(120px * var(--ter-ui-scale)); 
+  max-width: calc(200px * var(--ter-ui-scale));
+  transition: all 0.1s; 
   border-right: 1px solid #18181b;
   flex-shrink: 0 !important;
 }
@@ -135,7 +168,7 @@ const closeApp = () => appWindow.close();
 }
 
 .win-btn {
-  width: 44px;
+  width: calc(44px * var(--ter-ui-scale));
   height: 100%;
   display: flex;
   align-items: center;
@@ -144,9 +177,9 @@ const closeApp = () => appWindow.close();
   border: none;
   color: #00ff9d;
   cursor: pointer;
-  font-size: 12px;
-  transition: all 0.2s;
-  text-shadow: 0 0 4px rgba(0, 255, 157, 0.4);
+  font-size: calc(12px * var(--ter-ui-scale));
+  transition: all 0.1s;
+  text-shadow: 0 0 calc(4px * var(--ter-ui-scale)) rgba(0, 255, 157, 0.4);
 }
 
 .win-btn:hover {
@@ -170,9 +203,24 @@ const closeApp = () => appWindow.close();
 
 .btn-new-tab:hover { color: #fff; }
 
-.workspace-body { flex: 1; position: relative; overflow: hidden; display: flex; }
-.terminal-pane { height: 100%; flex: 1; position: relative; background: #09090b; }
-.terminal-wrapper { position: absolute; inset: 0; width: 100%; height: 100%; }
+.btn-split { background: transparent; border: none; color: #52525b; cursor: pointer; padding: 0 12px; height: 100%; transition: all 0.1s; border-left: 1px solid #18181b; }
+.btn-split:hover { color: #fff; }
+.btn-split.active { color: #22c55e; background: rgba(34, 197, 94, 0.05); }
+
+.workspace-body { flex: 1; position: relative; overflow: hidden; display: flex; width: 100%; height: 100%; }
+.workspace-body.split-mode { flex-direction: row; }
+
+.pane { flex: 1; height: 100%; position: relative; overflow: hidden; min-width: 0; }
+.primary-pane { background: #000; }
+.secondary-pane { border-left: 1px solid #27272a; background: #000; }
+
+.tab-view-wrapper { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+.editor-placeholder, .webview-placeholder { 
+  height: 100%; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #09090b; color: #52525b; font-family: 'JetBrains Mono', monospace; gap: 10px;
+}
+.editor-placeholder .icon, .webview-placeholder .icon { font-size: 32px; }
+.empty-pane-msg { height: 100%; display: flex; align-items: center; justify-content: center; color: #3f3f46; font-size: 10px; font-family: 'JetBrains Mono', monospace; letter-spacing: 2px; }
 
 .status-dot { 
   width: 8px; 
@@ -205,6 +253,7 @@ const closeApp = () => appWindow.close();
 .tab-icon { margin-right: 8px; font-size: 12px; opacity: 0.5; }
 .tab-item.active { color: #fafafa; background: rgba(255, 255, 255, 0.02); }
 .active-bar { position: absolute; bottom: 0; left: 0; width: 100%; height: 2px; background: #3b82f6; }
+.active-bar-secondary { position: absolute; bottom: 0; left: 0; width: 100%; height: 2px; background: #a855f7; }
 .tab-item .btn-close { position: absolute; right: 8px; background: transparent; border: none; color: #52525b; cursor: pointer; opacity: 0; }
 .tab-item:hover .btn-close { opacity: 1; }
 </style>
