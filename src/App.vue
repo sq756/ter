@@ -772,7 +772,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
       </main>
     </div>
     <MatrixScreen :isLocked="isLocked" :logs="backendLogs" :cpuUsage="currentCpuUsage ?? 0" @unlock="isLocked = false" />
-    <NetworkMatrix v-if="showNetworkMatrix" :activeId="activeServerId" @close="showNetworkMatrix = false" />
+    <NetworkMatrix v-if="showNetworkMatrix" :activeId="activeServerId" :activeTabId="activeTabId" @close="showNetworkMatrix = false" />
   </div>
 </template>
 
