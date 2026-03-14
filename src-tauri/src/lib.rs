@@ -1,8 +1,10 @@
 mod db;
 mod crypto;
+mod archiver;
 
 use db::{Db, ServerConfig};
 use crypto::Crypto;
+use archiver::ARCHIVER;
 use std::sync::Arc;
 use anyhow::Result;
 use russh::*;
@@ -101,18 +103,12 @@ struct AppState {
 
 #[tauri::command]
 async fn close_pty(tab_id: String, state: State<'_, AppState>) -> Result<(), String> {
-    log::info!("Closing PTY and killing remote session for Tab: {}", tab_id);
-    
-    // v2.3.11: Fix P0-3 Zombie Process Leak
-    // Attempt to kill the remote tmux session before removing channels
     if let Some(session) = state.session.lock().await.as_ref() {
         if let Ok(channel) = session.channel_open_session().await {
             let kill_cmd = format!("tmux kill-session -t {} || exit", tab_id);
             let _ = channel.exec(true, kill_cmd.as_str()).await;
         }
-
     }
-
     state.pty_channels.remove(&tab_id);
     state.ctrl_channels.remove(&tab_id);
     Ok(())
@@ -171,60 +167,14 @@ async fn eval_cyber_webview(code: String, app_handle: AppHandle) -> Result<(), S
     Ok(())
 }
 
-// v2.11.32: Ghost Archiver Logic
-struct GhostArchiver {
-    archives_dir: std::path::PathBuf,
-}
-
-impl GhostArchiver {
-    fn new() -> Self {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        let archives_dir = std::path::PathBuf::from(home).join(".ter/archives");
-        if !archives_dir.exists() { let _ = std::fs::create_dir_all(&archives_dir); }
-        Self { archives_dir }
-    }
-
-    fn strip_ansi(data: &[u8]) -> String {
-        let s = String::from_utf8_lossy(data);
-        // Regex to strip ANSI color codes
-        let re = regex::Regex::new(r"\x1B\[([0-9;]*[a-zA-Z])").unwrap();
-        re.replace_all(&s, "").to_string()
-    }
-
-    fn archive(&self, tab_id: &str, data: &[u8]) {
-        let clean_text = Self::strip_ansi(data);
-        if clean_text.trim().is_empty() { return; }
-        
-        let file_path = self.archives_dir.join(format!("{}_latest.md", tab_id));
-        let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
-        
-        // v2.11.35: Improved formatting for archives
-        let content = format!("\n--- BLOCK_{} ---\n{}\n", timestamp, clean_text);
-        
-        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(file_path) {
-            use std::io::Write;
-            let _ = file.write_all(content.as_bytes());
-        }
-    }
-
-    fn clear_archive(&self, tab_id: &str) {
-        let file_path = self.archives_dir.join(format!("{}_latest.md", tab_id));
-        if file_path.exists() { let _ = std::fs::remove_file(file_path); }
-    }
-}
-
-lazy_static::lazy_static! {
-    static ref ARCHIVER: GhostArchiver = GhostArchiver::new();
+#[tauri::command]
+async fn get_latest_ai_response(tab_id: String) -> Result<String, String> {
+    ARCHIVER.get_latest(&tab_id)
 }
 
 #[tauri::command]
-async fn get_latest_ai_response(tab_id: String) -> Result<String, String> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-    let file_path = std::path::PathBuf::from(home).join(".ter/archives").join(format!("{}_latest.md", tab_id));
-    if !file_path.exists() { return Err("ERROR: ARCHIVE_NOT_FOUND. Execute an AI command first.".to_string()); }
-    let content = std::fs::read_to_string(file_path).map_err(|e| e.to_string())?;
-    if content.trim().is_empty() { return Err("ERROR: ARCHIVE_EMPTY. Capture was triggered but no data was received.".to_string()); }
-    Ok(content)
+async fn list_vault() -> Result<Vec<serde_json::Value>, String> {
+    ARCHIVER.list_vault()
 }
 
 #[tauri::command]
@@ -243,7 +193,6 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
     tauri::async_runtime::spawn(async move {
         log::info!("[PTY:{}] Starting PTY read loop", tab_id_cap);
         let mut capture_active = false;
-        let mut input_buffer = String::new();
         let mut last_capture_time = std::time::Instant::now();
 
         loop {
@@ -253,24 +202,15 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
                     let _ = channel.window_change(c, r, 0, 0).await; 
                 }
                 Some(data) = rx.recv() => { 
-                    // v2.11.35: Input buffering to detect triggers even with keystrokes
-                    input_buffer.push_str(&data);
-                    if input_buffer.len() > 100 { input_buffer.drain(..input_buffer.len()-100); }
-                    
-                    let lower = input_buffer.to_lowercase();
-                    if lower.contains("gemini") || lower.contains("claude") || lower.contains("ter agent") {
-                        if !capture_active {
-                            log::info!("[PTY:{}] Ghost Archive Triggered", tab_id_cap);
-                            ARCHIVER.clear_archive(&tab_id_cap);
-                            capture_active = true;
-                        }
-                        last_capture_time = std::time::Instant::now();
-                    }
                     let _ = channel.data(data.as_bytes()).await; 
                 }
                 msg = channel.wait() => { 
                     match msg {
                         Some(russh::ChannelMsg::Data { data }) => {
+                            if ARCHIVER.is_semantic_start(&data) {
+                                capture_active = true;
+                                last_capture_time = std::time::Instant::now();
+                            }
                             if capture_active {
                                 ARCHIVER.archive(&tab_id_cap, &data);
                                 last_capture_time = std::time::Instant::now();
@@ -284,12 +224,9 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
                         _ => {}
                     }
                 }
-                // v2.11.35: Auto-stop capture after 10s of inactivity to prevent session bloating
                 _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
                     if capture_active && last_capture_time.elapsed().as_secs() > 10 {
-                        log::info!("[PTY:{}] Ghost Archive Stopped (Timeout)", tab_id_cap);
                         capture_active = false;
-                        input_buffer.clear();
                     }
                 }
             }
@@ -310,40 +247,27 @@ use russh_sftp::client::SftpSession;
 async fn ls_remote(path: String, state: State<'_, AppState>) -> Result<Vec<RemoteFile>, String> {
     let session_guard = state.session.lock().await;
     let session = session_guard.as_ref().ok_or("No active SSH session")?;
-
     let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
     channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
     let sftp = SftpSession::new(channel.into_stream()).await.map_err(|e| e.to_string())?;
-
     let entries = sftp.read_dir(&path).await.map_err(|e| e.to_string())?;
     let mut files = Vec::new();
     for entry in entries {
         let name = entry.file_name();
-        // skip . and ..
-        if name == "." || name == ".." {
-            continue;
-        }
+        if name == "." || name == ".." { continue; }
         let is_dir = entry.file_type() == russh_sftp::protocol::FileType::Dir;
         let size = entry.metadata().len();
-        files.push(RemoteFile {
-            name: name.to_string(),
-            is_dir,
-            size,
-        });
+        files.push(RemoteFile { name: name.to_string(), is_dir, size });
     }
     Ok(files)
 }
+
 #[tauri::command]
 async fn open_dynamic_tunnel(remote_port: u16, state: State<'_, AppState>) -> Result<u16, String> {
-    log::info!("Opening dynamic tunnel for remote port: {}", remote_port);
     let session = state.session.lock().await.as_ref().ok_or("No active SSH session")?.clone();
-    
-    // Close existing tunnel if any
     if let Some(handle) = state.dynamic_abort.lock().await.take() { handle.abort(); }
-
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.map_err(|e| e.to_string())?;
     let local_port = listener.local_addr().map_err(|e| e.to_string())?.port();
-    
     let abort_handle = tokio::spawn(async move {
         loop {
             match listener.accept().await {
@@ -351,104 +275,57 @@ async fn open_dynamic_tunnel(remote_port: u16, state: State<'_, AppState>) -> Re
                     let session = session.clone();
                     tokio::spawn(async move {
                         match session.channel_open_direct_tcpip("127.0.0.1", remote_port as u32, "127.0.0.1", 0).await {
-                            Ok(channel) => {
-                                let mut channel_stream = channel.into_stream();
-                                let _ = tokio::io::copy_bidirectional(&mut socket, &mut channel_stream).await;
-                            }
-                            Err(e) => { log::error!("Failed to open SSH channel for tunnel: {}", e); }
+                            Ok(channel) => { let mut stream = channel.into_stream(); let _ = tokio::io::copy_bidirectional(&mut socket, &mut stream).await; }
+                            Err(e) => { log::error!("Tunnel channel fail: {}", e); }
                         }
                     });
                 }
-                Err(e) => { 
-                    log::error!("Tunnel listener accept error: {}", e);
-                    break;
-                }
+                Err(_) => break,
             }
         }
     });
-
     *state.dynamic_abort.lock().await = Some(abort_handle.abort_handle());
     *state.dynamic_port.lock().await = Some(local_port);
-
-    log::info!("Tunnel active: 127.0.0.1:{} -> remote:{}", local_port, remote_port);
     Ok(local_port)
 }
+
 #[tauri::command]
 async fn list_remote_tmux_sessions(state: State<'_, AppState>) -> Result<Vec<String>, String> {
     let session_guard = state.session.lock().await;
     let session = session_guard.as_ref().ok_or("No active SSH session")?;
-
     let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
     let mut data = Vec::new();
     channel.exec(true, "tmux ls -F '#S'").await.map_err(|e| e.to_string())?;
     let mut stream = channel.into_stream();
     tokio::io::AsyncReadExt::read_to_end(&mut stream, &mut data).await.map_err(|e| e.to_string())?;
-    
     let output = String::from_utf8_lossy(&data);
-    let sessions = output.lines().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
-    Ok(sessions)
-}
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-struct ContextRequirement {
-    require_screenshot: Option<bool>,
+    Ok(output.lines().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
-struct Skill {
-    id: String,
-    name: String,
-    description: String,
-    icon: Option<String>,
-    rpc: Option<String>,
-    trigger: Option<String>,
-    context_requirement: Option<ContextRequirement>,
-}
-
+struct ContextRequirement { require_screenshot: Option<bool> }
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
-struct SkillManifest {
-    skills: Vec<Skill>,
-}
+struct Skill { id: String, name: String, description: String, icon: Option<String>, rpc: Option<String>, trigger: Option<String>, context_requirement: Option<ContextRequirement> }
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
+struct SkillManifest { skills: Vec<Skill> }
 
 #[tauri::command]
 async fn load_remote_skills(state: State<'_, AppState>) -> Result<Vec<Skill>, String> {
     let session_guard = state.session.lock().await;
     let session = session_guard.as_ref().ok_or("No active SSH session")?;
-
     let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
     channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
     let sftp = SftpSession::new(channel.into_stream()).await.map_err(|e| e.to_string())?;
-
     let skills_path = ".ter/skills.json";
-    
-    // Safety check: verify file size before reading to prevent OOM
-    if let Ok(metadata) = sftp.metadata(skills_path).await {
-        if let Some(size) = metadata.size {
-            if size > 1024 * 1024 { // 1MB limit
-                return Err(format!("skills.json is too large: {} bytes (max 1MB)", size));
-            }
-        }
-    }
-
-    // Check if file exists by attempting to open it
     match sftp.open(skills_path).await {
         Ok(mut remote_file) => {
             let mut content = Vec::new();
             tokio::io::AsyncReadExt::read_to_end(&mut remote_file, &mut content).await.map_err(|e| e.to_string())?;
-            
-            // Try to parse as SkillManifest first, then fallback to Vec<Skill>
-            if let Ok(manifest) = serde_json::from_slice::<SkillManifest>(&content) {
-                Ok(manifest.skills)
-            } else if let Ok(skills) = serde_json::from_slice::<Vec<Skill>>(&content) {
-                Ok(skills)
-            } else {
-                Err("Failed to parse skills.json as either Manifest or List".to_string())
-            }
+            if let Ok(m) = serde_json::from_slice::<SkillManifest>(&content) { Ok(m.skills) }
+            else if let Ok(s) = serde_json::from_slice::<Vec<Skill>>(&content) { Ok(s) }
+            else { Err("Parse fail".to_string()) }
         }
-        Err(_) => {
-            // File doesn't exist or other error, return empty list gracefully
-            log::info!("No skills.json found at {}", skills_path);
-            Ok(Vec::new())
-        }
+        Err(_) => Ok(Vec::new())
     }
 }
 
@@ -456,14 +333,11 @@ async fn load_remote_skills(state: State<'_, AppState>) -> Result<Vec<Skill>, St
 async fn download_file(remote_path: String, local_path: String, state: State<'_, AppState>) -> Result<(), String> {
     let session_guard = state.session.lock().await;
     let session = session_guard.as_ref().ok_or("No active SSH session")?;
-
     let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
     channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
     let sftp = SftpSession::new(channel.into_stream()).await.map_err(|e| e.to_string())?;
-
     let mut remote_file = sftp.open(&remote_path).await.map_err(|e| e.to_string())?;
     let mut local_file = tokio::fs::File::create(local_path).await.map_err(|e| e.to_string())?;
-
     tokio::io::copy(&mut remote_file, &mut local_file).await.map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -472,14 +346,11 @@ async fn download_file(remote_path: String, local_path: String, state: State<'_,
 async fn upload_file(remote_path: String, local_path: String, state: State<'_, AppState>) -> Result<(), String> {
     let session_guard = state.session.lock().await;
     let session = session_guard.as_ref().ok_or("No active SSH session")?;
-
     let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
     channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
     let sftp = SftpSession::new(channel.into_stream()).await.map_err(|e| e.to_string())?;
-
     let mut local_file = tokio::fs::File::open(local_path).await.map_err(|e| e.to_string())?;
     let mut remote_file = sftp.create(&remote_path).await.map_err(|e| e.to_string())?;
-
     tokio::io::copy(&mut local_file, &mut remote_file).await.map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -488,11 +359,9 @@ async fn upload_file(remote_path: String, local_path: String, state: State<'_, A
 async fn delete_remote_file(remote_path: String, state: State<'_, AppState>) -> Result<(), String> {
     let session_guard = state.session.lock().await;
     let session = session_guard.as_ref().ok_or("No active SSH session")?;
-
     let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
     channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
     let sftp = SftpSession::new(channel.into_stream()).await.map_err(|e| e.to_string())?;
-
     sftp.remove_file(&remote_path).await.map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -501,15 +370,12 @@ async fn delete_remote_file(remote_path: String, state: State<'_, AppState>) -> 
 async fn read_remote_file(remote_path: String, state: State<'_, AppState>) -> Result<String, String> {
     let session_guard = state.session.lock().await;
     let session = session_guard.as_ref().ok_or("No active SSH session")?;
-
     let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
     channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
     let sftp = SftpSession::new(channel.into_stream()).await.map_err(|e| e.to_string())?;
-
     let mut remote_file = sftp.open(&remote_path).await.map_err(|e| e.to_string())?;
     let mut buffer = Vec::new();
     tokio::io::AsyncReadExt::read_to_end(&mut remote_file, &mut buffer).await.map_err(|e| e.to_string())?;
-    
     Ok(String::from_utf8_lossy(&buffer).to_string())
 }
 
@@ -543,39 +409,14 @@ pub fn run() {
         })
         .setup(|app| {
             let ah = app.handle().clone(); let _ = APP_HANDLE.set(ah.clone());
-            
-            // v2.3.11: Fix P0-2 Startup Panic Risk
-            let app_dir = match app.path().app_data_dir() {
-                Ok(dir) => dir,
-                Err(_) => {
-                    eprintln!("[ERROR] Failed to get app data dir, falling back to /tmp/.ter");
-                    std::path::PathBuf::from("/tmp/.ter")
-                }
-            };
+            let app_dir = match app.path().app_data_dir() { Ok(dir) => dir, Err(_) => std::path::PathBuf::from("/tmp/.ter") };
             if !app_dir.exists() { let _ = std::fs::create_dir_all(&app_dir); }
-            
+            let archives_dir = app_dir.join("archives");
+            if !archives_dir.exists() { let _ = std::fs::create_dir_all(&archives_dir); }
             let db_url = format!("sqlite:///{}?mode=rwc", app_dir.join("ter.db").to_string_lossy());
             let state = app.state::<AppState>();
-            
-            // v2.11.22: Telemetry Push Loop (Heartbeat)
             let ah_telemetry = ah.clone();
-            tauri::async_runtime::spawn(async move {
-                loop {
-                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                    // Emit a heartbeat/dummy stats if no agent is active to keep the link alive
-                    // In a production scenario, this would fetch from the remote agent.
-                    let _ = ah_telemetry.emit("system-stats", serde_json::json!({
-                        "cpu_usage": 0.0,
-                        "mem_used": 0,
-                        "mem_total": 1,
-                        "net_sent": 0,
-                        "net_recv": 0,
-                        "uptime": 0,
-                        "is_heartbeat": true
-                    }));
-                }
-            });
-
+            tauri::async_runtime::spawn(async move { loop { tokio::time::sleep(std::time::Duration::from_secs(3)).await; let _ = ah_telemetry.emit("system-stats", serde_json::json!({ "cpu_usage": 0.0, "mem_used": 0, "mem_total": 1, "net_sent": 0, "net_recv": 0, "uptime": 0, "is_heartbeat": true })); } });
             tauri::async_runtime::block_on(async move { match Db::new(&db_url).await { Ok(db) => { let _ = state.db.set(db); } Err(e) => { *state.db_error.lock().await = Some(e.to_string()); } } });
             Ok(())
         })
@@ -585,7 +426,7 @@ pub fn run() {
             get_agent_token, open_dynamic_tunnel, ls_remote, load_remote_skills,
             navigate_cyber_webview, reload_cyber_webview, extract_cyber_dom, eval_cyber_webview,
             save_server_config, set_model_path, get_model_path, download_file, upload_file,
-            delete_remote_file, read_remote_file, get_latest_ai_response,
+            delete_remote_file, read_remote_file, get_latest_ai_response, list_vault,
             list_remote_tmux_sessions
         ])
         .run(tauri::generate_context!())

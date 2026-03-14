@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import VaultView from './VaultView.vue';
 
 const props = defineProps<{
   files: any[];
@@ -23,6 +24,7 @@ const props = defineProps<{
 const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill', 'change-dir', 'view-history', 'open-trigger-settings', 'fast-access', 'morse-down', 'morse-up', 'morse-context', 'explorer-context', 'cycle-health-mode', 'skill-context', 'header-context', 'resize-sftp-start', 'resize-charts', 'view-changed']);
 
 const activeView = ref<string>('OPS');
+const activeLogsSubView = ref<'realtime' | 'vault'>('realtime');
 
 onMounted(() => {
   window.addEventListener('switch-sidebar-view', (e: any) => {
@@ -190,11 +192,19 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
 
     <!-- LOGS View -->
     <div v-show="activeView === 'LOGS'" class="safe-view-wrapper safe-flex-wrapper">
-      <div class="module scroller full-height">
+      <div class="logs-nav">
+        <button :class="{ active: activeLogsSubView === 'realtime' }" @click="activeLogsSubView = 'realtime'">LIVE</button>
+        <button :class="{ active: activeLogsSubView === 'vault' }" @click="activeLogsSubView = 'vault'">VAULT</button>
+      </div>
+      
+      <div v-if="activeLogsSubView === 'realtime'" class="module scroller full-height">
         <header>Cyber Intelligence Logs</header>
         <div class="log-stream">
           <div v-for="(log, i) in logs" :key="i" class="log-line">{{ log }}</div>
         </div>
+      </div>
+      <div v-else class="full-height">
+        <VaultView />
       </div>
     </div>
   </aside>
@@ -228,6 +238,10 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
 .file-spacing { gap: 18px !important; }
 
 .log-line { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #a1a1aa; margin-bottom: 2px; }
+
+.logs-nav { display: flex; background: #000; border-bottom: 1px solid #18181b; padding: 4px; gap: 4px; }
+.logs-nav button { flex: 1; background: transparent; border: 1px solid transparent; color: #52525b; font-size: 9px; cursor: pointer; padding: 2px; border-radius: 2px; text-transform: uppercase; font-weight: bold; }
+.logs-nav button.active { color: #22c55e; border-color: rgba(34, 197, 94, 0.2); background: rgba(34, 197, 94, 0.05); }
 .scanline { position: absolute; top: 0; left: 0; width: 100%; height: 2px; background: rgba(34, 197, 94, 0.2); animation: scan 3s infinite linear; pointer-events: none; }
 @keyframes scan { 0% { transform: translateY(-100%); } 100% { transform: translateY(40px); } }
 

@@ -1,6 +1,6 @@
 [package]
 name = "ter"
-version = "2.11.35"
+version = "2.11.37"
 description = "Ter - Advanced SSH & Webview Terminal"
 authors = ["sq"]
 license = "MIT"
