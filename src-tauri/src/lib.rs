@@ -415,6 +415,35 @@ async fn upload_file(remote_path: String, local_path: String, state: State<'_, A
 }
 
 #[tauri::command]
+async fn delete_remote_file(remote_path: String, state: State<'_, AppState>) -> Result<(), String> {
+    let session_guard = state.session.lock().await;
+    let session = session_guard.as_ref().ok_or("No active SSH session")?;
+
+    let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
+    channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
+    let sftp = SftpSession::new(channel.into_stream()).await.map_err(|e| e.to_string())?;
+
+    sftp.remove_file(&remote_path).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+async fn read_remote_file(remote_path: String, state: State<'_, AppState>) -> Result<String, String> {
+    let session_guard = state.session.lock().await;
+    let session = session_guard.as_ref().ok_or("No active SSH session")?;
+
+    let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
+    channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
+    let sftp = SftpSession::new(channel.into_stream()).await.map_err(|e| e.to_string())?;
+
+    let mut remote_file = sftp.open(&remote_path).await.map_err(|e| e.to_string())?;
+    let mut buffer = Vec::new();
+    tokio::io::AsyncReadExt::read_to_end(&mut remote_file, &mut buffer).await.map_err(|e| e.to_string())?;
+    
+    Ok(String::from_utf8_lossy(&buffer).to_string())
+}
+
+#[tauri::command]
 async fn connect_with_id(id: String, _app_handle: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let db = get_db(&state).await?;
     let config = db.list_servers().await.map_err(|e| e.to_string())?.into_iter().find(|c| c.id == id).ok_or("Not found")?;
@@ -486,6 +515,7 @@ pub fn run() {
             get_agent_token, open_dynamic_tunnel, ls_remote, load_remote_skills,
             navigate_cyber_webview, reload_cyber_webview, extract_cyber_dom, eval_cyber_webview,
             save_server_config, set_model_path, get_model_path, download_file, upload_file,
+            delete_remote_file, read_remote_file,
             list_remote_tmux_sessions
         ])
         .run(tauri::generate_context!())

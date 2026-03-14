@@ -20,8 +20,6 @@ export function useExplorerContextMenu(
     explorerMenuX.value = x; explorerMenuY.value = y;
   };
 
-  // ... (keep previous methods like onExplorerContextMenu, getFullPath, explorerActionCd, etc.)
-
   const onExplorerContextMenu = (p: { e: MouseEvent, file: any }) => {
     selectedFile.value = p.file;
     calculateExplorerMenuPosition(p.e);
@@ -79,7 +77,7 @@ export function useExplorerContextMenu(
     showExplorerMenu.value = false;
   };
 
-  const explorerActionDownload = async () => {
+  const explorerActionDownload = async (onStatus?: (s: string) => void) => {
     if (selectedFile.value && !selectedFile.value.is_dir) {
       const remotePath = getFullPath();
       const localPath = await save({
@@ -87,10 +85,13 @@ export function useExplorerContextMenu(
         title: 'Save Remote File'
       });
       if (localPath) {
+        if (onStatus) onStatus(`📥 DOWNLOADING: ${selectedFile.value.name}...`);
         try {
           await invoke('download_file', { remotePath, localPath });
+          if (onStatus) onStatus(`✅ DOWNLOADED: ${selectedFile.value.name}`);
         } catch (e) {
           alert("Download failed: " + e);
+          if (onStatus) onStatus(`❌ DOWNLOAD_FAIL: ${selectedFile.value.name}`);
         }
       }
     }
@@ -115,6 +116,35 @@ export function useExplorerContextMenu(
     showExplorerMenu.value = false;
   };
 
+  const explorerActionDelete = async () => {
+    if (selectedFile.value && selectedFile.value.name !== '..') {
+      const path = getFullPath();
+      if (confirm(`CONFIRM TERMINATION OF: ${selectedFile.value.name}?`)) {
+        try {
+          await invoke('delete_remote_file', { remotePath: path });
+          await refreshExplorer();
+        } catch (e) {
+          alert("Delete failed: " + e);
+        }
+      }
+    }
+    showExplorerMenu.value = false;
+  };
+
+  const explorerActionPreview = async () => {
+    if (selectedFile.value && !selectedFile.value.is_dir) {
+      const path = getFullPath();
+      try {
+        const content = await invoke<string>('read_remote_file', { remotePath: path });
+        return content;
+      } catch (e) {
+        alert("Preview failed: " + e);
+      }
+    }
+    showExplorerMenu.value = false;
+    return null;
+  };
+
   return {
     showExplorerMenu,
     explorerMenuX,
@@ -127,6 +157,8 @@ export function useExplorerContextMenu(
     explorerActionCopyPath,
     explorerActionRun,
     explorerActionDownload,
-    explorerActionUpload
+    explorerActionUpload,
+    explorerActionDelete,
+    explorerActionPreview
   };
 }

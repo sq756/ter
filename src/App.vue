@@ -97,10 +97,36 @@ const {
   currentPath, realFiles, refreshExplorer, changeDir, onFastAccess
 } = useExplorer(isConnected, activeTabId);
 
+// v2.11.30: File Preview Logic
+const showPreviewModal = ref(false);
+const previewFileName = ref('');
+const previewContent = ref('');
+
+const closePreview = () => {
+  showPreviewModal.value = false;
+  previewContent.value = '';
+};
+
+const handlePreviewAction = async () => {
+  if (selectedFile.value) {
+    previewFileName.value = selectedFile.value.name;
+    const content = await explorerActionPreview();
+    if (content !== null) {
+      previewContent.value = content;
+      showPreviewModal.value = true;
+    }
+  }
+};
+
+const updateStatus = (msg: string) => {
+  backendLogs.value.push(`[STATUS] ${msg}`);
+};
+
+// ...
 const {
   showExplorerMenu, explorerMenuX, explorerMenuY, selectedFile,
   onExplorerContextMenu, explorerActionCd, explorerActionCat, explorerActionVim, explorerActionCopyPath, explorerActionRun,
-  explorerActionDownload, explorerActionUpload
+  explorerActionDownload, explorerActionUpload, explorerActionDelete, explorerActionPreview
 } = useExplorerContextMenu(activeTabId, currentPath, refreshExplorer);
 
 const {
@@ -341,11 +367,24 @@ watch(() => showPrivilegeMenu.value, (val) => { if (val) activeMenu.value = 'pri
             <div class="menu-item" @click="explorerActionUpload">📤 Upload</div>
           </template>
           <template v-else>
-            <div class="menu-item" @click="explorerActionDownload">📥 Download</div>
-            <div class="menu-item">👁️ Preview</div>
+            <div class="menu-item" @click="explorerActionDownload(updateStatus)">📥 Download</div>
+            <div class="menu-item" @click="handlePreviewAction">👁️ Preview</div>
             <div class="menu-divider"></div>
-            <div class="menu-item danger">🗑️ Delete</div>
+            <div class="menu-item danger" @click="explorerActionDelete">🗑️ Delete</div>
           </template>
+        </div>
+
+        <!-- File Preview Modal -->
+        <div v-if="showPreviewModal" class="modal-overlay preview-overlay" @click.self="closePreview">
+          <div class="preview-card cyber-card">
+            <header class="preview-header">
+              <span class="title">👁️ PREVIEWING: {{ previewFileName }}</span>
+              <button class="close-btn" @click="closePreview">✕</button>
+            </header>
+            <div class="preview-body scroller">
+              <pre class="preview-text">{{ previewContent }}</pre>
+            </div>
+          </div>
         </div>
 
         <!-- Morse Macros -->
@@ -636,6 +675,16 @@ watch(() => showPrivilegeMenu.value, (val) => { if (val) activeMenu.value = 'pri
 .label { font-size: 10px; color: #71717a; text-transform: uppercase; }
 .cyber-input { background: #000; border: 1px solid #27272a; color: #22c55e; padding: 8px; font-size: 12px; outline: none; width: 100%; border-radius: 4px; }
 .btn-primary { background: #22c55e; color: #000; border: none; padding: 10px; font-weight: bold; cursor: pointer; margin-top: 15px; border-radius: 4px; }
+
+/* v2.11.30: Preview Modal Styles */
+.preview-overlay { z-index: 30000; background: rgba(0, 0, 0, 0.9); backdrop-filter: blur(15px); }
+.preview-card { width: 80vw; height: 80vh; max-width: 1000px; display: flex; flex-direction: column; padding: 0; overflow: hidden; border-color: #3b82f6; box-shadow: 0 0 40px rgba(59, 130, 246, 0.2); }
+.preview-header { display: flex; justify-content: space-between; align-items: center; padding: 15px 20px; background: rgba(59, 130, 246, 0.1); border-bottom: 1px solid rgba(59, 130, 246, 0.2); }
+.preview-header .title { font-size: 12px; font-family: 'JetBrains Mono', monospace; color: #3b82f6; letter-spacing: 1px; }
+.preview-header .close-btn { background: transparent; border: none; color: #71717a; cursor: pointer; font-size: 18px; }
+.preview-header .close-btn:hover { color: #fff; }
+.preview-body { flex: 1; padding: 20px; overflow: auto; background: #000; }
+.preview-text { margin: 0; font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #d4d4d8; line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
 
 .mini-switch { position: relative; display: inline-block; width: 24px; height: 12px; }
 .mini-switch input { opacity: 0; width: 0; height: 0; }
