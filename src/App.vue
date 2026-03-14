@@ -231,7 +231,7 @@ watch(() => uiPrefs.value.ui_scale, (newScale) => {
 });
 
 const {
-  previewUrl, isWebviewLoading, refreshWebview, handleExtractDOM, onDomExtracted, captureAndUpload, useNativeWebview, disableTunnel
+  previewUrl, isWebviewLoading, refreshWebview, handleExtractDOM, handleScrapeData, onDomExtracted, captureAndUpload, useNativeWebview, disableTunnel
 } = useCyber(activeTabId, backendLogs, activeWebviewId, updateWebviewUrl);
 
 // v2.11.43: Sync previewUrl when switching instances
@@ -681,8 +681,8 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
                   </div>
                   <input v-model="previewUrl" @keyup.enter="refreshWebview(previewUrl)" class="address-bar-input" />
                   <button @click="refreshWebview(previewUrl)" class="refresh-btn">⚡</button>
-                  <button @click="disableTunnel = !disableTunnel" class="refresh-btn" :title="disableTunnel ? 'Enable Remote Tunnel' : 'Disable Remote Tunnel'" :style="{ color: disableTunnel ? '#ef4444' : '#22c55e' }">
-                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v5"></path><rect x="5" y="11" width="14" height="10" rx="2"></rect><circle cx="12" cy="16" r="1"></circle></svg>
+                  <button @click="handleScrapeData()" class="refresh-btn" title="Scrape Page Content (h3)">📊</button>
+                  <button @click="disableTunnel = !disableTunnel" class="refresh-btn" :title="disableTunnel ? 'Enable Remote Tunnel' : 'Disable Remote Tunnel'" :style="{ color: disableTunnel ? '#ef4444' : '#22c55e' }">                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v5"></path><rect x="5" y="11" width="14" height="10" rx="2"></rect><circle cx="12" cy="16" r="1"></circle></svg>
                   </button>
                   <button @click="addBookmark(activeWebviewId || 'Web', previewUrl)" class="refresh-btn">🔖</button>
                 </nav>

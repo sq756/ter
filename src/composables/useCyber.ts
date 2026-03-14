@@ -71,9 +71,28 @@ export function useCyber(activeTabId: any, backendLogs: any, activeWebviewId: an
   const handleExtractDOM = async () => { 
     backendLogs.value.push(`[INFO] Extracting DOM...`); 
     try {
-      await invoke('extract_cyber_dom'); 
+      if (activeWebviewId.value) {
+        await invoke('eval_cyber_webview', { 
+          label: activeWebviewId.value, 
+          code: `window.__TAURI__.emit('dom-extracted-${activeWebviewId.value}', window.TerAgent.extractDOM())` 
+        });
+      }
     } catch (e) {
       backendLogs.value.push(`[ERROR] DOM Extract Fail: ${e}`);
+    }
+  };
+
+  const handleScrapeData = async (selector = "h3") => {
+    backendLogs.value.push(`[INFO] Scraping content with selector: ${selector}...`);
+    try {
+      if (activeWebviewId.value) {
+        await invoke('eval_cyber_webview', { 
+          label: activeWebviewId.value, 
+          code: `window.__TAURI__.emit('dom-extracted-${activeWebviewId.value}', window.TerAgent.scrapeData("${selector}"))` 
+        });
+      }
+    } catch (e) {
+      backendLogs.value.push(`[ERROR] Scrape Fail: ${e}`);
     }
   };
 
@@ -81,9 +100,9 @@ export function useCyber(activeTabId: any, backendLogs: any, activeWebviewId: an
     if (activeTabId.value) { 
       try {
         await invoke('write_pty', { tabId: activeTabId.value, data: `\x1b[200~${md}\x1b[201~\r` }); 
-        backendLogs.value.push(`[INFO] Snapshot injected.`); 
+        backendLogs.value.push(`[INFO] Data injected to terminal.`); 
       } catch (e) {
-        backendLogs.value.push(`[ERROR] Snapshot Injection Fail: ${e}`);
+        backendLogs.value.push(`[ERROR] Injection Fail: ${e}`);
       }
     } 
   };
@@ -126,6 +145,7 @@ export function useCyber(activeTabId: any, backendLogs: any, activeWebviewId: an
     disableTunnel,
     refreshWebview,
     handleExtractDOM,
+    handleScrapeData,
     onDomExtracted,
     captureAndUpload
   };

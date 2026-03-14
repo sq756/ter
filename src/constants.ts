@@ -19,6 +19,15 @@ export const AGENT_SCRIPT = `
       });
       return markdown;
     },
+    scrapeData: function(selector = "h3") {
+      const elements = document.querySelectorAll(selector);
+      let results = [];
+      elements.forEach(el => {
+        const text = el.innerText.trim();
+        if (text) results.push(text);
+      });
+      return "### SCRAPED_DATA (" + selector + ")\\n\\n" + results.join("\\n");
+    },
     click: function(id) {
       const el = document.querySelector("[data-ter-id='" + id + "']");
       if (el) { el.click(); return "OK"; }
