@@ -64,14 +64,17 @@ const saveNewServer = async () => {
   loadServers();
 };
 
-onMounted(() => {
-  // Check if master password already set in this session (handled by backend state)
-  // or just wait for user input.
+onMounted(async () => {
+  const isSet = await invoke<boolean>('check_master_password_set').catch(() => false);
+  if (isSet) {
+    isMasterPasswordSet.value = true;
+    loadServers();
+  }
 });
 </script>
 
 <template>
-  <div class="cyber-gate-wrapper">
+  <div class="cyber-gate-wrapper" @contextmenu.prevent.stop>
     <div v-if="!isMasterPasswordSet" class="modal-overlay">
       <div class="auth-card cyber-card">
         <h2 class="cyber-title">SYSTEM OVERRIDE</h2>
@@ -122,7 +125,7 @@ onMounted(() => {
         </div>
 
         <div class="server-list">
-          <div v-for="s in savedServers" :key="s.id" class="server-card" @click="connectWithId(s.id)">
+          <div v-for="s in savedServers" :key="s.id" class="server-card" @click.stop="connectWithId(s.id)">
             <div class="icon-box">NODE</div>
             <div class="info">
               <b>{{ (s.label || 'UNTITLED').toUpperCase() }}</b><br/>

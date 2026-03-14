@@ -188,6 +188,11 @@ async fn dump_to_terminal(tab_id: String, remote_path: String, state: State<'_, 
 }
 
 #[tauri::command]
+async fn check_master_password_set(state: State<'_, AppState>) -> Result<bool, String> {
+    Ok(state.crypto.lock().await.is_some())
+}
+
+#[tauri::command]
 async fn set_master_password(password: String, state: State<'_, AppState>) -> Result<(), String> {
  let crypto = tokio::task::spawn_blocking(move || Crypto::new(&password)).await.map_err(|e| e.to_string())?; *state.crypto.lock().await = Some(crypto); Ok(()) }
 async fn get_db(state: &State<'_, AppState>) -> Result<Db, String> { if let Some(db) = state.db.get() { Ok(db.clone()) } else { match &*state.db_error.lock().await { Some(e) => Err(e.clone()), None => Err("DB not init".to_string()) } } }
@@ -691,7 +696,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            set_master_password, list_server_configs, delete_server_config, connect_with_id,
+            set_master_password, check_master_password_set, list_server_configs, delete_server_config, connect_with_id,
             spawn_new_pty, write_pty, close_pty, resize_pty, get_terminal_logs, get_active_ports,
             get_agent_token, open_dynamic_tunnel, ls_remote, load_remote_skills,
             navigate_cyber_webview, reload_cyber_webview, extract_cyber_dom, eval_cyber_webview,

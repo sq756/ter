@@ -133,14 +133,17 @@ jobs:
           NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
         run: npm run tauri android build -- --apk
 
-      - name: List Build Output (Debug)
-        run: ls -R src-tauri/gen/android/app/build/outputs/
+      - name: Collect APKs
+        run: |
+          mkdir -p build-artifacts
+          find src-tauri/gen/android -name "*.apk" -exec cp {} build-artifacts/ \;
+          ls -R build-artifacts
 
       - name: Sign APK
         uses: r0adkll/sign-android-release@v1
         id: sign_app
         with:
-          releaseDirectory: src-tauri/gen/android/app/build/outputs/apk/universal/release
+          releaseDirectory: build-artifacts
           signingKeyBase64: ${{ secrets.SIGNING_KEY }}
           alias: ${{ secrets.ALIAS }}
           keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
