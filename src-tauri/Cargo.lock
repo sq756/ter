@@ -5989,7 +5989,7 @@ dependencies = [
 
 [[package]]
 name = "ter"
-version = "2.12.4"
+version = "2.12.5"
 dependencies = [
  "aes-gcm",
  "anyhow",
