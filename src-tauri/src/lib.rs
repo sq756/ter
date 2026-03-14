@@ -171,6 +171,53 @@ async fn eval_cyber_webview(code: String, app_handle: AppHandle) -> Result<(), S
     Ok(())
 }
 
+// v2.11.32: Ghost Archiver Logic
+struct GhostArchiver {
+    archives_dir: std::path::PathBuf,
+}
+
+impl GhostArchiver {
+    fn new() -> Self {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+        let archives_dir = std::path::PathBuf::from(home).join(".ter/archives");
+        if !archives_dir.exists() { let _ = std::fs::create_dir_all(&archives_dir); }
+        Self { archives_dir }
+    }
+
+    fn strip_ansi(data: &[u8]) -> String {
+        let s = String::from_utf8_lossy(data);
+        // Regex to strip ANSI color codes
+        let re = regex::Regex::new(r"\x1B\[([0-9;]*[a-zA-Z])").unwrap();
+        re.replace_all(&s, "").to_string()
+    }
+
+    fn archive(&self, tab_id: &str, data: &[u8]) {
+        let clean_text = Self::strip_ansi(data);
+        if clean_text.trim().is_empty() { return; }
+        
+        let file_path = self.archives_dir.join(format!("{}_latest.md", tab_id));
+        let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+        let content = format!("\n\n### ARCHIVE_BLOCK [{}]\n\n{}", timestamp, clean_text);
+        
+        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(file_path) {
+            use std::io::Write;
+            let _ = file.write_all(content.as_bytes());
+        }
+    }
+}
+
+lazy_static::lazy_static! {
+    static ref ARCHIVER: GhostArchiver = GhostArchiver::new();
+}
+
+#[tauri::command]
+async fn get_latest_ai_response(tab_id: String) -> Result<String, String> {
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let file_path = std::path::PathBuf::from(home).join(".ter/archives").join(format!("{}_latest.md", tab_id));
+    if !file_path.exists() { return Err("No ghost archive found for this session.".to_string()); }
+    std::fs::read_to_string(file_path).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let session = state.session.lock().await.as_ref().ok_or("No session")?.clone();
@@ -182,48 +229,41 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
     let (ctrl_tx, mut ctrl_rx) = mpsc::channel::<PtyControl>(10);
     state.pty_channels.insert(tab_id.clone(), tx);
     state.ctrl_channels.insert(tab_id.clone(), ctrl_tx);
+    
+    let tab_id_cap = tab_id.clone();
     tauri::async_runtime::spawn(async move {
-        log::info!("[PTY:{}] Starting PTY read loop", tab_id);
+        log::info!("[PTY:{}] Starting PTY read loop", tab_id_cap);
+        let mut capture_active = false;
         loop {
             tokio::select! {
                 Some(ctrl) = ctrl_rx.recv() => { 
                     let PtyControl::Resize(c, r) = ctrl; 
-                    log::debug!("[PTY:{}] Resizing to {}x{}", tab_id, c, r);
                     let _ = channel.window_change(c, r, 0, 0).await; 
                 }
                 Some(data) = rx.recv() => { 
+                    // v2.11.32: Logic to trigger capture on AI keywords
+                    if data.to_lowercase().contains("gemini") || data.to_lowercase().contains("claude") {
+                        capture_active = true;
+                    }
                     let _ = channel.data(data.as_bytes()).await; 
                 }
                 msg = channel.wait() => { 
                     match msg {
                         Some(russh::ChannelMsg::Data { data }) => {
-                            let _ = app_handle.emit("pty-data", serde_json::json!({"id": tab_id, "data": data.to_vec()}));
+                            if capture_active {
+                                ARCHIVER.archive(&tab_id_cap, &data);
+                            }
+                            let _ = app_handle.emit("pty-data", serde_json::json!({"id": tab_id_cap, "data": data.to_vec()}));
                         }
                         Some(russh::ChannelMsg::ExtendedData { data, .. }) => {
-                            let _ = app_handle.emit("pty-data", serde_json::json!({"id": tab_id, "data": data.to_vec()}));
+                            let _ = app_handle.emit("pty-data", serde_json::json!({"id": tab_id_cap, "data": data.to_vec()}));
                         }
-                        Some(russh::ChannelMsg::Eof) => {
-                            log::info!("[PTY:{}] Received EOF", tab_id);
-                            break;
-                        }
-                        Some(russh::ChannelMsg::Close) => {
-                            log::info!("[PTY:{}] Received Close", tab_id);
-                            break;
-                        }
-                        Some(russh::ChannelMsg::ExitStatus { exit_status }) => {
-                            log::info!("[PTY:{}] Remote process exited with status: {}", tab_id, exit_status);
-                            break;
-                        }
-                        None => {
-                            log::info!("[PTY:{}] Channel wait returned None (closed)", tab_id);
-                            break;
-                        }
+                        Some(russh::ChannelMsg::Eof) | Some(russh::ChannelMsg::Close) => break,
                         _ => {}
                     }
                 }
             }
         }
-        log::info!("[PTY:{}] PTY loop finished", tab_id);
     });
     Ok(())
 }
@@ -515,7 +555,7 @@ pub fn run() {
             get_agent_token, open_dynamic_tunnel, ls_remote, load_remote_skills,
             navigate_cyber_webview, reload_cyber_webview, extract_cyber_dom, eval_cyber_webview,
             save_server_config, set_model_path, get_model_path, download_file, upload_file,
-            delete_remote_file, read_remote_file,
+            delete_remote_file, read_remote_file, get_latest_ai_response,
             list_remote_tmux_sessions
         ])
         .run(tauri::generate_context!())

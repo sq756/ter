@@ -118,6 +118,17 @@ const handlePreviewAction = async () => {
   }
 };
 
+const copyLatestAI = async () => {
+  if (!activeTabId.value) return;
+  try {
+    const text = await invoke<string>('get_latest_ai_response', { tabId: activeTabId.value });
+    await navigator.clipboard.writeText(text);
+    backendLogs.value.push(`[INFO] Latest AI response copied to clipboard.`);
+  } catch (e) {
+    backendLogs.value.push(`[ERROR] No AI response found to copy.`);
+  }
+};
+
 const updateStatus = (msg: string) => {
   backendLogs.value.push(`[STATUS] ${msg}`);
 };
@@ -502,6 +513,8 @@ watch(() => showPrivilegeMenu.value, (val) => { if (val) activeMenu.value = 'pri
           </div>
 
           <div class="status-right">
+            <button class="status-btn" @click="copyLatestAI">📋 CLIP</button>
+            <span class="status-sep">|</span>
             <button class="status-btn" @click="captureAndUpload(false)">AUDIT_UI</button>
             <span class="status-sep">|</span>
             <button class="status-btn web-toggle" :class="{ 'active': cyberMode === 1 }" @click="cyberMode = cyberMode === 1 ? 0 : 1">

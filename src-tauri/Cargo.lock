@@ -5991,17 +5991,20 @@ dependencies = [
 
 [[package]]
 name = "ter"
-version = "2.11.30"
+version = "2.11.32"
 dependencies = [
  "aes-gcm",
  "anyhow",
  "argon2",
  "async-trait",
  "base64 0.22.1",
+ "chrono",
  "dashmap",
  "headless_chrome",
+ "lazy_static",
  "log",
  "rand 0.8.5",
+ "regex",
  "russh",
  "russh-keys",
  "russh-sftp",

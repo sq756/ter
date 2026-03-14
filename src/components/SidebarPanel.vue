@@ -54,7 +54,6 @@ const handleWheel = (e: WheelEvent) => {
   }
 };
 
-// SFTP / Skills / etc (Keep existing methods)
 const draggedFile = ref<any>(null);
 const onDragStart = (f: any) => { if (!f.is_dir) draggedFile.value = f; };
 const onDropOnSkill = (skill: any) => {
@@ -84,6 +83,9 @@ const sortedFiles = computed(() => {
 const onItemClick = (f: any) => { if (f.is_dir) emit('change-dir', f.name); };
 const onFastAccessClick = (path: string) => { emit('fast-access', path); };
 const isTabActive = (id: string) => (Date.now() - (props.lastActivityMap[id] || 0)) < 1000;
+
+// v2.11.33: Data protection for NaN values
+const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'number' && isNaN(v))) ? '[ SCANNING... ]' : v;
 </script>
 
 <template>
@@ -93,7 +95,6 @@ const isTabActive = (id: string) => (Date.now() - (props.lastActivityMap[id] || 
       <div class="scanline"></div>
     </div>
 
-    <!-- v2.11.31: Dynamic View Switcher -->
     <div class="view-switcher-safe">
       <button v-for="(s, idx) in slots" :key="s"
               :class="{ active: activeView === s, 'overlay-tab': idx === 2 && isLogsOverlay }" 
@@ -106,20 +107,37 @@ const isTabActive = (id: string) => (Date.now() - (props.lastActivityMap[id] || 
     <div v-show="activeView === 'OPS'" class="safe-view-wrapper">
       <div class="module sys-health" @click="$emit('cycle-health-mode')" style="cursor: pointer;">
         <header>System Health ({{ healthMode.toUpperCase() }})</header>
-        <div v-if="healthMode === 'resource'" class="chart-box">
-          <div class="stat-item"><canvas ref="cpuChartRef" width="100" height="40" class="mini-chart"></canvas><span class="label">CPU</span></div>
-          <div class="stat-item"><canvas ref="memChartRef" width="100" height="40" class="mini-chart"></canvas><span class="label">RAM</span></div>
+        
+        <!-- v2.11.33: Resource View with high-fidelity fallback bars -->
+        <div v-if="healthMode === 'resource'" class="chart-box-enhanced">
+          <div class="stat-row">
+            <span class="label">CPU</span>
+            <div class="cyber-bar-bg">
+              <div class="cyber-bar-fill" :style="{ width: (safeVal(extraStats.cpu_raw) || 0) + '%' }"></div>
+            </div>
+            <canvas ref="cpuChartRef" width="100" height="30" class="mini-chart overlay-chart"></canvas>
+          </div>
+          <div class="stat-row">
+            <span class="label">RAM</span>
+            <div class="cyber-bar-bg">
+              <div class="cyber-bar-fill blue" :style="{ width: (safeVal(extraStats.mem_raw) || 0) + '%' }"></div>
+            </div>
+            <canvas ref="memChartRef" width="100" height="30" class="mini-chart overlay-chart"></canvas>
+          </div>
         </div>
+
         <div v-else-if="healthMode === 'network'" class="net-box">
           <div class="speed-row"><span class="label">UP:</span> <span class="val">{{ currentNetSpeed.up }}</span></div>
           <div class="speed-row"><span class="label">DOWN:</span> <span class="val">{{ currentNetSpeed.down }}</span></div>
           <canvas ref="netChartRef" width="200" height="40" class="net-chart"></canvas>
         </div>
+
+        <!-- v2.11.33: Detail Mode Visual Hierarchies -->
         <div v-else class="detail-box">
-          <div class="meta-row"><span class="label">GPU:</span> <span class="val">{{ extraStats.gpu }}</span></div>
-          <div class="meta-row"><span class="label">UPT:</span> <span class="val">{{ extraStats.uptime }}</span></div>
-          <div class="meta-row"><span class="label">IP:</span> <span class="val">{{ extraStats.ip }}</span></div>
-          <div class="meta-row"><span class="label">DISK:</span> <span class="val">{{ extraStats.disk }}</span></div>
+          <div class="meta-row"><span class="label highlight">GPU:</span> <span class="val">{{ safeVal(extraStats.gpu) }}</span></div>
+          <div class="meta-row"><span class="label highlight">UPT:</span> <span class="val">{{ safeVal(extraStats.uptime) }}</span></div>
+          <div class="meta-row"><span class="label highlight">IP:</span> <span class="val">{{ safeVal(extraStats.ip) }}</span></div>
+          <div class="meta-row"><span class="label highlight">DISK:</span> <span class="val">{{ safeVal(extraStats.disk) }}</span></div>
         </div>
       </div>
       <div class="module scroller processes">
@@ -134,12 +152,11 @@ const isTabActive = (id: string) => (Date.now() - (props.lastActivityMap[id] || 
       </div>
     </div>
 
-    <!-- ARS View -->
+    <!-- ARS View: Removed Settings Button -->
     <div v-show="activeView === 'ARS'" class="safe-view-wrapper safe-flex-wrapper">
       <div class="module scroller skills-hub">
-        <header class="header-with-action">
+        <header class="header-minimal">
           <span>Skill Hub</span>
-          <button class="header-btn" @click="$emit('open-trigger-settings')">⚙️</button>
         </header>
         <ul class="data-list">
           <li v-for="s in skills" :key="s.id" @click="$emit('run-skill', s)" @contextmenu.prevent.stop="$emit('skill-context', {event: $event, skill: s})" @dragover.prevent @drop="onDropOnSkill(s)">
@@ -162,8 +179,8 @@ const isTabActive = (id: string) => (Date.now() - (props.lastActivityMap[id] || 
       <div class="module scroller explorer" :style="{ height: sftpHeight + 'px', flex: 'none' }">
         <header><span>SFTP Explorer</span><div class="current-path">{{ currentPath }}</div></header>
         <ul class="data-list">
-          <li @click="$emit('change-dir', '..')" @contextmenu.prevent.stop="$emit('explorer-context', { e: $event, file: { name: '..', is_dir: true } })" class="file-item">..</li>
-          <li v-for="f in sortedFiles" :key="f.name" @click="onItemClick(f)" @contextmenu.prevent.stop="$emit('explorer-context', { e: $event, file: f })" draggable="true" @dragstart="onDragStart(f)" class="file-item">
+          <li @click="$emit('change-dir', '..')" @contextmenu.prevent.stop="$emit('explorer-context', { e: $event, file: { name: '..', is_dir: true } })" class="file-item file-spacing">..</li>
+          <li v-for="f in sortedFiles" :key="f.name" @click="onItemClick(f)" @contextmenu.prevent.stop="$emit('explorer-context', { e: $event, file: f })" draggable="true" @dragstart="onDragStart(f)" class="file-item file-spacing">
             <span class="file-icon">{{ f.is_dir ? '📂' : '📄' }}</span><span class="file-name">{{ f.name }}</span>
           </li>
         </ul>
@@ -197,16 +214,37 @@ const isTabActive = (id: string) => (Date.now() - (props.lastActivityMap[id] || 
 .safe-view-wrapper { display: flex; flex-direction: column; flex: 1; overflow: hidden; height: 100%; }
 .safe-flex-wrapper .module.scroller { flex: 1 !important; max-height: none !important; height: 100% !important; }
 .module { padding: 16px; border-bottom: 1px solid #27272a; }
-.module header { font-size: 11px; color: #71717a; margin-bottom: 12px; text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; }
+
+/* v2.11.33: Unified Header Letter Spacing */
+.module header { font-size: 11px; color: #71717a; margin-bottom: 12px; text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; letter-spacing: 2px; }
+.header-minimal { display: block; }
+
 .scroller { min-height: 0; overflow-y: auto; }
 .data-list { list-style: none; padding: 0; margin: 0; }
 .data-list li, .file-item { display: flex; align-items: center; gap: 10px; padding: 6px 8px; margin-bottom: 2px; border-radius: 6px; cursor: pointer; color: #d4d4d8; font-size: 13px; transition: all 0.15s; }
 .data-list li:hover { background: rgba(34, 197, 94, 0.08); color: #22c55e; }
+
+/* v2.11.33: SFTP folder/icon spacing */
+.file-spacing { gap: 18px !important; }
+
 .log-line { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #a1a1aa; margin-bottom: 2px; }
 .scanline { position: absolute; top: 0; left: 0; width: 100%; height: 2px; background: rgba(34, 197, 94, 0.2); animation: scan 3s infinite linear; pointer-events: none; }
 @keyframes scan { 0% { transform: translateY(-100%); } 100% { transform: translateY(40px); } }
+
+/* v2.11.33: Cyber-style Progress Bars */
 .sys-health { height: auto; }
-.mini-chart { height: 30px; background: #000; border: 1px solid #18181b; }
+.chart-box-enhanced { display: flex; flex-direction: column; gap: 12px; }
+.stat-row { position: relative; display: flex; flex-direction: column; gap: 4px; }
+.cyber-bar-bg { height: 4px; background: #18181b; border-radius: 2px; overflow: hidden; width: 100%; }
+.cyber-bar-fill { height: 100%; background: #00ff9d; box-shadow: 0 0 8px #00ff9d; transition: width 0.5s ease; }
+.cyber-bar-fill.blue { background: #3b82f6; box-shadow: 0 0 8px #3b82f6; }
+.overlay-chart { position: absolute; top: 15px; left: 0; opacity: 0.4; pointer-events: none; }
+
+.detail-box .label.highlight { color: #22c55e; font-weight: bold; opacity: 1; }
+.detail-box .val { color: #a1a1aa; font-size: 10px; font-family: 'JetBrains Mono', monospace; }
+.meta-row { display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding: 4px 0; }
+
+.mini-chart { height: 30px; background: transparent; border: none; }
 .breathing { animation: breathe 0.8s infinite; }
 @keyframes breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 .resizable-handle { height: 4px; cursor: ns-resize; background: transparent; }

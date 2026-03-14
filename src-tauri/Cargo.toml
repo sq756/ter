@@ -1,6 +1,6 @@
 [package]
 name = "ter"
-version = "2.11.31"
+version = "2.11.32"
 description = "Ter - Advanced SSH & Webview Terminal"
 authors = ["sq"]
 license = "MIT"
@@ -42,3 +42,6 @@ headless_chrome = "1.0.15"
 serde_yaml = "0.9"
 tiny_http = "0.12"
 dashmap = "6.1.0"
+lazy_static = "1.4"
+regex = "1.10"
+chrono = "0.4"
