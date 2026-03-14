@@ -197,12 +197,19 @@ impl GhostArchiver {
         
         let file_path = self.archives_dir.join(format!("{}_latest.md", tab_id));
         let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
-        let content = format!("\n\n### ARCHIVE_BLOCK [{}]\n\n{}", timestamp, clean_text);
+        
+        // v2.11.35: Improved formatting for archives
+        let content = format!("\n--- BLOCK_{} ---\n{}\n", timestamp, clean_text);
         
         if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(file_path) {
             use std::io::Write;
             let _ = file.write_all(content.as_bytes());
         }
+    }
+
+    fn clear_archive(&self, tab_id: &str) {
+        let file_path = self.archives_dir.join(format!("{}_latest.md", tab_id));
+        if file_path.exists() { let _ = std::fs::remove_file(file_path); }
     }
 }
 
@@ -214,8 +221,10 @@ lazy_static::lazy_static! {
 async fn get_latest_ai_response(tab_id: String) -> Result<String, String> {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
     let file_path = std::path::PathBuf::from(home).join(".ter/archives").join(format!("{}_latest.md", tab_id));
-    if !file_path.exists() { return Err("No ghost archive found for this session.".to_string()); }
-    std::fs::read_to_string(file_path).map_err(|e| e.to_string())
+    if !file_path.exists() { return Err("ERROR: ARCHIVE_NOT_FOUND. Execute an AI command first.".to_string()); }
+    let content = std::fs::read_to_string(file_path).map_err(|e| e.to_string())?;
+    if content.trim().is_empty() { return Err("ERROR: ARCHIVE_EMPTY. Capture was triggered but no data was received.".to_string()); }
+    Ok(content)
 }
 
 #[tauri::command]
@@ -234,6 +243,9 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
     tauri::async_runtime::spawn(async move {
         log::info!("[PTY:{}] Starting PTY read loop", tab_id_cap);
         let mut capture_active = false;
+        let mut input_buffer = String::new();
+        let mut last_capture_time = std::time::Instant::now();
+
         loop {
             tokio::select! {
                 Some(ctrl) = ctrl_rx.recv() => { 
@@ -241,10 +253,18 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
                     let _ = channel.window_change(c, r, 0, 0).await; 
                 }
                 Some(data) = rx.recv() => { 
-                    // v2.11.34: Broader trigger logic for Ghost Archive
-                    let lower = data.to_lowercase();
+                    // v2.11.35: Input buffering to detect triggers even with keystrokes
+                    input_buffer.push_str(&data);
+                    if input_buffer.len() > 100 { input_buffer.drain(..input_buffer.len()-100); }
+                    
+                    let lower = input_buffer.to_lowercase();
                     if lower.contains("gemini") || lower.contains("claude") || lower.contains("ter agent") {
-                        capture_active = true;
+                        if !capture_active {
+                            log::info!("[PTY:{}] Ghost Archive Triggered", tab_id_cap);
+                            ARCHIVER.clear_archive(&tab_id_cap);
+                            capture_active = true;
+                        }
+                        last_capture_time = std::time::Instant::now();
                     }
                     let _ = channel.data(data.as_bytes()).await; 
                 }
@@ -253,6 +273,7 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
                         Some(russh::ChannelMsg::Data { data }) => {
                             if capture_active {
                                 ARCHIVER.archive(&tab_id_cap, &data);
+                                last_capture_time = std::time::Instant::now();
                             }
                             let _ = app_handle.emit("pty-data", serde_json::json!({"id": tab_id_cap, "data": data.to_vec()}));
                         }
@@ -261,6 +282,14 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
                         }
                         Some(russh::ChannelMsg::Eof) | Some(russh::ChannelMsg::Close) => break,
                         _ => {}
+                    }
+                }
+                // v2.11.35: Auto-stop capture after 10s of inactivity to prevent session bloating
+                _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {
+                    if capture_active && last_capture_time.elapsed().as_secs() > 10 {
+                        log::info!("[PTY:{}] Ghost Archive Stopped (Timeout)", tab_id_cap);
+                        capture_active = false;
+                        input_buffer.clear();
                     }
                 }
             }
