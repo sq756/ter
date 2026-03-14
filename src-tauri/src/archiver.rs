@@ -8,6 +8,8 @@ use lazy_static::lazy_static;
 pub struct GhostArchiver {
     archives_dir: PathBuf,
     ansi_regex: Regex,
+    ui_regex: Regex,
+    noise_regex: Regex,
     // v2.11.37: Semantic anchors for Agent's thought chain
     initiation_regex: Regex,
     action_keyword_regex: Regex,
@@ -22,7 +24,16 @@ impl GhostArchiver {
         }
         Self {
             archives_dir,
-            ansi_regex: Regex::new(r"\x1B\[([0-9;]*[a-zA-Z])").unwrap(),
+            // Comprehensive ANSI escape sequence regex
+            ansi_regex: Regex::new(r"(?x)
+                \x1B \[ [0-9;]* [a-zA-Z]
+                | \x1B \] [^\x07\x1B]* (\x07|\x1B\\)
+                | \x1B [PX] [^\x1B]* \x1B\\
+                | \x1B [\x40-\x5F]
+                | \x1B [()][A-Z0-9]
+            ").unwrap(),
+            ui_regex: Regex::new(r"(?m)^.*[▀▄█▌▐░▒▓]{3,}.*$\n?").unwrap(),
+            noise_regex: Regex::new(r"(?i)(Type your message|Enter command|Connected to).*").unwrap(),
             initiation_regex: Regex::new(r"(?i)(I will|Then, I'll|Finally, I'll)").unwrap(),
             action_keyword_regex: Regex::new(r"(?i)(I will|Then, I'll|Finally, I'll)\s+(\w+)").unwrap(),
         }
@@ -30,7 +41,9 @@ impl GhostArchiver {
 
     pub fn strip_ansi(&self, data: &[u8]) -> String {
         let s = String::from_utf8_lossy(data);
-        self.ansi_regex.replace_all(&s, "").to_string()
+        let clean = self.ansi_regex.replace_all(&s, "");
+        // Also strip non-printable characters except newline and tab
+        clean.chars().filter(|c| c.is_alphanumeric() || c.is_whitespace() || c.is_ascii_punctuation()).collect()
     }
 
     pub fn extract_summary(&self, text: &str) -> String {
@@ -42,14 +55,23 @@ impl GhostArchiver {
         "AI_INTERACTION".to_string()
     }
 
+    pub fn clear_latest(&self, tab_id: &str) {
+        let latest_path = self.archives_dir.join(format!("{}_latest.md", tab_id));
+        let _ = fs::remove_file(latest_path);
+    }
+
     pub fn archive(&self, tab_id: &str, data: &[u8]) {
-        let clean_text = self.strip_ansi(data);
+        let mut clean_text = self.strip_ansi(data);
+        
+        // v2.11.39: UI and Noise Filtering
+        clean_text = self.ui_regex.replace_all(&clean_text, "").to_string();
+        clean_text = self.noise_regex.replace_all(&clean_text, "").to_string();
+        
         if clean_text.trim().is_empty() { return; }
 
         let timestamp_file = Local::now().format("%Y%m%d_%H%M%S");
         let summary = self.extract_summary(&clean_text);
         
-        // Create both a specific entry and update the 'latest' link
         let file_name = format!("{}_{}_{}.md", timestamp_file, tab_id, summary);
         let file_path = self.archives_dir.join(&file_name);
         let latest_path = self.archives_dir.join(format!("{}_latest.md", tab_id));
@@ -58,13 +80,10 @@ impl GhostArchiver {
             let _ = file.write_all(clean_text.as_bytes());
         }
         
-        // v2.11.37: Update latest file for CLIP button
-        let _ = fs::write(latest_path, clean_text);
-    }
-
-    pub fn is_semantic_start(&self, data: &[u8]) -> bool {
-        let clean = self.strip_ansi(data);
-        self.initiation_regex.is_match(&clean)
+        // Append to latest for current session harvest
+        if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(&latest_path) {
+            let _ = file.write_all(clean_text.as_bytes());
+        }
     }
 
     pub fn get_latest(&self, tab_id: &str) -> Result<String, String> {
@@ -72,7 +91,45 @@ impl GhostArchiver {
         if !file_path.exists() {
             return Err("ERROR: ARCHIVE_NOT_FOUND. Initiate dialogue with 'I will...'".to_string());
         }
-        fs::read_to_string(file_path).map_err(|e| e.to_string())
+        let content = fs::read_to_string(file_path).map_err(|e| e.to_string())?;
+        
+        // v2.11.39: Automatic Code Block Formatting
+        Ok(self.format_markdown(&content))
+    }
+
+    fn format_markdown(&self, text: &str) -> String {
+        let mut result = String::new();
+        let lines: Vec<&str> = text.lines().collect();
+        let mut in_code = false;
+
+        for line in lines {
+            let trimmed = line.trim();
+            // Simple heuristic for code detection if not already in markdown
+            if (trimmed.starts_with("import ") || trimmed.starts_with("const ") || 
+                trimmed.starts_with("def ") || trimmed.starts_with("class ") ||
+                trimmed.contains(" = ") && trimmed.ends_with(";")) && !in_code {
+                result.push_str("```\n");
+                in_code = true;
+            }
+            
+            if in_code && trimmed.is_empty() {
+                // Potential end of block if many empty lines, but let's be conservative
+            }
+
+            result.push_str(line);
+            result.push('\n');
+        }
+        
+        if in_code {
+            result.push_str("```\n");
+        }
+        
+        result.trim().to_string()
+    }
+
+    pub fn is_semantic_start(&self, data: &[u8]) -> bool {
+        let clean = self.strip_ansi(data);
+        self.initiation_regex.is_match(&clean)
     }
 
     pub fn list_vault(&self) -> Result<Vec<serde_json::Value>, String> {

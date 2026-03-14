@@ -216,6 +216,7 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
                         Some(russh::ChannelMsg::Data { data }) => {
                             if ARCHIVER.is_semantic_start(&data) {
                                 capture_active = true;
+                                ARCHIVER.clear_latest(&tab_id_cap);
                                 last_capture_time = std::time::Instant::now();
                             }
                             if capture_active {
