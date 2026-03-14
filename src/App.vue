@@ -27,6 +27,7 @@ import { useContextMenu } from './composables/useContextMenu';
 import { usePtyListener } from './composables/usePtyListener';
 import { useWebviews } from './composables/useWebviews';
 import { useBookmarks } from './composables/useBookmarks';
+import { useUIPreferences } from './composables/useUIPreferences';
 
 // ==========================================
 // --- GLOBAL STATE ---
@@ -186,6 +187,10 @@ const {
 } = useBookmarks(hostId);
 
 const {
+  uiPrefs, loadUIPreferences, autoDetectScale
+} = useUIPreferences();
+
+const {
   previewUrl, isWebviewLoading, refreshWebview, handleExtractDOM, onDomExtracted, captureAndUpload, useNativeWebview
 } = useCyber(activeTabId, backendLogs, activeWebviewId, updateWebviewUrl);
 
@@ -243,23 +248,31 @@ const sidebarSlots = ref(['OPS', 'ARS', 'NAV']);
 const previousSlot3 = ref<string | null>(null);
 
 const onAgentZoneClick = () => {
+  // v2.11.52: Manual trigger for strategic logs
   if (sidebarSlots.value.includes('LOGS')) {
-    // Already has logs, just jump
     window.dispatchEvent(new CustomEvent('switch-sidebar-view', { detail: 'LOGS' }));
   } else {
-    // Perform Overlay Protocol
-    if (previousSlot3.value) {
-      // Revert if already overlaying
-      sidebarSlots.value[2] = previousSlot3.value;
-      previousSlot3.value = null;
-    } else {
-      previousSlot3.value = sidebarSlots.value[2];
-      sidebarSlots.value[2] = 'LOGS';
-      nextTick(() => {
-        window.dispatchEvent(new CustomEvent('switch-sidebar-view', { detail: 'LOGS' }));
-      });
-    }
+    // Overlay Protocol
+    previousSlot3.value = sidebarSlots.value[2];
+    sidebarSlots.value[2] = 'LOGS';
+    nextTick(() => {
+      window.dispatchEvent(new CustomEvent('switch-sidebar-view', { detail: 'LOGS' }));
+    });
   }
+};
+
+const handleExplorerDownload = async () => {
+  // v2.11.52: Force switch to NET logs for feedback
+  onAgentZoneClick(); 
+  nextTick(() => {
+    const sidebar = document.querySelector('.side-bar');
+    if (sidebar) {
+      const netBtn = Array.from(sidebar.querySelectorAll('.tactical-logs-matrix button'))
+        .find(b => b.textContent?.includes('NET')) as HTMLButtonElement;
+      if (netBtn) netBtn.click();
+    }
+  });
+  await explorerActionDownload(updateStatus);
 };
 
 const handleSidebarViewRevert = (newView: string) => {
@@ -380,6 +393,7 @@ const handleGlobalKeyDown = (e: KeyboardEvent) => {
   }
 };
 onMounted(() => {
+  loadUIPreferences();
   window.addEventListener('keydown', handleGlobalKeyDown);
   window.addEventListener('keyup', (e) => { if (!e.ctrlKey) isCtrlPressed.value = false; });
   window.addEventListener('mousemove', handleGlobalMouseMove);
@@ -439,7 +453,15 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'safe-mode': isSafeMode }" @mousedown.capture="closeAllMenus">
+  <div class="app-shell" 
+       :class="{ 'safe-mode': isSafeMode }" 
+       :style="{ 
+         '--ter-ui-scale': uiPrefs.ui_scale,
+         '--ter-glow-opacity': uiPrefs.glow_intensity / 100,
+         '--ter-pulse-duration': (2.0 - (uiPrefs.pulse_speed / 100) * 1.8) + 's',
+         'font-size': (14 * uiPrefs.ui_scale) + 'px'
+       }"
+       @mousedown.capture="closeAllMenus">
     <CyberGate v-if="!isConnected" @connected="onConnected" />
     
     <div v-else class="main-view">
@@ -447,9 +469,11 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
                      :useNativeWebview="useNativeWebview" 
                      :isSafeMode="isSafeMode"
                      :sidebarSlots="sidebarSlots"
+                     :uiPrefs="uiPrefs"
                      @update:useNativeWebview="useNativeWebview = $event" 
                      @update:isSafeMode="isSafeMode = $event"
                      @update:sidebarSlots="sidebarSlots = $event"
+                     @auto-detect="autoDetectScale"
                      @close="showSettings = false" @update-macros="(m) => activeMacros = m" />
       
       <SidebarPanel 
@@ -531,7 +555,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
             <div class="menu-item" @click="explorerActionUpload">📤 Upload</div>
           </template>
           <template v-else>
-            <div class="menu-item" @click="explorerActionDownload(updateStatus)">📥 Download</div>
+            <div class="menu-item" @click="handleExplorerDownload">📥 Download</div>
             <div class="menu-item" @click="handlePreviewAction">👁️ Preview</div>
             <div class="menu-divider"></div>
             <div class="menu-item danger" @click="explorerActionDelete">🗑️ Delete</div>

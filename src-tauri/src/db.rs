@@ -71,6 +71,16 @@ impl Db {
         .execute(&pool)
         .await?;
 
+        // Migration: UI Preferences (v2.11.48)
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS ui_preferences (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )"
+        )
+        .execute(&pool)
+        .await?;
+
         // Index for performance
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_tab_id ON terminal_logs(tab_id)")
             .execute(&pool)
@@ -111,6 +121,22 @@ impl Db {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    pub async fn save_ui_preference(&self, key: &str, value: &str) -> Result<()> {
+        sqlx::query("INSERT OR REPLACE INTO ui_preferences (key, value) VALUES (?, ?)")
+            .bind(key)
+            .bind(value)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn list_ui_preferences(&self) -> Result<Vec<(String, String)>> {
+        let rows = sqlx::query_as::<_, (String, String)>("SELECT key, value FROM ui_preferences")
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows)
     }
 
     pub async fn append_log(&self, tab_id: &str, content: &[u8]) -> Result<()> {

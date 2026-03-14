@@ -178,6 +178,31 @@ async fn delete_bookmark(id: String, state: State<'_, AppState>) -> Result<(), S
 }
 
 #[tauri::command]
+async fn save_ui_preference(key: String, value: String, state: State<'_, AppState>) -> Result<(), String> {
+    let db = get_db(&state).await?;
+    db.save_ui_preference(&key, &value).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn list_ui_preferences(state: State<'_, AppState>) -> Result<std::collections::HashMap<String, String>, String> {
+    let db = get_db(&state).await?;
+    let prefs = db.list_ui_preferences().await.map_err(|e| e.to_string())?;
+    Ok(prefs.into_iter().collect())
+}
+
+#[tauri::command]
+async fn get_device_fingerprint() -> Result<serde_json::Value, String> {
+    let os = std::env::consts::OS;
+    let arch = std::env::consts::ARCH;
+    // Simple fingerprint based on OS/Arch for now, can be expanded with hardware IDs
+    Ok(serde_json::json!({
+        "os": os,
+        "arch": arch,
+        "is_mobile": os == "android" || os == "ios"
+    }))
+}
+
+#[tauri::command]
 async fn navigate_cyber_webview(label: String, url: String, app_handle: AppHandle) -> Result<(), String> {
     if let Some(wv) = app_handle.get_webview_window(&label) {
         let url_parsed = url.parse::<Url>().map_err(|e| format!("{}", e))?;
@@ -301,22 +326,44 @@ async fn get_agent_token(state: State<'_, AppState>) -> Result<String, String> {
 use russh_sftp::client::SftpSession;
 
 #[tauri::command]
-async fn ls_remote(path: String, state: State<'_, AppState>) -> Result<Vec<RemoteFile>, String> {
+async fn ls_remote(path: String, state: State<'_, AppState>) -> Result<RemoteDirContent, String> {
     let session_guard = state.session.lock().await;
     let session = session_guard.as_ref().ok_or("No active SSH session")?;
     let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
     channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
     let sftp = SftpSession::new(channel.into_stream()).await.map_err(|e| e.to_string())?;
-    let entries = sftp.read_dir(&path).await.map_err(|e| e.to_string())?;
+    
+    // v2.11.52: Canonicalize path to ensure absolute referencing
+    let target_path = if path.is_empty() { ".".to_string() } else { path };
+    let real_path = sftp.canonicalize(&target_path).await.map_err(|e| e.to_string())?;
+    
+    let entries = sftp.read_dir(&real_path).await.map_err(|e| e.to_string())?;
     let mut files = Vec::new();
     for entry in entries {
         let name = entry.file_name();
         if name == "." || name == ".." { continue; }
         let is_dir = entry.file_type() == russh_sftp::protocol::FileType::Dir;
         let size = entry.metadata().len();
-        files.push(RemoteFile { name: name.to_string(), is_dir, size });
+        
+        let full_path = if real_path == "/" {
+            format!("/{}", name)
+        } else {
+            format!("{}/{}", real_path, name)
+        };
+
+        files.push(RemoteFile { name: name.to_string(), is_dir, size, path: full_path });
     }
-    Ok(files)
+    
+    // Sort: Dirs first, then alpha
+    files.sort_by(|a, b| {
+        if a.is_dir != b.is_dir {
+            b.is_dir.cmp(&a.is_dir)
+        } else {
+            a.name.to_lowercase().cmp(&b.name.to_lowercase())
+        }
+    });
+
+    Ok(RemoteDirContent { files, current_path: real_path })
 }
 
 #[tauri::command]
@@ -449,8 +496,11 @@ async fn connect_with_id(id: String, _app_handle: AppHandle, state: State<'_, Ap
     Ok(())
 }
 
-#[derive(serde::Serialize)]
-struct RemoteFile { name: String, is_dir: bool, size: u64 }
+#[derive(serde::Serialize, serde::Deserialize)]
+struct RemoteFile { name: String, is_dir: bool, size: u64, path: String }
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct RemoteDirContent { files: Vec<RemoteFile>, current_path: String }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -489,7 +539,9 @@ pub fn run() {
             delete_remote_file, read_remote_file, get_latest_ai_response, list_vault,
             copy_latest_to_clipboard,
             list_remote_tmux_sessions,
-            list_bookmarks, save_bookmark, delete_bookmark
+            list_bookmarks, save_bookmark, delete_bookmark,
+            save_ui_preference, list_ui_preferences,
+            get_device_fingerprint
         ])
         .run(tauri::generate_context!())
         .expect("error");

@@ -28,6 +28,8 @@ export function useExplorerContextMenu(
 
   const getFullPath = () => {
     if (!selectedFile.value) return currentPath.value;
+    if (selectedFile.value.path) return selectedFile.value.path; // v2.11.52: Use backend confirmed path
+    
     if (selectedFile.value.name === '..') {
       const pts = currentPath.value.split('/').filter(x => x);
       pts.pop();
@@ -44,7 +46,16 @@ export function useExplorerContextMenu(
       if (selectedFile.value && !selectedFile.value.is_dir) {
         path = currentPath.value; // cd to parent folder if it's a file
       }
-      await invoke('write_pty', { tabId: activeTabId.value, data: `cd "${path}"\r` });
+      
+      // v2.11.52: If we are already there, just trigger a refresh
+      if (path === currentPath.value && selectedFile.value?.name !== '..') {
+         await refreshExplorer();
+      } else {
+         await invoke('write_pty', { tabId: activeTabId.value, data: `cd "${path}"\r` });
+         // We don't refresh immediately here because pty listener usually catches cd
+         // But we can trigger a manual one for UI responsiveness
+         setTimeout(refreshExplorer, 300);
+      }
     }
     showExplorerMenu.value = false;
   };

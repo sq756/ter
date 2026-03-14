@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import VaultView from './VaultView.vue';
+import SftpExplorer from './SftpExplorer.vue';
 
 const props = defineProps<{
   files: any[];
@@ -231,14 +232,16 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
           </li>
         </ul>
       </div>
-      <div class="module scroller explorer" :style="{ height: sftpHeight + 'px', flex: 'none' }">
-        <header><span>SFTP Explorer</span><div class="current-path">{{ currentPath }}</div></header>
-        <ul class="data-list">
-          <li @click="$emit('change-dir', '..')" @contextmenu.prevent.stop="$emit('explorer-context', { e: $event, file: { name: '..', is_dir: true } })" class="file-item file-spacing">..</li>
-          <li v-for="f in sortedFiles" :key="f.name" @click="onItemClick(f)" @contextmenu.prevent.stop="$emit('explorer-context', { e: $event, file: f })" draggable="true" @dragstart="onDragStart(f)" class="file-item file-spacing">
-            <span class="file-icon">{{ f.is_dir ? '📂' : '📄' }}</span><span class="file-name">{{ f.name }}</span>
-          </li>
-        </ul>
+      
+      <!-- v2.11.46: Refactored SFTP Explorer with Breadcrumbs and Proper Scrolling -->
+      <div class="module explorer-wrapper" :style="{ height: sftpHeight + 'px', flex: 'none' }">
+        <SftpExplorer 
+          :currentPath="currentPath" 
+          :files="files"
+          @change-dir="(d) => $emit('change-dir', d)"
+          @item-context="(p) => $emit('explorer-context', { e: p.event, file: p.file })"
+          @item-drag-start="onDragStart"
+        />
         <div class="resizable-handle" @mousedown="$emit('resize-sftp-start', $event)"></div>
       </div>
     </div>
@@ -290,7 +293,9 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
 .module header { font-size: 11px; color: #71717a; margin-bottom: 12px; text-transform: uppercase; display: flex; justify-content: space-between; align-items: center; letter-spacing: 2px; }
 .header-minimal { display: block; }
 
-.scroller { min-height: 0; overflow-y: auto; }
+.scroller { min-height: 0; overflow-y: auto !important; }
+.processes { flex: 1; height: 100%; min-height: 0; }
+.explorer-wrapper { padding: 0 !important; border-bottom: 1px solid #27272a; position: relative; overflow: hidden; display: flex; flex-direction: column; min-height: 100px; }
 .data-list { list-style: none; padding: 0; margin: 0; }
 .data-list li, .file-item { display: flex; align-items: center; gap: 10px; padding: 6px 8px; margin-bottom: 2px; border-radius: 6px; cursor: pointer; color: #d4d4d8; font-size: 13px; transition: all 0.15s; }
 .data-list li:hover { background: rgba(34, 197, 94, 0.08); color: #22c55e; }

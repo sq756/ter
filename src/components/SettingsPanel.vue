@@ -6,9 +6,14 @@ const props = defineProps<{
   useNativeWebview: boolean;
   isSafeMode: boolean;
   sidebarSlots: string[];
+  uiPrefs: {
+    ui_scale: number;
+    glow_intensity: number;
+    pulse_speed: number;
+  }
 }>();
 
-const emit = defineEmits(['close', 'update-macros', 'update:useNativeWebview', 'update:isSafeMode', 'update:sidebarSlots']);
+const emit = defineEmits(['close', 'update-macros', 'update:useNativeWebview', 'update:isSafeMode', 'update:sidebarSlots', 'auto-detect']);
 
 const allViews = ['OPS', 'ARS', 'NAV', 'LOGS'];
 
@@ -61,18 +66,6 @@ const addMacro = () => {
 const removeMacro = (index: number) => {
   macros.value.splice(index, 1);
   saveMacros();
-};
-
-// v2.11.48: Phase 1 - UI Preference Shell
-const uiPrefs = ref({
-  ui_scale: 1.0,
-  glow_intensity: 50,
-  pulse_speed: 50
-});
-
-const autoDetectScale = () => {
-  // Logic shell for Phase 2
-  console.log("AUTO_DETECT triggered");
 };
 </script>
 
@@ -137,7 +130,7 @@ const autoDetectScale = () => {
         </section>
 
         <section class="config-section">
-          <header>🎨 UI_PREFERENCES_MATRIX (Visual Shell Only)</header>
+          <header>🎨 UI_PREFERENCES_MATRIX</header>
           <div class="preference-matrix">
             <!-- Row 1: TYPO -->
             <div class="pref-column">
@@ -149,7 +142,7 @@ const autoDetectScale = () => {
                   <span class="val">{{ uiPrefs.ui_scale }}x</span>
                 </div>
               </div>
-              <button class="auto-detect-btn" @click="autoDetectScale">AUTO_DETECT</button>
+              <button class="auto-detect-btn" @click="$emit('auto-detect')">AUTO_DETECT</button>
             </div>
 
             <!-- Row 2: CHROM -->

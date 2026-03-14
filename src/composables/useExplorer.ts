@@ -5,52 +5,64 @@ export function useExplorer(isConnected: Ref<boolean>, activeTabId: Ref<string |
   const currentPath = ref('/');
   const realFiles = ref<any[]>([]);
 
-  const refreshExplorer = async () => {
-    if (isConnected.value) {
-      console.log("[Explorer] Fetching files for path:", currentPath.value);
-      try {
-        const files = await invoke<any[]>('ls_remote', { path: currentPath.value });
-        realFiles.value = files || [];
-        console.log("[Explorer] Received files:", realFiles.value.length);
-      } catch (e) {
-        console.error("[Explorer] Failed to refresh explorer:", e);
-        realFiles.value = [];
-      }
-    } else {
+  const refreshExplorer = async (pathOverride?: string) => {
+    if (!isConnected.value) {
       console.warn("[Explorer] Skip refresh: Not connected");
+      return;
+    }
+    
+    const targetPath = pathOverride || currentPath.value;
+    console.log("[Explorer] Fetching files for path:", targetPath);
+    
+    try {
+      const content = await invoke<any>('ls_remote', { path: targetPath });
+      realFiles.value = content.files || [];
+      currentPath.value = content.current_path; // v2.11.52: Absolute sync
+      console.log("[Explorer] Current Path confirmed:", currentPath.value);
+    } catch (e) {
+      console.error("[Explorer] Failed to refresh explorer:", e);
+      realFiles.value = [];
     }
   };
 
   const changeDir = (p: string) => {
+    // If it's a specific full path (from breadcrumbs or fast access)
+    if (p.startsWith('/')) {
+      refreshExplorer(p);
+      return;
+    }
+
+    // Logic for relative movement
+    let target = currentPath.value;
     if (p === '..') {
+      if (currentPath.value === '/') return; // Boundary protection
       const pts = currentPath.value.split('/').filter(x => x);
       pts.pop();
-      currentPath.value = '/' + pts.join('/');
+      target = '/' + pts.join('/');
     } else {
-      currentPath.value = (currentPath.value === '/' ? '' : currentPath.value) + '/' + p;
+      target = (currentPath.value === '/' ? '' : currentPath.value) + '/' + p;
     }
     
-    // Track fast access
-    try {
-      const s = localStorage.getItem('ter_fast_access');
-      let l = s ? JSON.parse(s) : []; 
-      if (!Array.isArray(l)) l = [];
-      l = [currentPath.value, ...l.filter((x: string) => x !== currentPath.value)].slice(0, 5); 
-      localStorage.setItem('ter_fast_access', JSON.stringify(l)); 
-    } catch (e) {
-      console.warn('Fast access track failed', e);
-      localStorage.setItem('ter_fast_access', JSON.stringify([currentPath.value]));
-    }
+    refreshExplorer(target);
     
-    refreshExplorer();
+    // Track fast access (keep currentPath.value which is updated after refresh)
+    setTimeout(() => {
+      try {
+        const s = localStorage.getItem('ter_fast_access');
+        let l = s ? JSON.parse(s) : []; 
+        if (!Array.isArray(l)) l = [];
+        l = [currentPath.value, ...l.filter((x: string) => x !== currentPath.value)].slice(0, 5); 
+        localStorage.setItem('ter_fast_access', JSON.stringify(l)); 
+      } catch (e) {}
+    }, 500);
   };
 
   const onFastAccess = async (p: string) => { 
-    currentPath.value = p; 
     if (activeTabId.value) {
       await invoke('write_pty', { tabId: activeTabId.value, data: `cd "${p}"\r` }); 
     }
-    refreshExplorer(); 
+    // v2.11.52: Wait for shell to actually change dir
+    setTimeout(() => refreshExplorer(p), 300); 
   };
 
   return {

@@ -9,6 +9,12 @@
   color-scheme: dark;
   color: rgba(255, 255, 255, 0.87);
   background-color: #1e1e1e;
+  
+  /* v2.11.49: Dynamic UI Variables */
+  --ter-ui-scale: 1.0;
+  --ter-base-font-size: 14px;
+  --ter-glow-opacity: 0.5;
+  --ter-pulse-duration: 1.0s;
 }
 
 body {
@@ -19,6 +25,7 @@ body {
   overflow: hidden;
   user-select: auto;
   -webkit-user-select: auto;
+  font-size: var(--ter-base-font-size);
 }
 
 /* Global Scrollbar Reset */
