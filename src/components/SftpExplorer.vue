@@ -4,13 +4,15 @@ import { computed } from 'vue';
 const props = defineProps<{
   currentPath: string;
   files: any[];
+  hostName?: string;
 }>();
 
 const emit = defineEmits(['change-dir', 'item-context', 'item-drag-start']);
 
 const breadcrumbs = computed(() => {
   const parts = props.currentPath.split('/').filter(p => p);
-  const result = [{ name: 'ROOT', path: '/' }];
+  const rootLabel = props.hostName || 'ROOT';
+  const result = [{ name: rootLabel, path: '/' }];
   let current = '';
   for (const part of parts) {
     current += '/' + part;
@@ -18,6 +20,7 @@ const breadcrumbs = computed(() => {
   }
   return result;
 });
+
 
 const sortedFiles = computed(() => {
   const baseFiles = props.files.filter(f => f.name !== '..');

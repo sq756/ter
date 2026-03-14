@@ -20,7 +20,7 @@ import CyberWebview from './components/CyberWebview.vue';
 import { useMorse } from './composables/useMorse';
 import { useTabs } from './composables/useTabs';
 import { useStats } from './composables/useStats';
-import { useExplorer } from './composables/useExplorer';
+import { useExplorer, sanitizeSftpPath } from './composables/useExplorer';
 import { useExplorerContextMenu } from './composables/useExplorerContextMenu';
 import { useCyber } from './composables/useCyber';
 import { useContextMenu } from './composables/useContextMenu';
@@ -182,7 +182,7 @@ const {
 // v2.11.54: Quick Edit & Webview Integration
 const handleQuickEdit = async () => {
   if (selectedFile.value) {
-    const path = selectedFile.value.path || (currentPath.value + '/' + selectedFile.value.name);
+    const path = sanitizeSftpPath(selectedFile.value.path || (currentPath.value + '/' + selectedFile.value.name));
     try {
       const content = await invoke<string>('read_remote_file', { remote_path: path });
       await createNewTab(selectedFile.value.name, 'editor', { path, content });
@@ -199,7 +199,7 @@ const onSaveComplete = () => {
 
 const handleOpenInWebview = async () => {
   if (selectedFile.value) {
-    const path = selectedFile.value.path || (currentPath.value + '/' + selectedFile.value.name);
+    const path = sanitizeSftpPath(selectedFile.value.path || (currentPath.value + '/' + selectedFile.value.name));
     const url = path.toLowerCase().endsWith('.pdf') ? `pdf://viewer?file=${encodeURIComponent(path)}` : `file://${path}`;
     await createNewTab(selectedFile.value.name, 'webview', { url, path });
   }
@@ -515,10 +515,10 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
                      @auto-detect="autoDetectScale"
                      @close="showSettings = false" @update-macros="(m) => activeMacros = m" />
       
-      <SidebarPanel 
+      <SidebarPanel
         :class="{ 'collapsed': !isSidebarOpen }"
-        :files="realFiles" :currentPath="currentPath" :bgTabs="backgroundTabs" :skills="skills"
-        :webviewInstances="webviewInstances" :activeWebviewId="activeWebviewId"
+        :hostName="host"
+        :files="realFiles" :currentPath="currentPath" :bgTabs="backgroundTabs" :skills="skills"        :webviewInstances="webviewInstances" :activeWebviewId="activeWebviewId"
         :lastActivityMap="lastActivityMap"
         :cpuChartRef="cpuChartRef" :memChartRef="memChartRef" :netChartRef="netChartRef"
         :healthMode="healthMode" :currentNetSpeed="currentNetSpeed" :extraStats="extraStats"

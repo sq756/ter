@@ -375,6 +375,7 @@ use russh_sftp::client::SftpSession;
 
 #[tauri::command]
 async fn ls_remote(path: String, state: State<'_, AppState>) -> Result<RemoteDirContent, String> {
+    log::debug!("[ls_remote] Received path: {}", path);
     let session_guard = state.session.lock().await;
     let session = session_guard.as_ref().ok_or("No active SSH session")?;
     let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
@@ -483,6 +484,7 @@ async fn load_remote_skills(state: State<'_, AppState>) -> Result<Vec<Skill>, St
 
 #[tauri::command]
 async fn download_file(remote_path: String, local_path: String, state: State<'_, AppState>) -> Result<(), String> {
+    log::debug!("[download_file] Received remote_path: {}", remote_path);
     let session_guard = state.session.lock().await;
     let session = session_guard.as_ref().ok_or("No active SSH session")?;
     let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
@@ -509,6 +511,7 @@ async fn upload_file(remote_path: String, local_path: String, state: State<'_, A
 
 #[tauri::command]
 async fn delete_remote_file(remote_path: String, state: State<'_, AppState>) -> Result<(), String> {
+    log::debug!("[delete_remote_file] Received remote_path: {}", remote_path);
     let session_guard = state.session.lock().await;
     let session = session_guard.as_ref().ok_or("No active SSH session")?;
     let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
@@ -520,6 +523,7 @@ async fn delete_remote_file(remote_path: String, state: State<'_, AppState>) -> 
 
 #[tauri::command]
 async fn read_remote_file(remote_path: String, state: State<'_, AppState>) -> Result<String, String> {
+    log::debug!("[read_remote_file] Received remote_path: {}", remote_path);
     let session_guard = state.session.lock().await;
     let session = session_guard.as_ref().ok_or("No active SSH session")?;
     let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;

@@ -2,6 +2,7 @@ import { ref, type Ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 
 import { save, open as openDialog } from '@tauri-apps/plugin-dialog';
+import { sanitizeSftpPath } from './useExplorer';
 
 export function useExplorerContextMenu(
   activeTabId: Ref<string | null>,
@@ -27,17 +28,17 @@ export function useExplorerContextMenu(
   };
 
   const getFullPath = () => {
-    if (!selectedFile.value) return currentPath.value;
-    if (selectedFile.value.path) return selectedFile.value.path; // v2.11.52: Use backend confirmed path
+    if (!selectedFile.value) return sanitizeSftpPath(currentPath.value);
+    if (selectedFile.value.path) return sanitizeSftpPath(selectedFile.value.path); // v2.11.52: Use backend confirmed path
     
     if (selectedFile.value.name === '..') {
       const pts = currentPath.value.split('/').filter(x => x);
       pts.pop();
       const p = '/' + pts.join('/');
-      return p === '//' ? '/' : p;
+      return sanitizeSftpPath(p === '//' ? '/' : p);
     }
     const p = (currentPath.value === '/' ? '' : currentPath.value) + '/' + selectedFile.value.name;
-    return p;
+    return sanitizeSftpPath(p);
   };
 
   const explorerActionCd = async () => {

@@ -1,6 +1,22 @@
 import { ref, type Ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 
+export const sanitizeSftpPath = (p: string): string => {
+  if (!p) return '/';
+  if (p === '..') return p;
+  if (p === '.') return p;
+  
+  if (!p.startsWith('/')) {
+    const slashIdx = p.indexOf('/');
+    if (slashIdx === -1) {
+      return '/';
+    } else {
+      return p.substring(slashIdx);
+    }
+  }
+  return p;
+};
+
 export function useExplorer(isConnected: Ref<boolean>, activeTabId: Ref<string | null>) {
   const currentPath = ref('/');
   const realFiles = ref<any[]>([]);
@@ -10,13 +26,14 @@ export function useExplorer(isConnected: Ref<boolean>, activeTabId: Ref<string |
       console.warn("[Explorer] Skip refresh: Not connected");
       return;
     }
-    
-    const targetPath = pathOverride || currentPath.value;
+
+    let targetPath = pathOverride || currentPath.value;
+    targetPath = sanitizeSftpPath(targetPath);
+
     console.log("[Explorer] Fetching files for path:", targetPath);
-    
+
     try {
-      const content = await invoke<any>('ls_remote', { path: targetPath });
-      realFiles.value = content.files || [];
+      const content = await invoke<any>('ls_remote', { path: targetPath });      realFiles.value = content.files || [];
       currentPath.value = content.current_path; // v2.11.52: Absolute sync
       console.log("[Explorer] Current Path confirmed:", currentPath.value);
     } catch (e) {

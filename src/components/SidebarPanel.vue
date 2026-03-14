@@ -20,9 +20,10 @@ const props = defineProps<{
   isAutoPilot: boolean;
   isSafeMode: boolean;
   sftpHeight: number;
-  slots: string[];
+  slots: Record<number, string>;
   isLogsOverlay: boolean;
   logs: string[];
+  hostName?: string;
 }>();
 
 const emit = defineEmits(['switch-tab', 'proc-context', 'update:isAutoPilot', 'audit-ui', 'switch-mode', 'run-skill', 'change-dir', 'view-history', 'open-trigger-settings', 'fast-access', 'morse-down', 'morse-up', 'morse-context', 'explorer-context', 'cycle-health-mode', 'skill-context', 'header-context', 'resize-sftp-start', 'resize-charts', 'view-changed', 'switch-web', 'web-context']);
@@ -242,14 +243,14 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
       </div>
 
       <div class="module scroller explorer-wrapper" :style="{ flex: '1', minHeight: '0' }">
-        <SftpExplorer 
-          :currentPath="currentPath" 
+        <SftpExplorer
+          :currentPath="currentPath"
           :files="files"
+          :hostName="hostName"
           @change-dir="(d) => $emit('change-dir', d)"
           @item-context="(p) => $emit('explorer-context', { e: p.event, file: p.file })"
           @item-drag-start="onDragStart"
-        />
-      </div>
+        />      </div>
     </div>
 
     <!-- ARS View: Removed Settings Button -->
@@ -279,14 +280,14 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
       
       <!-- v2.11.46: Refactored SFTP Explorer with Breadcrumbs and Proper Scrolling -->
       <div class="module explorer-wrapper" :style="{ height: sftpHeight + 'px', flex: 'none' }">
-        <SftpExplorer 
-          :currentPath="currentPath" 
+        <SftpExplorer
+          :currentPath="currentPath"
           :files="files"
+          :hostName="hostName"
           @change-dir="(d) => $emit('change-dir', d)"
           @item-context="(p) => $emit('explorer-context', { e: p.event, file: p.file })"
           @item-drag-start="onDragStart"
-        />
-        <div class="resizable-handle" @mousedown="$emit('resize-sftp-start', $event)"></div>
+        />        <div class="resizable-handle" @mousedown="$emit('resize-sftp-start', $event)"></div>
       </div>
     </div>
 
