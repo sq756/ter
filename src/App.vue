@@ -47,6 +47,41 @@ const agentToken = ref('');
 const currentAgentPort = ref<number | null>(null);
 const backendLogs = ref<string[]>([]);
 const isLogsPaused = ref(false);
+const showNoise = ref(false);
+const activeLogCategory = ref<'ALL' | 'NET' | 'FILES' | 'AI'>('ALL');
+const isLogsHovered = ref(false);
+const cyberLogStreamRef = ref<HTMLElement | null>(null);
+
+const noiseKeywords = ['keepalive', 'sshbuffer', 'window_adjust'];
+const categoryMap = {
+  NET: ['NET', 'SSH', 'Tunnel', 'port', 'http', 'localhost', 'connected'],
+  FILES: ['FILES', 'SFTP', 'File', 'Download', 'Upload', 'Delete', 'Preview', 'Explorer'],
+  AI: ['AI', 'Observation', 'Reasoning', 'Action', 'NOTIFY', 'CHART', 'Thinking']
+};
+
+const filteredLogs = computed(() => {
+  let list = backendLogs.value;
+  if (!showNoise.value) list = list.filter(l => !noiseKeywords.some(k => l.toLowerCase().includes(k)));
+  if (activeLogCategory.value !== 'ALL') {
+    const keys = categoryMap[activeLogCategory.value as keyof typeof categoryMap];
+    list = list.filter(l => keys.some(k => l.toUpperCase().includes(k.toUpperCase())));
+  }
+  return list;
+});
+
+const scrollToBottom = () => {
+  if (cyberLogStreamRef.value && !isLogsHovered.value) {
+    nextTick(() => {
+      cyberLogStreamRef.value!.scrollTop = cyberLogStreamRef.value!.scrollHeight;
+    });
+  }
+};
+
+watch(() => backendLogs.value.length, scrollToBottom);
+watch(activeLogCategory, scrollToBottom);
+watch(showNoise, scrollToBottom);
+watch(isLogsHovered, (nv) => { if (!nv) scrollToBottom(); });
+
 const skills = ref<any[]>([]);
 
 // v2.10.3: Resizable SFTP
@@ -136,6 +171,14 @@ const copyLatestAI = async () => {
 
 const updateStatus = (msg: string) => {
   backendLogs.value.push(`[STATUS] ${msg}`);
+};
+
+const getLogColor = (log: string) => {
+  if (log.includes('[ERROR]')) return '#ef4444';
+  if (log.includes('[SYSTEM]') || log.includes('[STATUS]')) return '#22c55e';
+  if (log.includes('[DEBUG]') || log.includes('[INFO]')) return '#52525b';
+  if (log.includes('AI') || log.includes('Reasoning')) return '#a855f7';
+  return '#a1a1aa';
 };
 
 // ...
@@ -470,9 +513,23 @@ watch(() => showPrivilegeMenu.value, (val) => { if (val) activeMenu.value = 'pri
           <section class="cyber-pane" :class="{ 'open': cyberMode === 1 }">
             <div class="cyber-container">
               <div class="cyber-logs-view">
-                <header><span class="title">Cyber Logs</span></header>
-                <div class="logs-container">
-                  <div v-for="(log, i) in backendLogs" :key="i" class="log-line">{{ log }}</div>
+                <header class="cyber-logs-header">
+                  <div class="log-top-row">
+                    <span class="title">Cyber Intelligence Logs</span>
+                    <div class="noise-toggle" :class="{ 'active': showNoise }" @click="showNoise = !showNoise">SHOW NOISE</div>
+                  </div>
+                  <div class="log-categories">
+                    <button v-for="cat in ['ALL', 'NET', 'FILES', 'AI']" :key="cat" 
+                            :class="{ active: activeLogCategory === cat }"
+                            @click="activeLogCategory = cat as any">
+                      {{ cat }}
+                    </button>
+                  </div>
+                </header>
+                <div class="logs-container" ref="cyberLogStreamRef" 
+                     @mouseenter="isLogsHovered = true" 
+                     @mouseleave="isLogsHovered = false">
+                  <div v-for="(log, i) in filteredLogs" :key="i" class="log-line" :style="{ color: getLogColor(log) }">{{ log }}</div>
                 </div>
               </div>
               <div class="cyber-webview-wrapper">
@@ -610,9 +667,20 @@ watch(() => showPrivilegeMenu.value, (val) => { if (val) activeMenu.value = 'pri
 .cyber-pane { width: 420px; height: 100%; border-left: 1px solid #27272a; display: none; flex-direction: column; background: #000; }
 .cyber-pane.open { display: flex; }
 .cyber-container { display: flex; flex-direction: column; height: 100%; }
-.cyber-logs-view { flex: 0 0 30%; border-bottom: 1px solid #27272a; overflow: hidden; display: flex; flex-direction: column; }
-.cyber-logs-view header { padding: 5px 10px; font-size: 11px; color: #71717a; border-bottom: 1px solid #18181b; letter-spacing: 0.5px; }
-.logs-container { flex: 1; overflow-y: auto; padding: 10px; font-size: 11px; color: #a1a1aa; }
+.cyber-logs-view { flex: 0 0 35%; border-bottom: 1px solid #27272a; overflow: hidden; display: flex; flex-direction: column; }
+.cyber-logs-header { padding: 8px 10px; font-size: 11px; color: #71717a; border-bottom: 1px solid #18181b; }
+.log-top-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.log-top-row .title { text-transform: uppercase; letter-spacing: 1px; color: #71717a; font-size: 10px; }
+
+.noise-toggle { font-size: 8px; cursor: pointer; color: #52525b; border: 1px solid #27272a; padding: 1px 4px; border-radius: 4px; transition: all 0.2s; letter-spacing: 0; text-transform: uppercase; }
+.noise-toggle.active { color: #a855f7; border-color: rgba(168, 85, 247, 0.4); background: rgba(168, 85, 247, 0.05); }
+
+.log-categories { display: flex; gap: 4px; }
+.log-categories button { background: transparent; border: 1px solid #18181b; color: #52525b; font-size: 8px; cursor: pointer; padding: 1px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; transition: all 0.2s; text-transform: uppercase; }
+.log-categories button.active { color: #fff; background: #27272a; border-color: #3f3f46; }
+
+.logs-container { flex: 1; overflow-y: auto; padding: 10px; font-size: 10px; color: #a1a1aa; display: flex; flex-direction: column; }
+.log-line { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #a1a1aa; margin-bottom: 2px; white-space: pre-wrap; word-break: break-all; }
 .cyber-webview-wrapper { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .webview-address-bar { padding: 5px; background: #09090b; border-bottom: 1px solid #27272a; display: flex; gap: 5px; }
 .address-bar-input { flex: 1; background: #000; border: 1px solid #27272a; color: #22c55e; padding: 2px 8px; font-size: 11px; outline: none; border-radius: 4px; }

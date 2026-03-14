@@ -86,6 +86,57 @@ const onItemClick = (f: any) => { if (f.is_dir) emit('change-dir', f.name); };
 const onFastAccessClick = (path: string) => { emit('fast-access', path); };
 const isTabActive = (id: string) => (Date.now() - (props.lastActivityMap[id] || 0)) < 1000;
 
+// v2.11.35: Cyber Logs Optimization
+const activeLogCategory = ref<'ALL' | 'NET' | 'FILES' | 'AI'>('ALL');
+const showNoise = ref(false);
+const isLogsHovered = ref(false);
+const logStreamRef = ref<HTMLElement | null>(null);
+
+const noiseKeywords = ['keepalive', 'sshbuffer', 'window_adjust'];
+const categoryMap = {
+  NET: ['NET', 'SSH', 'Tunnel', 'port', 'http', 'localhost', 'connected'],
+  FILES: ['FILES', 'SFTP', 'File', 'Download', 'Upload', 'Delete', 'Preview', 'Explorer'],
+  AI: ['AI', 'Observation', 'Reasoning', 'Action', 'NOTIFY', 'CHART', 'Thinking']
+};
+
+const filteredLogs = computed(() => {
+  let list = props.logs;
+  
+  // 1. Noise Filter
+  if (!showNoise.value) {
+    list = list.filter(log => !noiseKeywords.some(k => log.toLowerCase().includes(k)));
+  }
+  
+  // 2. Category Filter
+  if (activeLogCategory.value !== 'ALL') {
+    const keys = categoryMap[activeLogCategory.value as keyof typeof categoryMap];
+    list = list.filter(log => keys.some(k => log.toUpperCase().includes(k.toUpperCase())));
+  }
+  
+  return list;
+});
+
+const scrollToBottom = () => {
+  if (logStreamRef.value && !isLogsHovered.value) {
+    nextTick(() => {
+      logStreamRef.value!.scrollTop = logStreamRef.value!.scrollHeight;
+    });
+  }
+};
+
+watch(() => props.logs.length, scrollToBottom);
+watch(activeLogCategory, scrollToBottom);
+watch(showNoise, scrollToBottom);
+watch(isLogsHovered, (nv) => { if (!nv) scrollToBottom(); });
+
+const getLogColor = (log: string) => {
+  if (log.includes('[ERROR]')) return '#ef4444';
+  if (log.includes('[SYSTEM]') || log.includes('[STATUS]')) return '#22c55e';
+  if (log.includes('[DEBUG]') || log.includes('[INFO]')) return '#52525b';
+  if (log.includes('AI') || log.includes('Reasoning')) return '#a855f7';
+  return '#a1a1aa';
+};
+
 // v2.11.33: Data protection for NaN values
 const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'number' && isNaN(v))) ? '[ SCANNING... ]' : v;
 </script>
@@ -198,9 +249,25 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
       </div>
       
       <div v-if="activeLogsSubView === 'realtime'" class="module scroller full-height">
-        <header>Cyber Intelligence Logs</header>
-        <div class="log-stream">
-          <div v-for="(log, i) in logs" :key="i" class="log-line">{{ log }}</div>
+        <header>
+          <span>Cyber Intelligence Logs</span>
+          <div class="noise-toggle" :class="{ 'active': showNoise }" @click="showNoise = !showNoise">SHOW NOISE</div>
+        </header>
+
+        <div class="log-categories">
+          <button v-for="cat in ['ALL', 'NET', 'FILES', 'AI']" :key="cat" 
+                  :class="{ active: activeLogCategory === cat }"
+                  @click="activeLogCategory = cat as any">
+            {{ cat }}
+          </button>
+        </div>
+
+        <div class="log-stream" ref="logStreamRef" 
+             @mouseenter="isLogsHovered = true" 
+             @mouseleave="isLogsHovered = false">
+          <div v-for="(log, i) in filteredLogs" :key="i" class="log-line" :style="{ color: getLogColor(log) }">
+            {{ log }}
+          </div>
         </div>
       </div>
       <div v-else class="full-height">
@@ -237,11 +304,20 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
 /* v2.11.33: SFTP folder/icon spacing */
 .file-spacing { gap: 18px !important; }
 
-.log-line { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #a1a1aa; margin-bottom: 2px; }
+.log-line { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #a1a1aa; margin-bottom: 2px; white-space: pre-wrap; word-break: break-all; }
 
 .logs-nav { display: flex; background: #000; border-bottom: 1px solid #18181b; padding: 4px; gap: 4px; }
 .logs-nav button { flex: 1; background: transparent; border: 1px solid transparent; color: #52525b; font-size: 9px; cursor: pointer; padding: 2px; border-radius: 2px; text-transform: uppercase; font-weight: bold; }
 .logs-nav button.active { color: #22c55e; border-color: rgba(34, 197, 94, 0.2); background: rgba(34, 197, 94, 0.05); }
+
+.noise-toggle { font-size: 8px; cursor: pointer; color: #52525b; border: 1px solid #27272a; padding: 2px 4px; border-radius: 4px; transition: all 0.2s; letter-spacing: 0; }
+.noise-toggle.active { color: #a855f7; border-color: rgba(168, 85, 247, 0.4); background: rgba(168, 85, 247, 0.05); }
+
+.log-categories { display: flex; gap: 4px; margin-bottom: 8px; border-bottom: 1px solid #18181b; padding-bottom: 8px; }
+.log-categories button { background: transparent; border: 1px solid #18181b; color: #52525b; font-size: 9px; cursor: pointer; padding: 2px 8px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; transition: all 0.2s; }
+.log-categories button.active { color: #fff; background: #27272a; border-color: #3f3f46; }
+
+.log-stream { flex: 1; overflow-y: auto; display: flex; flex-direction: column; min-height: 0; }
 .scanline { position: absolute; top: 0; left: 0; width: 100%; height: 2px; background: rgba(34, 197, 94, 0.2); animation: scan 3s infinite linear; pointer-events: none; }
 @keyframes scan { 0% { transform: translateY(-100%); } 100% { transform: translateY(40px); } }
 
