@@ -4,9 +4,30 @@ import { ref, onMounted } from 'vue';
 const props = defineProps<{
   isOpen: boolean;
   useNativeWebview: boolean;
+  sidebarSlots: string[];
 }>();
 
-const emit = defineEmits(['close', 'update-macros', 'update:useNativeWebview']);
+const emit = defineEmits(['close', 'update-macros', 'update:useNativeWebview', 'update:sidebarSlots']);
+
+const allViews = ['OPS', 'ARS', 'NAV', 'LOGS'];
+
+const toggleSlot = (view: string) => {
+  const current = [...props.sidebarSlots];
+  if (current.includes(view)) {
+    if (current.length > 1) {
+      const idx = current.indexOf(view);
+      current.splice(idx, 1);
+    }
+  } else {
+    if (current.length < 3) {
+      current.push(view);
+    } else {
+      current.shift();
+      current.push(view);
+    }
+  }
+  emit('update:sidebarSlots', current);
+};
 
 const macros = ref<{name: string, cmd: string}[]>([]);
 
@@ -54,6 +75,18 @@ const removeMacro = (index: number) => {
       </header>
 
       <div class="drawer-content">
+        <section class="config-section">
+          <header>📐 SIDEBAR_DECK SLOTS (Select 3)</header>
+          <div class="slot-selector">
+            <button v-for="v in allViews" :key="v" 
+                    :class="{ active: sidebarSlots.includes(v) }"
+                    @click="toggleSlot(v)">
+              {{ v }}
+            </button>
+          </div>
+          <p class="hint">The 3rd slot is dynamic and can be overridden by AGENT protocols.</p>
+        </section>
+
         <section class="config-section">
           <header>🌐 WEB_ENGINE CONFIG (Native UI Mode)</header>
           <div class="setting-row">
@@ -136,6 +169,10 @@ const removeMacro = (index: number) => {
 .config-section header { font-size: 11px; color: #71717a; margin-bottom: 15px; font-weight: bold; }
 
 .setting-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; background: rgba(255, 255, 255, 0.03); padding: 10px; border-radius: 6px; border: 1px solid #27272a; }
+
+.slot-selector { display: flex; gap: 8px; margin-bottom: 10px; }
+.slot-selector button { flex: 1; padding: 6px; background: #000; border: 1px solid #27272a; color: #52525b; font-size: 10px; font-family: 'JetBrains Mono', monospace; cursor: pointer; border-radius: 4px; transition: all 0.2s; }
+.slot-selector button.active { border-color: #22c55e; color: #22c55e; box-shadow: 0 0 10px rgba(34, 197, 94, 0.2); }
 
 .macro-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 15px; }
 .macro-item { display: flex; gap: 8px; align-items: center; background: rgba(255, 255, 255, 0.03); padding: 8px; border-radius: 6px; border: 1px solid #27272a; }

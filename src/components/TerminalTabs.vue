@@ -173,7 +173,31 @@ const closeApp = () => appWindow.close();
 .terminal-pane { height: 100%; flex: 1; position: relative; background: #09090b; }
 .terminal-wrapper { position: absolute; inset: 0; width: 100%; height: 100%; }
 
-.status-dot { width: 8px; height: 8px; border-radius: 50%; background: #52525b; }
+.status-dot { 
+  width: 8px; 
+  height: 8px; 
+  border-radius: 50%; 
+  background: #52525b; 
+  position: relative;
+  transition: all 0.1s;
+}
+.status-dot.pressing { transform: scale(1.5); background: #22c55e !important; box-shadow: 0 0 15px #22c55e; }
+
+.morse-visual-hint {
+  position: absolute;
+  top: 15px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #22c55e;
+  color: #000;
+  font-size: 8px;
+  font-weight: bold;
+  padding: 1px 3px;
+  border-radius: 2px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 100;
+}
 .status-dot.connected { background: #3b82f6; box-shadow: 0 0 10px #3b82f6; }
 .status-dot.busy { background: #a855f7; box-shadow: 0 0 10px #a855f7; }
 .quick-switcher-icon { color: #52525b; display: flex; align-items: center; }

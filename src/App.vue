@@ -151,6 +151,37 @@ const cycleHealthMode = () => {
   setHealthMode(next);
 };
 
+// v2.11.31: Sidebar Slot Logic
+const sidebarSlots = ref(['OPS', 'ARS', 'NAV']);
+const previousSlot3 = ref<string | null>(null);
+
+const onAgentZoneClick = () => {
+  if (sidebarSlots.value.includes('LOGS')) {
+    // Already has logs, just jump
+    window.dispatchEvent(new CustomEvent('switch-sidebar-view', { detail: 'LOGS' }));
+  } else {
+    // Perform Overlay Protocol
+    if (previousSlot3.value) {
+      // Revert if already overlaying
+      sidebarSlots.value[2] = previousSlot3.value;
+      previousSlot3.value = null;
+    } else {
+      previousSlot3.value = sidebarSlots.value[2];
+      sidebarSlots.value[2] = 'LOGS';
+      nextTick(() => {
+        window.dispatchEvent(new CustomEvent('switch-sidebar-view', { detail: 'LOGS' }));
+      });
+    }
+  }
+};
+
+const handleSidebarViewRevert = (newView: string) => {
+  if (newView !== 'LOGS' && previousSlot3.value) {
+    sidebarSlots.value[2] = previousSlot3.value;
+    previousSlot3.value = null;
+  }
+};
+
 const { 
   morseSequence, morseText, showMorseMacro, isMorsePressed, possibleLetters,
   handleMorseMouse, handleMorseWheel, onMorseMacro
@@ -304,7 +335,12 @@ watch(() => showPrivilegeMenu.value, (val) => { if (val) activeMenu.value = 'pri
     <CyberGate v-if="!isConnected" @connected="onConnected" />
     
     <div v-else class="main-view">
-      <SettingsPanel :isOpen="showSettings" :useNativeWebview="useNativeWebview" @update:useNativeWebview="useNativeWebview = $event" @close="showSettings = false" @update-macros="(m) => activeMacros = m" />
+      <SettingsPanel :isOpen="showSettings" 
+                     :useNativeWebview="useNativeWebview" 
+                     :sidebarSlots="sidebarSlots"
+                     @update:useNativeWebview="useNativeWebview = $event" 
+                     @update:sidebarSlots="sidebarSlots = $event"
+                     @close="showSettings = false" @update-macros="(m) => activeMacros = m" />
       
       <SidebarPanel 
         :class="{ 'collapsed': !isSidebarOpen }"
@@ -314,6 +350,9 @@ watch(() => showPrivilegeMenu.value, (val) => { if (val) activeMenu.value = 'pri
         :healthMode="healthMode" :currentNetSpeed="currentNetSpeed" :extraStats="extraStats"
         :isAutoPilot="isAutoPilot"
         :sftpHeight="sftpHeight"
+        :slots="sidebarSlots"
+        :isLogsOverlay="!!previousSlot3"
+        :logs="backendLogs"
         @update:isAutoPilot="isAutoPilot = $event"
         @switch-tab="bringToForeground" @switch-mode="(mode: number) => cyberMode = mode"
         @view-history="viewHistory" @proc-context="(p: any) => onTerminalContextMenu({e: p.event, id: p.tab.id})" @run-skill="runSkill"
@@ -323,6 +362,7 @@ watch(() => showPrivilegeMenu.value, (val) => { if (val) activeMenu.value = 'pri
         @header-context="onHeaderContextMenu"
         @resize-sftp-start="startResizingSFTP"
         @resize-charts="resizeCharts"
+        @view-changed="handleSidebarViewRevert"
       />
 
       <main class="workspace" @click.stop>
@@ -405,8 +445,10 @@ watch(() => showPrivilegeMenu.value, (val) => { if (val) activeMenu.value = 'pri
           <section class="terminal-pane">
             <TerminalTabs 
               :tabs="terminalTabs" :activeTabId="activeTabId" :connectionStatus="connectionStatus" 
+              :isMorsePressed="isMorsePressed" :morseSequence="morseSequence"
               @switch-tab="bringToForeground" @close-tab="closeTab" @new-tab="createNewTab()" 
               @terminal-context="onTerminalContextMenu" 
+              @morse-input="handleMorseMouse"
             />
           </section>
           <section class="cyber-pane" :class="{ 'open': cyberMode === 1 }">
@@ -445,12 +487,9 @@ watch(() => showPrivilegeMenu.value, (val) => { if (val) activeMenu.value = 'pri
             </div>
             <span class="status-sep">|</span>
             <div class="status-item agent-zone" 
-                 :class="{ 'active': isConnected, 'pressing': isMorsePressed }"
-                 @mousedown.prevent="handleMorseMouse" 
-                 @mouseup.prevent="handleMorseMouse" 
-                 @mouseleave="handleMorseMouse"
+                 :class="{ 'active': isConnected }"
+                 @click="onAgentZoneClick"
                  @contextmenu.prevent>
-              <span class="morse-preview">{{ morseSequence || '...' }}</span>
               AGENT: {{ isConnected ? 'ACTIVE' : 'OFFLINE' }}
             </div>
           </div>
