@@ -89,6 +89,27 @@ const onItemClick = (f: any) => { if (f.is_dir) emit('change-dir', f.name); };
 const onFastAccessClick = (path: string) => { emit('fast-access', path); };
 const isTabActive = (id: string) => (Date.now() - (props.lastActivityMap[id] || 0)) < 1000;
 
+// v2.11.47: LOGS Tactical Matrix & Vault Recovery
+const logsActiveMode = ref<'live' | 'vault'>('live');
+const staticLogTab = ref<'ALL' | 'NET' | 'AI' | 'VAULT' | 'SYS' | 'SEC'>('ALL');
+
+const setLogTab = (tab: any) => {
+  staticLogTab.value = tab;
+  if (tab === 'VAULT') {
+    logsActiveMode.value = 'vault';
+  } else {
+    logsActiveMode.value = 'live';
+  }
+};
+
+const getLogColor = (log: string) => {
+  if (log.includes('[ERROR]')) return '#ef4444';
+  if (log.includes('[SYSTEM]') || log.includes('[STATUS]')) return '#22c55e';
+  if (log.includes('[DEBUG]') || log.includes('[INFO]')) return '#52525b';
+  if (log.includes('AI') || log.includes('Reasoning')) return '#a855f7';
+  return '#a1a1aa';
+};
+
 // v2.11.44: Throttled Log Rendering
 const throttledLogs = ref<string[]>([]);
 let throttleId: any = null;
@@ -101,6 +122,15 @@ watch(() => props.logs, (newLogs) => {
     }, 100);
   }
 }, { immediate: true });
+
+const filteredStrategicLogs = computed(() => {
+  if (staticLogTab.value === 'ALL') return throttledLogs.value;
+  return throttledLogs.value.filter(log => {
+    if (staticLogTab.value === 'AI') return log.includes('AI') || log.includes('Reasoning') || log.includes('Thinking') || log.includes('Observation');
+    if (staticLogTab.value === 'NET') return log.includes('NET') || log.includes('SSH') || log.includes('Tunnel');
+    return true;
+  });
+});
 
 // v2.11.33: Data protection for NaN values
 const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'number' && isNaN(v))) ? '[ SCANNING... ]' : v;
@@ -213,19 +243,27 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
       </div>
     </div>
 
-    <!-- LOGS View -->
+    <!-- LOGS View (v2.11.47 Tactical Matrix) -->
     <div v-show="activeView === 'LOGS'" class="safe-view-wrapper safe-flex-wrapper">
-      <div class="logs-nav">
-        <button :class="{ active: activeLogsSubView === 'realtime' }" @click="activeLogsSubView = 'realtime'">LIVE</button>
-        <button :class="{ active: activeLogsSubView === 'vault' }" @click="activeLogsSubView = 'vault'">VAULT</button>
+      <div class="tactical-logs-matrix">
+        <button v-for="t in (['ALL', 'NET', 'AI', 'VAULT', 'SYS', 'SEC'] as const)" :key="t"
+                :class="{ active: staticLogTab === t, 'is-special': ['AI', 'VAULT'].includes(t) && staticLogTab === t }"
+                @click="setLogTab(t)">
+          [{{ t }}]
+        </button>
       </div>
       
-      <div v-if="activeLogsSubView === 'realtime'" class="module scroller full-height">
-        <header>Cyber Intelligence Logs</header>
-        <div class="log-stream">
-          <div v-for="(log, i) in throttledLogs" :key="i" class="log-line">{{ log }}</div>
+      <div v-if="logsActiveMode === 'live'" class="module scroller static-log-container full-height">
+        <header>STRATEGIC_ARCHIVE_LOGS</header>
+        <div class="log-stream-static">
+          <div v-for="(log, i) in filteredStrategicLogs" :key="i" 
+               class="log-line-static"
+               :style="{ color: getLogColor(log) }">
+            {{ log }}
+          </div>
         </div>
       </div>
+
       <div v-else class="full-height">
         <VaultView />
       </div>
@@ -260,26 +298,17 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
 /* v2.11.33: SFTP folder/icon spacing */
 .file-spacing { gap: 18px !important; }
 
-.log-line { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #a1a1aa; margin-bottom: 2px; }
+/* v2.11.47: Tactical LOGS Matrix Styles */
+.tactical-logs-matrix { display: grid; grid-template-columns: repeat(3, 1fr); background: #000; border-bottom: 1px solid #18181b; padding: 6px; gap: 4px; flex-shrink: 0; }
+.tactical-logs-matrix button { background: transparent; border: 1px solid #27272a; color: #52525b; font-size: 9px; cursor: pointer; height: 24px; display: flex; align-items: center; justify-content: center; border-radius: 2px; text-transform: uppercase; font-weight: bold; transition: all 0.1s; font-family: 'JetBrains Mono', monospace; }
+.tactical-logs-matrix button:hover { border-color: #3f3f46; color: #71717a; }
+.tactical-logs-matrix button.active { color: #fff; background: #18181b; border-color: #3f3f46; }
+.tactical-logs-matrix button.is-special.active { color: #00ff9d; border-color: #00ff9d; }
 
-.logs-nav { display: flex; background: #000; border-bottom: 1px solid #18181b; padding: 4px; gap: 4px; }
-.logs-nav button { flex: 1; background: transparent; border: 1px solid transparent; color: #52525b; font-size: 9px; cursor: pointer; padding: 2px; border-radius: 2px; text-transform: uppercase; font-weight: bold; }
-.logs-nav button.active { color: #22c55e; border-color: rgba(34, 197, 94, 0.2); background: rgba(34, 197, 94, 0.05); }
-.scanline { position: absolute; top: 0; left: 0; width: 100%; height: 2px; background: rgba(34, 197, 94, 0.2); animation: scan 3s infinite linear; pointer-events: none; }
-@keyframes scan { 0% { transform: translateY(-100%); } 100% { transform: translateY(40px); } }
-
-/* v2.11.33: Cyber-style Progress Bars */
-.sys-health { height: auto; }
-.chart-box-enhanced { display: flex; flex-direction: column; gap: 12px; }
-.stat-row { position: relative; display: flex; flex-direction: column; gap: 4px; }
-.cyber-bar-bg { height: 4px; background: #18181b; border-radius: 2px; overflow: hidden; width: 100%; }
-.cyber-bar-fill { height: 100%; background: #00ff9d; box-shadow: 0 0 8px #00ff9d; transition: width 0.5s ease; }
-.cyber-bar-fill.blue { background: #3b82f6; box-shadow: 0 0 8px #3b82f6; }
-.overlay-chart { position: absolute; top: 15px; left: 0; opacity: 0.4; pointer-events: none; }
-
-.detail-box .label.highlight { color: #22c55e; font-weight: bold; opacity: 1; }
-.detail-box .val { color: #a1a1aa; font-size: 10px; font-family: 'JetBrains Mono', monospace; }
-.meta-row { display: flex; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.03); padding: 4px 0; }
+.static-log-container { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #000; }
+.log-stream-static { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 4px; min-height: 0; }
+.log-line-static { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #a1a1aa; white-space: pre-wrap; word-break: break-all; border-left: 2px solid transparent; padding-left: 8px; }
+.log-line-static:hover { border-left-color: #27272a; background: #09090b; }
 
 .mini-chart { height: 30px; background: transparent; border: none; }
 .breathing { animation: breathe 0.8s infinite; }

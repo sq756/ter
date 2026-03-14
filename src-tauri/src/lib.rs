@@ -64,7 +64,33 @@ impl log::Log for BackendLogger {
     fn enabled(&self, m: &log::Metadata) -> bool { m.level() <= log::Level::Debug }
     fn log(&self, r: &log::Record) {
         if self.enabled(r.metadata()) {
-            let msg = format!("[{}] {}: {}", r.level(), r.target(), r.args());
+            let target = r.target();
+            let args = format!("{}", r.args());
+            
+            // v2.11.46: Backend Log Filter (Tactical HUD Cleaning)
+            // 1. Hard Block Keywords
+            let blacklist = ["sshbuffer", "seqn", "platform_impl", "event_loop"];
+            if blacklist.iter().any(|k| args.contains(k) || target.contains(k)) {
+                return;
+            }
+
+            // 2. Msg Type 94 logic (SSH_MSG_CHANNEL_DATA)
+            if args.contains("msg 94") {
+                if let Some(app) = APP_HANDLE.get() { let _ = app.emit("net-traffic", ()); }
+                
+                let mut display = false;
+                if let Some(len_idx) = args.find("len ") {
+                    let len_str = &args[len_idx + 4..];
+                    let len_val: String = len_str.chars().take_while(|c| c.is_digit(10)).collect();
+                    if let Ok(len) = len_val.parse::<usize>() {
+                        // Only log large data chunks (likely code or content)
+                        if len > 1000 { display = true; }
+                    }
+                }
+                if !display { return; }
+            }
+
+            let msg = format!("[{}] {}: {}", r.level(), target, args);
             if let Some(app) = APP_HANDLE.get() { let _ = app.emit("backend-log", msg); }
         }
     }

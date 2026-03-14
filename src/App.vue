@@ -63,9 +63,23 @@ const processLogQueue = () => {
   }
   logThrottleId = null;
 };
-
 const isLogsPaused = ref(false);
 const skills = ref<any[]>([]);
+
+// v2.11.46: Tactical HUD Optimization
+const tacticalLogs = computed(() => backendLogs.value.slice(-50));
+const isTrafficFlashing = ref(false);
+let trafficTimeout: any = null;
+
+const getLogColor = (log: string) => {
+  if (log.includes('[ERROR]')) return '#ef4444';
+  if (log.includes('[SYSTEM]') || log.includes('[STATUS]')) return '#22c55e';
+  if (log.includes('[DEBUG]') || log.includes('[INFO]')) return '#52525b'; // Dim Gray for background noise
+  if (log.includes('AI') || log.includes('Reasoning')) return '#a855f7';
+  return '#a1a1aa';
+};
+
+// ...
 
 // v2.10.3: Resizable SFTP
 const sftpHeight = ref(200);
@@ -382,6 +396,12 @@ onMounted(() => {
       }
     }
   });
+
+  listen('net-traffic', () => {
+    isTrafficFlashing.value = true;
+    if (trafficTimeout) clearTimeout(trafficTimeout);
+    trafficTimeout = setTimeout(() => isTrafficFlashing.value = false, 100);
+  });
 });
 
 watch(isSafeMode, (val) => {
@@ -558,9 +578,11 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
           <section class="cyber-pane" :class="{ 'open': cyberMode === 1 }">
             <div class="cyber-container">
               <div class="cyber-logs-view">
-                <header><span class="title">Cyber Logs</span></header>
+                <header><span class="title">Cyber Logs (HUD)</span></header>
                 <div class="logs-container">
-                  <div v-for="(log, i) in backendLogs" :key="i" class="log-line">{{ log }}</div>
+                  <div v-for="(log, i) in tacticalLogs" :key="i" class="log-line" :style="{ color: getLogColor(log) }">
+                    {{ log }}
+                  </div>
                 </div>
               </div>
               <div class="cyber-webview-wrapper">
@@ -614,6 +636,10 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
             <span class="status-sep">|</span>
             <div class="status-item node-info" @click="showNetworkMatrix = true">
               NODE: {{ host }}
+            </div>
+            <span class="status-sep">|</span>
+            <div class="status-item traffic-indicator" :class="{ 'flashing': isTrafficFlashing }">
+              NET_TRAFFIC
             </div>
             <span class="status-sep">|</span>
             <div class="status-item agent-zone" 
@@ -783,6 +809,9 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
 
 .status-left, .status-right, .hotkey-bar { display: flex; align-items: center; gap: 8px; }
 .status-sep { color: #27272a; font-size: 10px; margin: 0 4px; pointer-events: none; }
+
+.traffic-indicator { font-size: 9px; color: #52525b; transition: all 0.1s; font-family: 'JetBrains Mono', monospace; }
+.traffic-indicator.flashing { color: #22c55e; text-shadow: 0 0 5px #22c55e; }
 
 .status-btn { 
   background: transparent; 
