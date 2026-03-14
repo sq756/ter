@@ -171,17 +171,27 @@ async fn spawn_mihomo(config_path: String, bin_path: String, tab_id: Option<Stri
 #[tauri::command]
 async fn open_auth_window(url: String, app: AppHandle) -> Result<(), String> {
     let label = "auth-gateway";
+    let target_url = url.parse().map_err(|e| format!("Invalid URL: {}", e))?;
+    
     if let Some(win) = app.get_webview_window(label) {
         let _ = win.eval(&format!("window.location.href = '{}'", url));
+        let _ = win.show();
         let _ = win.set_focus();
     } else {
-        let _win = tauri::WebviewWindowBuilder::new(&app, label, tauri::WebviewUrl::External(url.parse().unwrap()))
+        let _win = tauri::WebviewWindowBuilder::new(&app, label, tauri::WebviewUrl::External(target_url))
             .title("VPN_AUTHENTICATION_GATEWAY")
             .inner_size(800.0, 600.0)
             .decorations(true)
             .build()
             .map_err(|e| e.to_string())?;
     }
+    Ok(())
+}
+
+#[tauri::command]
+async fn open_reverse_tunnel(remote_port: u16, local_port: u16, _state: State<'_, AppState>) -> Result<(), String> {
+    // v2.12.7: Temporary stub to fix build
+    log::info!("Reverse tunnel requested (STUB): Remote:{} -> Local:{}", remote_port, local_port);
     Ok(())
 }
 
@@ -761,7 +771,7 @@ pub fn run() {
             download_file, upload_file,
             delete_remote_file, read_remote_file, write_remote_file, dump_to_terminal,
             get_latest_ai_response, list_vault, read_local_file, get_connection_chain,
-            spawn_mihomo, open_auth_window,
+            spawn_mihomo, open_auth_window, open_reverse_tunnel,
             copy_latest_to_clipboard,
             list_remote_tmux_sessions,
             list_bookmarks, save_bookmark, delete_bookmark,
