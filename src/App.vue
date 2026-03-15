@@ -44,17 +44,6 @@ const lastAutoPilotTime = ref(0);
 const activeTriggers = ref<string[]>(['Allow execution of:', '1. Allow once']);
 const activeMacros = ref<{name: string, cmd: string}[]>([]);
 
-const logQueue: string[] = [];
-let logThrottleId: any = null;
-
-const processLogQueue = () => {
-  if (logQueue.length > 0) {
-    const newLogs = [...backendLogs.value, ...logQueue];
-    storeActions.syncLogs(newLogs.length > 500 ? newLogs.slice(-500) : newLogs);
-    logQueue.length = 0;
-  }
-  logThrottleId = null;
-};
 const isLogsPaused = ref(false);
 const skills = ref<any[]>([]);
 
@@ -100,8 +89,6 @@ let statsIntervalId: any = null;
 const sharedProps = computed(() => ({
   // Sidebar Props
   hostName: globalState.host,
-  files: realFiles.value,
-  currentPath: globalState.currentPath,
   bgTabs: backgroundTabs.value,
   skills: skills.value,
   webviewInstances: webviewInstances.value,
@@ -118,7 +105,6 @@ const sharedProps = computed(() => ({
   sftpHeight: globalState.sftpHeight,
   slots: sidebarSlots.value,
   isLogsOverlay: !!previousSlot3.value,
-  logs: backendLogs.value,
   
   // Terminal Props
   tabs: terminalTabs.value,
@@ -129,7 +115,39 @@ const sharedProps = computed(() => ({
   uiScale: debouncedUIScale.value,
   activeTabIdSecondary: activeTabIdSecondary.value,
   splitMode: splitMode.value,
+  isSidebarOpen: globalState.isSidebarOpen,
 }));
+
+const handleUpdateLayout = (layoutType: string) => {
+  if (layoutType === 'classic') {
+    globalState.layout = {
+      version: 2, type: 'split-horizontal', ratio: 0.25,
+      left: { type: 'widget', id: 'SIDEBAR_PANEL' },
+      right: { type: 'widget', id: 'TERMINAL_MAIN' }
+    };
+  } else if (layoutType === 'developer') {
+    globalState.layout = {
+      version: 2, type: 'split-horizontal', ratio: 0.25,
+      left: { type: 'widget', id: 'SIDEBAR_PANEL' },
+      right: {
+        type: 'split-horizontal', ratio: 0.6,
+        left: { type: 'widget', id: 'TERMINAL_MAIN' },
+        right: { type: 'widget', id: 'CYBER_HUD' }
+      }
+    };
+  } else if (layoutType === 'ops') {
+    globalState.layout = {
+      version: 2, type: 'split-horizontal', ratio: 0.25,
+      left: { type: 'widget', id: 'SIDEBAR_PANEL' },
+      right: {
+        type: 'split-horizontal', ratio: 0.6,
+        left: { type: 'widget', id: 'TERMINAL_MAIN' },
+        right: { type: 'widget', id: 'SFTP_EXPLORER' }
+      }
+    };
+  }
+  localStorage.setItem('ter_layout', JSON.stringify(globalState.layout));
+};
 
 // ==========================================
 // --- DECOUPLED LOGIC (UPDATED) ---
@@ -422,17 +440,14 @@ onMounted(async () => {
   window.addEventListener('close-all-menus', () => closeAllMenus());
   
   listen('conn-status', (e: any) => {
-    logQueue.push(e.payload);
-    if (!logThrottleId) logThrottleId = setTimeout(processLogQueue, 100);
-  });
-  
-  listen('backend-log', (e: any) => { 
-    if (!isLogsPaused.value) {
-      logQueue.push(e.payload);
-      if (!logThrottleId) logThrottleId = setTimeout(processLogQueue, 100);
-    }
+    storeActions.pushLog(e.payload);
   });
 
+  listen('backend-log', (e: any) => {
+    if (!isLogsPaused.value) {
+      storeActions.pushLog(e.payload);
+    }
+  });
   listen('traffic-event', () => {
     isTrafficFlashing.value = true;
     if (trafficTimeout) clearTimeout(trafficTimeout);
@@ -499,6 +514,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
                      @update:useNativeWebview="useNativeWebview = $event" 
                      @update:isSafeMode="storeActions.toggleSafeMode($event)"
                      @update:sidebarSlots="sidebarSlots = $event"
+                     @update-layout="handleUpdateLayout"
                      @auto-detect="autoDetectScale"
                      @close="globalState.showSettings = false" @update-macros="(m) => activeMacros = m" />
       
@@ -590,8 +606,8 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
           <GridEngine :node="globalState.layout" :sharedProps="sharedProps" 
                       @switch-tab="bringToForeground"
                       @proc-context="onTerminalContextMenu"
+                      @terminal-context="onTerminalContextMenu"
                       @run-skill="runSkill"
-                      @change-dir="changeDir"
                       @fast-access="onFastAccess"
                       @explorer-context="onExplorerContextMenu"
                       @resize-sftp-start="handleResizeSFTP"

@@ -2,6 +2,8 @@
 import { computed } from 'vue';
 import { WIDGET_REGISTRY } from '../WidgetRegistry';
 
+defineOptions({ inheritAttrs: false });
+
 const props = defineProps<{
   widgetId: string;
   // Pass all common props that components might need
@@ -13,11 +15,16 @@ const widgetComponent = computed(() => WIDGET_REGISTRY[props.widgetId]);
 const getTitle = computed(() => {
   return props.widgetId.replace(/_/g, ' ');
 });
+
+const showHeader = computed(() => {
+  // Hide header for specific structural panels to avoid ugly redundancy
+  return !['SIDEBAR_PANEL', 'TERMINAL_MAIN', 'CYBER_HUD'].includes(props.widgetId);
+});
 </script>
 
 <template>
   <div class="tile-container">
-    <header class="tile-header">
+    <header v-if="showHeader" class="tile-header">
       <span class="tile-title">{{ getTitle }}</span>
       <div class="tile-controls">
         <button class="tile-btn mini">_</button>

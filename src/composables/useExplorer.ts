@@ -22,9 +22,9 @@ export const sanitizeSftpPath = (p: string): string => {
  * useExplorer Composable
  * v2.14.0: Migrated to Global Store for dynamic tiling.
  */
-export function useExplorer() {
-  const realFiles = ref<any[]>([]);
+export const realFiles = ref<any[]>([]);
 
+export function useExplorer() {
   const refreshExplorer = async (pathOverride?: string) => {
     if (!globalState.isConnected) {
       console.warn("[Explorer] Skip refresh: Not connected");

@@ -14,7 +14,7 @@ const props = defineProps<{
   }
 }>();
 
-const emit = defineEmits(['close', 'update-macros', 'update:useNativeWebview', 'update:isSafeMode', 'update:sidebarSlots', 'auto-detect']);
+const emit = defineEmits(['close', 'update-macros', 'update:useNativeWebview', 'update:isSafeMode', 'update:sidebarSlots', 'auto-detect', 'update-layout']);
 
 const allViews = ['OPS', 'ARS', 'NAV', 'LOGS'];
 
@@ -106,6 +106,16 @@ const saveCondaPath = async () => {
             <input v-model="condaPath" @change="saveCondaPath" class="cyber-input conda-input" placeholder="/path/to/conda" />
           </div>
           <p class="hint">Required for advanced document processing (e.g. pdftotext).</p>
+        </section>
+
+        <section class="config-section">
+          <header>📐 WORKSPACE LAYOUT (Grid Engine v2)</header>
+          <div class="slot-selector">
+            <button @click="$emit('update-layout', 'classic')">CLASSIC (2-PANE)</button>
+            <button @click="$emit('update-layout', 'developer')">DEVELOPER (WEB)</button>
+            <button @click="$emit('update-layout', 'ops')">OPS (SFTP)</button>
+          </div>
+          <p class="hint">Instantly reconfigures the structural grid layout.</p>
         </section>
 
         <section class="config-section">

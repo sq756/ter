@@ -1,17 +1,19 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import { globalState } from '../store';
+import { realFiles, useExplorer } from '../composables/useExplorer';
 
 const props = defineProps<{
-  currentPath: string;
-  files: any[];
   hostName?: string;
 }>();
 
-const emit = defineEmits(['change-dir', 'item-context', 'item-drag-start']);
+const emit = defineEmits(['item-context', 'item-drag-start']);
+
+const { changeDir } = useExplorer();
 
 const breadcrumbs = computed(() => {
-  const parts = props.currentPath.split('/').filter(p => p);
-  const rootLabel = props.hostName || 'ROOT';
+  const parts = globalState.currentPath.split('/').filter(p => p);
+  const rootLabel = props.hostName || globalState.host || 'ROOT';
   const result = [{ name: rootLabel, path: '/' }];
   let current = '';
   for (const part of parts) {
@@ -23,7 +25,7 @@ const breadcrumbs = computed(() => {
 
 
 const sortedFiles = computed(() => {
-  const baseFiles = props.files.filter(f => f.name !== '..');
+  const baseFiles = realFiles.value.filter(f => f.name !== '..');
   return [...baseFiles].sort((a, b) => {
     if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
     return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
@@ -31,7 +33,7 @@ const sortedFiles = computed(() => {
 });
 
 const onItemClick = (f: any) => {
-  if (f.is_dir) emit('change-dir', f.name);
+  if (f.is_dir) changeDir(f.name);
 };
 </script>
 
@@ -42,7 +44,7 @@ const onItemClick = (f: any) => {
       <div class="breadcrumbs-container">
         <div class="breadcrumbs">
           <template v-for="(bc, i) in breadcrumbs" :key="bc.path">
-            <span class="bc-item" @click="$emit('change-dir', bc.path)">{{ bc.name }}</span>
+            <span class="bc-item" @click="changeDir(bc.path)">{{ bc.name }}</span>
             <span v-if="i < breadcrumbs.length - 1" class="bc-sep">></span>
           </template>
         </div>

@@ -3,9 +3,10 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import VaultView from './VaultView.vue';
 import SftpExplorer from './SftpExplorer.vue';
 
+import { globalState, backendLogs } from '../store';
+import { realFiles } from '../composables/useExplorer';
+
 const props = defineProps<{
-  files: any[];
-  currentPath: string;
   bgTabs: any[];
   webviewInstances?: any[];
   activeWebviewId?: string | null;
@@ -22,7 +23,6 @@ const props = defineProps<{
   sftpHeight: number;
   slots: Record<number, string>;
   isLogsOverlay: boolean;
-  logs: string[];
   hostName?: string;
 }>();
 
@@ -160,22 +160,9 @@ const getLogColor = (log: string) => {
   return '#a1a1aa';
 };
 
-// v2.11.44: Throttled Log Rendering
-const throttledLogs = ref<string[]>([]);
-let throttleId: any = null;
-
-watch(() => props.logs, (newLogs) => {
-  if (!throttleId) {
-    throttleId = setTimeout(() => {
-      throttledLogs.value = newLogs;
-      throttleId = null;
-    }, 100);
-  }
-}, { immediate: true });
-
 const filteredStrategicLogs = computed(() => {
-  if (staticLogTab.value === 'ALL') return throttledLogs.value;
-  return throttledLogs.value.filter(log => {
+  if (staticLogTab.value === 'ALL') return backendLogs.value;
+  return backendLogs.value.filter(log => {
     if (staticLogTab.value === 'AI') return log.includes('AI') || log.includes('Reasoning') || log.includes('Thinking') || log.includes('Observation');
     if (staticLogTab.value === 'NET') return log.includes('NET') || log.includes('SSH') || log.includes('Tunnel');
     return true;
@@ -266,10 +253,7 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
 
       <div class="module scroller explorer-wrapper" :style="{ flex: '1', minHeight: '0' }">
         <SftpExplorer
-          :currentPath="currentPath"
-          :files="files"
           :hostName="hostName"
-          @change-dir="(d) => $emit('change-dir', d)"
           @item-context="(p) => $emit('explorer-context', { e: p.event, file: p.file })"
           @item-drag-start="onDragStart"
         />      </div>
@@ -313,10 +297,7 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
       </div>
       <div class="module explorer-wrapper" ref="explorerWrapperRef" :style="{ height: sftpHeight + 'px', flex: 'none' }">
         <SftpExplorer
-          :currentPath="currentPath"
-          :files="files"
           :hostName="hostName"
-          @change-dir="(d) => $emit('change-dir', d)"
           @item-context="(p) => $emit('explorer-context', { e: p.event, file: p.file })"
           @item-drag-start="onDragStart"
         />

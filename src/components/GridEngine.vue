@@ -9,6 +9,8 @@ import { computed, ref, onMounted, onUnmounted } from 'vue';
 import type { LayoutNode } from '../WidgetRegistry';
 import TileContainer from './TileContainer.vue';
 
+defineOptions({ inheritAttrs: false });
+
 const props = defineProps<{
   node: LayoutNode;
   sharedProps?: any;
@@ -31,15 +33,31 @@ const containerStyle = computed(() => {
   };
 });
 
-const firstStyle = computed(() => ({
-  flex: props.node.ratio || 0.5,
-  overflow: 'hidden'
-}));
+const firstStyle = computed(() => {
+  if (props.node.left?.type === 'widget' && props.node.left?.id === 'SIDEBAR_PANEL' && props.sharedProps?.isSidebarOpen === false) {
+    return { display: 'none' };
+  }
+  if (props.node.right?.type === 'widget' && props.node.right?.id === 'SIDEBAR_PANEL' && props.sharedProps?.isSidebarOpen === false) {
+    return { flex: 1, overflow: 'hidden' };
+  }
+  return { flex: props.node.ratio || 0.5, overflow: 'hidden' };
+});
 
-const secondStyle = computed(() => ({
-  flex: 1 - (props.node.ratio || 0.5),
-  overflow: 'hidden'
-}));
+const secondStyle = computed(() => {
+  if (props.node.right?.type === 'widget' && props.node.right?.id === 'SIDEBAR_PANEL' && props.sharedProps?.isSidebarOpen === false) {
+    return { display: 'none' };
+  }
+  if (props.node.left?.type === 'widget' && props.node.left?.id === 'SIDEBAR_PANEL' && props.sharedProps?.isSidebarOpen === false) {
+    return { flex: 1, overflow: 'hidden' };
+  }
+  return { flex: 1 - (props.node.ratio || 0.5), overflow: 'hidden' };
+});
+
+const showResizer = computed(() => {
+  const leftHidden = props.node.left?.type === 'widget' && props.node.left?.id === 'SIDEBAR_PANEL' && props.sharedProps?.isSidebarOpen === false;
+  const rightHidden = props.node.right?.type === 'widget' && props.node.right?.id === 'SIDEBAR_PANEL' && props.sharedProps?.isSidebarOpen === false;
+  return !leftHidden && !rightHidden;
+});
 
 const startResize = (e: MouseEvent) => {
   isResizing.value = true;
@@ -83,7 +101,7 @@ onUnmounted(() => {
       <GridEngine :node="node.left || node.top!" :sharedProps="sharedProps" v-on="$attrs" />
     </div>
     
-    <div class="grid-resizer" :class="node.type" @mousedown="startResize" :data-resizing="isResizing"></div>
+    <div v-if="showResizer" class="grid-resizer" :class="node.type" @mousedown="startResize" :data-resizing="isResizing"></div>
     
     <div :style="secondStyle" class="pane-content">
       <GridEngine :node="node.right || node.bottom!" :sharedProps="sharedProps" v-on="$attrs" />

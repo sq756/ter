@@ -60,7 +60,33 @@ export const activeWebviewId = ref<string | null>(null);
 
 export const hostId = computed(() => globalState.isConnected ? globalState.host : 'GLOBAL');
 
+// --- Log Ring Buffer & Throttling System ---
+const LOG_MAX_LINES = 2000;
+let logBuffer: string[] = [];
+let logThrottleId: any = null;
+
+const flushLogBuffer = () => {
+  if (logBuffer.length > 0) {
+    const current = backendLogs.value;
+    let next = current.concat(logBuffer);
+    if (next.length > LOG_MAX_LINES) {
+      next = next.slice(next.length - LOG_MAX_LINES);
+    }
+    backendLogs.value = next;
+    logBuffer = [];
+  }
+  logThrottleId = null;
+};
+
 export const storeActions = {
+  pushLog(log: string) {
+    logBuffer.push(log);
+    if (!logThrottleId) {
+      // Throttle DOM updates to approximately 60fps (16ms) or 50ms batching
+      logThrottleId = setTimeout(flushLogBuffer, 50);
+    }
+  },
+
   setConnected(status: boolean, label?: string, id?: string) {
     globalState.isConnected = status;
     if (label) globalState.host = label;
