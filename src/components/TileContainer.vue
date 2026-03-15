@@ -25,7 +25,7 @@ const getTitle = computed(() => {
       </div>
     </header>
     <div class="tile-content">
-      <component :is="widgetComponent" v-bind="widgetProps" />
+      <component :is="widgetComponent" v-bind="widgetProps" v-on="$attrs" />
     </div>
   </div>
 </template>

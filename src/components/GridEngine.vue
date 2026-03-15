@@ -40,15 +40,15 @@ const secondStyle = computed(() => ({
 
 <template>
   <div v-if="node.type === 'widget'" class="grid-widget-box">
-    <TileContainer :widgetId="node.id!" :widgetProps="sharedProps" />
+    <TileContainer :widgetId="node.id!" :widgetProps="sharedProps" v-on="$attrs" />
   </div>
   
   <div v-else :style="containerStyle" class="grid-split-box">
     <div :style="firstStyle">
-      <GridEngine :node="node.left || node.top!" :sharedProps="sharedProps" />
+      <GridEngine :node="node.left || node.top!" :sharedProps="sharedProps" v-on="$attrs" />
     </div>
     <div :style="secondStyle">
-      <GridEngine :node="node.right || node.bottom!" :sharedProps="sharedProps" />
+      <GridEngine :node="node.right || node.bottom!" :sharedProps="sharedProps" v-on="$attrs" />
     </div>
   </div>
 </template>

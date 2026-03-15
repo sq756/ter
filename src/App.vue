@@ -42,7 +42,6 @@ import {
 const isAutoPilot = ref(false);
 const lastAutoPilotTime = ref(0);
 const activeTriggers = ref<string[]>(['Allow execution of:', '1. Allow once']);
-const showSettings = ref(false);
 const activeMacros = ref<{name: string, cmd: string}[]>([]);
 
 const logQueue: string[] = [];
@@ -483,7 +482,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
     <CyberGate v-if="!globalState.isConnected" @connected="onConnected" />
     
     <div v-else class="main-view">
-      <SettingsPanel :isOpen="showSettings" 
+      <SettingsPanel :isOpen="globalState.showSettings" 
                      :useNativeWebview="useNativeWebview" 
                      :isSafeMode="globalState.isSafeMode"
                      :sidebarSlots="sidebarSlots"
@@ -492,7 +491,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
                      @update:isSafeMode="storeActions.toggleSafeMode($event)"
                      @update:sidebarSlots="sidebarSlots = $event"
                      @auto-detect="autoDetectScale"
-                     @close="showSettings = false" @update-macros="(m) => activeMacros = m" />
+                     @close="globalState.showSettings = false" @update-macros="(m) => activeMacros = m" />
       
       <main class="workspace" @click.stop>
         <!-- Modals and Context Menus -->
@@ -579,7 +578,19 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
 
         <!-- Grid Engine Entry Point -->
         <div class="workspace-body">
-          <GridEngine :node="globalState.layout" :sharedProps="sharedProps" />
+          <GridEngine :node="globalState.layout" :sharedProps="sharedProps" 
+                      @switch-tab="bringToForeground"
+                      @proc-context="onTerminalContextMenu"
+                      @run-skill="runSkill"
+                      @change-dir="changeDir"
+                      @fast-access="onFastAccess"
+                      @explorer-context="onExplorerContextMenu"
+                      @resize-sftp-start="handleResizeSFTP"
+                      @view-changed="handleSidebarViewRevert"
+                      @switch-web="activeWebviewId = $event"
+                      @web-context="onWebContextMenu"
+                      @skill-context="onSkillContextMenu"
+                      @header-context="onHeaderContextMenu" />
         </div>
 
         <footer class="status-bar">
@@ -627,6 +638,8 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
             <button class="status-btn auto-toggle" :class="{ 'active': isAutoPilot }" @click="isAutoPilot = !isAutoPilot">
               AUTO_SYNC: {{ isAutoPilot ? 'ON' : 'OFF' }}
             </button>
+            <span class="status-sep">|</span>
+            <button class="status-btn" @click="globalState.showSettings = true">⚙️ SETTINGS</button>
             <span class="status-sep">|</span>
             <button class="status-btn lock-btn" :class="{ 'active': globalState.isLocked }" @click="globalState.isLocked = true">SYS_LOCK</button>
           </div>
