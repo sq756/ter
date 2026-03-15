@@ -274,16 +274,16 @@ onConnect((params) => addEdges([params]));
 
 <style scoped>
 .network-matrix-overlay { position: fixed; inset: 0; background: #000; z-index: 100000; display: flex; flex-direction: column; color: #d4d4d8; font-family: 'JetBrains Mono', monospace; }
-.matrix-header { height: 45px; padding: 0 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #18181b; background: #050505; }
-.matrix-title { font-size: 12px; letter-spacing: 2px; color: #22c55e; font-weight: bold; }
+.matrix-header { height: calc(45px * var(--ter-ui-scale)); padding: 0 calc(20px * var(--ter-ui-scale)); display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #18181b; background: #050505; }
+.matrix-title { font-size: calc(12px * var(--ter-ui-scale)); letter-spacing: 2px; color: #22c55e; font-weight: bold; }
 .header-actions { display: flex; gap: 15px; align-items: center; }
-.action-btn { background: transparent; border: 1px solid #27272a; color: #71717a; font-size: 10px; padding: 4px 10px; cursor: pointer; }
+.action-btn { background: transparent; border: 1px solid #27272a; color: #71717a; font-size: calc(10px * var(--ter-ui-scale)); padding: calc(4px * var(--ter-ui-scale)) calc(10px * var(--ter-ui-scale)); cursor: pointer; }
 .action-btn:hover, .action-btn.active { border-color: #22c55e; color: #22c55e; box-shadow: 0 0 10px rgba(34, 197, 94, 0.2); }
 .close-btn { background: transparent; border: none; color: #52525b; font-size: 20px; cursor: pointer; }
 .close-btn:hover { color: #ef4444; }
 .dashboard-body { flex: 1; display: flex; overflow: hidden; padding: 10px; gap: 10px; }
 .pane { display: flex; flex-direction: column; background: #09090b; border: 1px solid #18181b; overflow: hidden; }
-.pane-header { background: #111111; padding: 6px 12px; font-size: 10px; color: #52525b; border-bottom: 1px solid #18181b; letter-spacing: 1px; }
+.pane-header { background: #111111; padding: calc(6px * var(--ter-ui-scale)) calc(12px * var(--ter-ui-scale)); font-size: calc(10px * var(--ter-ui-scale)); color: #52525b; border-bottom: 1px solid #18181b; letter-spacing: 1px; }
 .terminal-pane { flex: 3; }
 .topology-pane { flex: 2; position: relative; }
 .auth-pane { flex: 3; }
@@ -291,7 +291,7 @@ onConnect((params) => addEdges([params]));
 .no-pty { height: 100%; display: flex; align-items: center; justify-content: center; color: #3f3f46; font-size: 12px; }
 .flow-container { flex: 1; position: relative; }
 .cyber-flow { background: transparent; }
-.topology-hud { padding: 10px; background: #050505; border-top: 1px solid #18181b; display: flex; justify-content: space-between; font-size: 9px; color: #166534; }
+.topology-hud { padding: calc(10px * var(--ter-ui-scale)); background: #050505; border-top: 1px solid #18181b; display: flex; justify-content: space-between; font-size: calc(9px * var(--ter-ui-scale)); color: #166534; }
 .auth-box { flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px; text-align: center; }
 .auth-placeholder { max-width: 400px; }
 .glitch-text { color: #22c55e; font-size: 18px; font-weight: bold; margin-bottom: 20px; letter-spacing: 4px; }
@@ -327,7 +327,7 @@ onConnect((params) => addEdges([params]));
 .scroller-mini { max-height: 250px; overflow-y: auto; }
 .scroller-mini::-webkit-scrollbar { width: 2px; }
 .scroller-mini::-webkit-scrollbar-thumb { background: #22c55e; }
-.matrix-footer { height: 30px; padding: 0 20px; display: flex; align-items: center; font-size: 9px; color: #166534; border-top: 1px solid #18181b; background: #050505; }
+.matrix-footer { height: calc(30px * var(--ter-ui-scale)); padding: 0 calc(20px * var(--ter-ui-scale)); display: flex; align-items: center; font-size: calc(9px * var(--ter-ui-scale)); color: #166534; border-top: 1px solid #18181b; background: #050505; }
 :deep(.vue-flow__node) { padding: 8px; min-width: 140px; text-align: center; border-radius: 0; }
 :deep(.vue-flow__edge-path) { stroke: #22c55e; stroke-width: 2; }
 :deep(.vue-flow__handle) { background: #22c55e; width: 6px; height: 6px; }

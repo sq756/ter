@@ -92,19 +92,19 @@ const onItemClick = (f: any) => {
 }
 
 .explorer-header .title {
-  font-size: 10px;
+  font-size: calc(10px * var(--ter-ui-scale));
   color: #71717a;
   letter-spacing: 2px;
   display: block;
-  margin-bottom: 8px;
+  margin-bottom: calc(8px * var(--ter-ui-scale));
 }
 
 .breadcrumbs {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: calc(4px * var(--ter-ui-scale));
   font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
+  font-size: calc(11px * var(--ter-ui-scale));
 }
 
 .bc-item {
@@ -141,13 +141,13 @@ const onItemClick = (f: any) => {
 .file-item {
   display: flex;
   align-items: center;
-  padding: 10px 14px;
+  padding: calc(10px * var(--ter-ui-scale)) calc(14px * var(--ter-ui-scale));
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.1s ease;
-  font-size: 13px;
+  font-size: calc(13px * var(--ter-ui-scale));
   color: #d4d4d8;
-  margin-bottom: 2px;
+  margin-bottom: calc(2px * var(--ter-ui-scale));
   border: 1px solid transparent;
 }
 

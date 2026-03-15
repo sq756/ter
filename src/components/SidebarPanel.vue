@@ -329,9 +329,9 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
 </template>
 
 <style scoped>
-.view-switcher-safe { display: flex; height: 28px; background: #000; border-bottom: 1px solid #18181b; }
-.view-switcher-safe button { flex: 1; background: transparent; border: none; color: #71717a; font-family: 'JetBrains Mono', monospace; font-size: 10px; cursor: pointer; transition: all 0.2s; font-weight: bold; }
-.view-switcher-safe button.active { color: #22c55e; background: rgba(34, 197, 94, 0.1); border-bottom: 2px solid #22c55e; }
+.view-switcher-safe { display: flex; height: calc(28px * var(--ter-ui-scale)); background: #000; border-bottom: 1px solid #18181b; }
+.view-switcher-safe button { flex: 1; background: transparent; border: none; color: #71717a; font-family: 'JetBrains Mono', monospace; font-size: calc(10px * var(--ter-ui-scale)); cursor: pointer; transition: all 0.2s; font-weight: bold; }
+.view-switcher-safe button.active { color: #22c55e; background: rgba(34, 197, 94, 0.1); border-bottom: calc(2px * var(--ter-ui-scale)) solid #22c55e; }
 .view-switcher-safe button.overlay-tab { color: #a855f7; border-bottom-color: #a855f7; animation: border-pulse 1s infinite; }
 
 @keyframes border-pulse { 0%, 100% { border-bottom-width: 2px; } 50% { border-bottom-width: 4px; } }
@@ -357,10 +357,10 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
 
 .explorer-wrapper { padding: 0 !important; border-bottom: 1px solid #27272a; position: relative; overflow: hidden; display: flex; flex-direction: column; }
 .data-list { list-style: none; padding: 0; margin: 0; }
-.data-list li, .file-item { display: flex; align-items: center; gap: calc(10px * var(--ter-ui-scale)); padding: calc(8px * var(--ter-ui-scale)) calc(10px * var(--ter-ui-scale)); margin-bottom: 4px; border-radius: 4px; cursor: pointer; color: #d4d4d8; font-size: calc(13px * var(--ter-ui-scale)); transition: all 0.15s ease; border: 1px solid transparent; }
+.data-list li, .file-item { display: flex; align-items: center; gap: calc(10px * var(--ter-ui-scale)); padding: calc(8px * var(--ter-ui-scale)) calc(10px * var(--ter-ui-scale)); margin-bottom: calc(4px * var(--ter-ui-scale)); border-radius: 4px; cursor: pointer; color: #d4d4d8; font-size: calc(13px * var(--ter-ui-scale)); transition: all 0.15s ease; border: 1px solid transparent; }
 .data-list li:hover { background: rgba(34, 197, 94, 0.05); color: #22c55e; border-color: rgba(34, 197, 94, 0.1); }
 
-.data-list li .val { font-size: 9px; padding: 2px 6px; border: 1px solid rgba(113, 113, 122, 0.3); border-radius: 3px; color: #71717a; transition: all 0.2s; margin-left: auto; letter-spacing: 1px; font-weight: bold; min-width: 40px; text-align: center; }
+.data-list li .val { font-size: calc(9px * var(--ter-ui-scale)); padding: calc(2px * var(--ter-ui-scale)) calc(6px * var(--ter-ui-scale)); border: 1px solid rgba(113, 113, 122, 0.3); border-radius: 3px; color: #71717a; transition: all 0.2s; margin-left: auto; letter-spacing: 1px; font-weight: bold; min-width: calc(40px * var(--ter-ui-scale)); text-align: center; }
 .data-list li:hover .val { border-color: #22c55e; color: #22c55e; background: rgba(34, 197, 94, 0.1); box-shadow: 0 0 8px rgba(34, 197, 94, 0.2); }
 .data-list li .val.active { color: #22c55e; border-color: rgba(34, 197, 94, 0.4); }
 .data-list li .val.highlight { color: #a855f7; border-color: rgba(168, 85, 247, 0.4); }
@@ -378,7 +378,7 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
 
 .static-log-container { flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #000; }
 .log-stream-static { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 4px; min-height: 0; }
-.log-line-static { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #a1a1aa; white-space: pre-wrap; word-break: break-all; border-left: 2px solid transparent; padding-left: 8px; }
+.log-line-static { font-family: 'JetBrains Mono', monospace; font-size: calc(10px * var(--ter-ui-scale)); color: #a1a1aa; white-space: pre-wrap; word-break: break-all; border-left: calc(2px * var(--ter-ui-scale)) solid transparent; padding-left: calc(8px * var(--ter-ui-scale)); }
 .log-line-static:hover { border-left-color: #27272a; background: #09090b; }
 
 .mini-chart { height: 30px; background: transparent; border: none; }

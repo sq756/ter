@@ -322,6 +322,22 @@ const handleSidebarViewRevert = (newView: string) => {
   }
 };
 
+const gridMode = ref(localStorage.getItem('ter_grid_mode') === 'true');
+watch(gridMode, (val) => localStorage.setItem('ter_grid_mode', val.toString()));
+
+const getSlotStyle = (idx: number) => {
+  if (!gridMode.value) return {};
+  const row = Math.floor(idx / 3) + 1;
+  const col = (idx % 3) + 1;
+  return {
+    gridRow: row,
+    gridColumn: col,
+    width: '100%',
+    height: '100%',
+    position: 'relative'
+  };
+};
+
 const { 
   morseSequence, morseText, showMorseMacro, isMorsePressed, possibleLetters,
   handleMorseMouse, handleMorseWheel, onMorseMacro
@@ -682,6 +698,9 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
                   <input v-model="previewUrl" @keyup.enter="refreshWebview(previewUrl)" class="address-bar-input" />
                   <button @click="refreshWebview(previewUrl)" class="refresh-btn">⚡</button>
                   <button @click="handleScrapeData()" class="refresh-btn" title="Scrape Page Content (h3)">📊</button>
+                  <button @click="gridMode = !gridMode" class="refresh-btn" :title="gridMode ? 'Exit Grid Mode' : 'Enter Grid Mode (3x2)'" :style="{ color: gridMode ? '#3b82f6' : '#71717a' }">
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+                  </button>
                   <button @click="disableTunnel = !disableTunnel" class="refresh-btn" :title="disableTunnel ? 'Enable Remote Tunnel' : 'Disable Remote Tunnel'" :style="{ color: disableTunnel ? '#ef4444' : '#22c55e' }">                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v5"></path><rect x="5" y="11" width="14" height="10" rx="2"></rect><circle cx="12" cy="16" r="1"></circle></svg>
                   </button>
                   <button @click="addBookmark(activeWebviewId || 'Web', previewUrl)" class="refresh-btn">🔖</button>
@@ -694,21 +713,23 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
                   </div>
                 </div>
 
-                <div class="webview-container" style="flex: 1; display: flex; flex-direction: column; height: 100%; background: #000;">
+                <div class="webview-container" 
+                     :class="{ 'grid-layout': gridMode }"
+                     style="flex: 1; display: flex; flex-direction: column; height: 100%; background: #000;">
                    <!-- Multi-Instance Renderer -->
                    <template v-if="cyberMode === 1 && useNativeWebview && !isSafeMode">
-                     <CyberWebview 
-                       v-for="inst in webviewInstances" 
-                       :key="inst.id"
-                       v-show="activeWebviewId === inst.id"
-                       :id="inst.id"
-                       :url="inst.url"
-                       :isActive="activeWebviewId === inst.id"
-                       :isSafeMode="isSafeMode"
-                       @dom-extracted="onDomExtracted"
-                     />
-                   </template>
-                   <div v-else-if="isSafeMode" class="safe-mode-placeholder">
+                     <div v-for="(inst, idx) in webviewInstances" :key="inst.id"
+                          v-show="activeWebviewId === inst.id || gridMode"
+                          :style="getSlotStyle(idx)" class="grid-slot">
+                       <CyberWebview
+                         :id="inst.id"
+                         :url="inst.url"
+                         :isActive="activeTabId === 'HUD' && (activeWebviewId === inst.id || gridMode)"
+                         :isSafeMode="isSafeMode"
+                         @dom-extracted="onDomExtracted"
+                       />
+                     </div>
+                   </template>                   <div v-else-if="isSafeMode" class="safe-mode-placeholder">
                      <span class="icon">🛡️</span>
                      <div class="msg">WEB_ENGINE_DISABLED_IN_SAFE_MODE</div>
                      <button class="os-browser-btn" @click="isSafeMode = false">DISABLE_SAFE_MODE</button>
@@ -1029,4 +1050,13 @@ input:checked + .slider:before { transform: translateX(12px); }
   transition: none !important;
 }
 .app-shell.safe-mode :deep(.scanline) { display: none !important; }
+
+.webview-container.grid-layout {
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 2px;
+  background: #18181b !important;
+}
+.grid-slot { border: 1px solid #27272a; overflow: hidden; background: #000; }
 </style>

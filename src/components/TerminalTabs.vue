@@ -137,7 +137,7 @@ const closeApp = () => appWindow.close();
   display: flex; 
   align-items: center; 
   padding: 0; 
-  height: var(--ter-tab-bar-height); 
+  height: calc(var(--ter-tab-bar-height) * var(--ter-ui-scale)); 
   flex-shrink: 0; 
   z-index: 10; 
   overflow: hidden;
@@ -145,10 +145,10 @@ const closeApp = () => appWindow.close();
 }
 
 .status-indicator-zone {
-  padding: 0 12px;
+  padding: 0 calc(12px * var(--ter-ui-scale));
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: calc(12px * var(--ter-ui-scale));
   border-right: 1px solid #18181b;
   height: 100%;
   cursor: pointer;
@@ -266,10 +266,10 @@ const closeApp = () => appWindow.close();
 .status-dot.connected { background: #3b82f6; box-shadow: 0 0 10px #3b82f6; }
 .status-dot.busy { background: #a855f7; box-shadow: 0 0 10px #a855f7; }
 .quick-switcher-icon { color: #52525b; display: flex; align-items: center; }
-.tab-icon { margin-right: 8px; font-size: 12px; opacity: 0.5; }
+.tab-icon { margin-right: calc(8px * var(--ter-ui-scale)); font-size: calc(12px * var(--ter-ui-scale)); opacity: 0.5; }
 .tab-item.active { color: #fafafa; background: rgba(255, 255, 255, 0.02); }
 .active-bar { position: absolute; bottom: 0; left: 0; width: 100%; height: 2px; background: #3b82f6; }
 .active-bar-secondary { position: absolute; bottom: 0; left: 0; width: 100%; height: 2px; background: #a855f7; }
-.tab-item .btn-close { position: absolute; right: 8px; background: transparent; border: none; color: #52525b; cursor: pointer; opacity: 0; }
+.tab-item .btn-close { position: absolute; right: calc(8px * var(--ter-ui-scale)); background: transparent; border: none; color: #52525b; cursor: pointer; opacity: 0; }
 .tab-item:hover .btn-close { opacity: 1; }
 </style>

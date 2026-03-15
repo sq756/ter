@@ -168,6 +168,8 @@ async fn spawn_mihomo(config_path: String, bin_path: String, tab_id: Option<Stri
     Ok(())
 }
 
+const AD_BLOCK_CSS: &str = "iframe[src*='ads'], [class*='ad-'], [id*='ad-'], .google-ads, #carbonads { display: none !important; }";
+
 #[tauri::command]
 async fn create_embedded_webview(label: String, url: String, x: f64, y: f64, width: f64, height: f64, app: AppHandle) -> Result<(), String> {
     let target_url = url.parse::<Url>().map_err(|e| format!("Invalid URL: {}", e))?;
@@ -178,13 +180,27 @@ async fn create_embedded_webview(label: String, url: String, x: f64, y: f64, wid
         let _ = wv.set_size(tauri::LogicalSize::new(width, height)).map_err(|e: tauri::Error| e.to_string())?;
         let _ = wv.show().map_err(|e: tauri::Error| e.to_string())?;
     } else {
-        let _win = tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::External(target_url))
+        let wv_win = tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::External(target_url))
             .position(x, y)
             .inner_size(width, height)
-            .decorations(false) // Make it look embedded
+            .decorations(false)
             .always_on_top(true)
             .build()
-            .map_err(|e: tauri::Error| e.to_string())?;
+            .map_err(|e| e.to_string())?;
+            
+        // v2.13.3: Inject Ad-block CSS
+        let _ = wv_win.eval(&format!(
+            "const s = document.createElement('style'); s.innerHTML = `{}`; document.head.appendChild(s);",
+            AD_BLOCK_CSS
+        ));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn set_window_always_on_top(label: String, on_top: bool, app: AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window(&label) {
+        let _ = win.set_always_on_top(on_top);
     }
     Ok(())
 }
@@ -794,7 +810,7 @@ pub fn run() {
             download_file, upload_file,
             delete_remote_file, read_remote_file, write_remote_file, dump_to_terminal,
             get_latest_ai_response, list_vault, read_local_file, get_connection_chain,
-            spawn_mihomo, open_auth_window, close_auth_window, update_webview_bounds, create_embedded_webview, open_reverse_tunnel,
+            spawn_mihomo, open_auth_window, close_auth_window, update_webview_bounds, create_embedded_webview, set_window_always_on_top, open_reverse_tunnel,
             copy_latest_to_clipboard,
             list_remote_tmux_sessions,
             list_bookmarks, save_bookmark, delete_bookmark,
