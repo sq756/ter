@@ -57,7 +57,11 @@ const initTerminal = async (retries = 5) => {
     // Setup scroll listener for jump button
     instance.term.onScroll(() => {
       const buffer = instance.term.buffer.active;
-      // If user is more than 5 lines away from bottom
+      // v2.14.15: Only show jump button in normal buffer mode
+      if (buffer.type === 'alternate') {
+        showJumpBtn.value = false;
+        return;
+      }
       showJumpBtn.value = buffer.viewportY < buffer.baseY - 5;
     });
 
@@ -70,7 +74,11 @@ const initTerminal = async (retries = 5) => {
   resizeObserver = new ResizeObserver(() => performFit());
   resizeObserver.observe(terminalRef.value);
 
-  if (props.active) terminalManager.getOrCreate(props.id).term.focus();
+  if (props.active) {
+    // v2.14.15: Enhanced focus capture
+    const instance = terminalManager.getOrCreate(props.id);
+    setTimeout(() => instance.term.focus(), 50);
+  }
 };
 
 let unlistenDirect: any = null;
@@ -83,9 +91,7 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
-  if (resizeObserver) {
-    resizeObserver.disconnect();
-  }
+  if (resizeObserver) resizeObserver.disconnect();
   if (unlistenDirect) unlistenDirect();
 });
 
@@ -94,31 +100,33 @@ watch(() => props.uiScale, (newScale) => {
   const instance = terminalManager.getOrCreate(props.id);
   if (instance) {
     instance.term.options.fontSize = 14 * newScale;
-    // Debounced fit via nextTick/requestAnimationFrame
-    nextTick(() => {
-      performFit();
-    });
+    nextTick(() => performFit());
   }
 });
 
 watch(() => props.active, async (isActive) => {
   if (isActive) {
-    console.log(`[TerminalView:${props.id}] Tab became active`);
     await nextTick(); 
+    const instance = terminalManager.getOrCreate(props.id);
     
-    // Extra stabilize for Linux rendering
     requestAnimationFrame(() => {
       performFit();
-      terminalManager.focus(props.id);
+      // v2.14.15: Force focus on active change with double-check
+      instance.term.focus();
+      setTimeout(() => instance.term.focus(), 100);
     });
     
-    // One more try after a short delay
     setTimeout(performFit, 300);
   }
 });
 </script>
+
 <template>
-  <div ref="terminalRef" class="terminal-view-container" @contextmenu.prevent.stop="$emit('terminal-context', { e: $event, id: props.id })">
+  <div ref="terminalRef" 
+       class="terminal-view-container" 
+       tabindex="-1"
+       @mousedown="terminalManager.focus(props.id)"
+       @contextmenu.prevent.stop="$emit('terminal-context', { e: $event, id: props.id })">
     <!-- v2.14.13: Floating Jump to Bottom Button -->
     <transition name="fade">
       <button v-if="showJumpBtn" class="jump-bottom-btn" @click="jumpToBottom">
@@ -175,7 +183,6 @@ watch(() => props.active, async (isActive) => {
 .fade-enter-from, .fade-leave-to { opacity: 0; transform: translateY(10px); }
 
 .terminal-view-container .xterm {
-...
   padding: 10px;
   height: 100%;
   width: 100%;

@@ -23,6 +23,19 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
 const minimize = () => appWindow.minimize();
 const toggleMaximize = () => appWindow.toggleMaximize();
 const closeApp = () => appWindow.close();
+const switchTab = (id: string) => {
+  emit('switch-tab', id);
+  nextTick(() => {
+    terminalManager.focus(id);
+  });
+};
+
+const switchTabSecondary = (id: string) => {
+  emit('switch-tab-secondary', id);
+  nextTick(() => {
+    terminalManager.focus(id);
+  });
+};
 </script>
 
 <template>
@@ -46,7 +59,7 @@ const closeApp = () => appWindow.close();
                :key="t.id" 
                class="tab-item" 
                :class="{ 'active': t.id === activeTabId || (splitMode && t.id === activeTabIdSecondary) }" 
-               @click="splitMode && activeTabId ? $emit('switch-tab-secondary', t.id) : $emit('switch-tab', t.id)"
+               @click="splitMode && activeTabId ? switchTabSecondary(t.id) : switchTab(t.id)"
                @contextmenu.prevent.stop="$emit('terminal-context', { e: $event, id: t.id })">
             <span class="tab-icon">
               <svg v-if="t.viewType === 'terminal'" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
