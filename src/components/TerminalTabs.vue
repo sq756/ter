@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { nextTick } from 'vue';
 import TerminalView from './TerminalView.vue';
 import TerEditor from './TerEditor.vue';
 import CyberPdfViewer from './CyberPdfViewer.vue';
@@ -23,6 +24,7 @@ const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
 const minimize = () => appWindow.minimize();
 const toggleMaximize = () => appWindow.toggleMaximize();
 const closeApp = () => appWindow.close();
+
 const switchTab = (id: string) => {
   emit('switch-tab', id);
   nextTick(() => {
@@ -42,12 +44,10 @@ const switchTabSecondary = (id: string) => {
   <div class="terminal-workspace">
     <!-- Multi-Terminal Tab Bar -->
     <nav class="tab-bar">
-      <!-- v2.14.11: Enhanced Full-Bar Drag Support -->
-      <div class="drag-handle-bg" data-tauri-drag-region></div>
-
+      <!-- v2.14.16: Safe Drag Logic (Non-blocking) -->
       <div class="tab-bar-content">
         <!-- Status Indicator & Quick Switcher -->
-        <div class="status-indicator-zone" @click="$emit('new-tab')">
+        <div class="status-indicator-zone" @click="$emit('new-tab')" data-tauri-drag-region>
           <div class="status-dot" :class="connectionStatus"></div>
           <div class="quick-switcher-icon">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
@@ -59,11 +59,11 @@ const switchTabSecondary = (id: string) => {
                :key="t.id" 
                class="tab-item" 
                :class="{ 'active': t.id === activeTabId || (splitMode && t.id === activeTabIdSecondary) }" 
-               @click="splitMode && activeTabId ? switchTabSecondary(t.id) : switchTab(t.id)"
+               @click.stop="splitMode && activeTabId ? switchTabSecondary(t.id) : switchTab(t.id)"
                @contextmenu.prevent.stop="$emit('terminal-context', { e: $event, id: t.id })">
             <span class="tab-icon">
               <svg v-if="t.viewType === 'terminal'" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
-              <svg v-else-if="t.viewType === 'webview'" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path></svg>
+              <svg v-else-if="t.viewType === 'webview'" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10z"></path></svg>
               <svg v-else viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
             </span>
             <span class="title">{{ t.title }}</span>
@@ -75,14 +75,14 @@ const switchTabSecondary = (id: string) => {
           </div>
         </div>
 
-        <button class="btn-new-tab" @click="$emit('new-tab')">
+        <button class="btn-new-tab" @click.stop="$emit('new-tab')">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
         </button>
-        <button class="btn-split" :class="{ 'active': splitMode }" @click="$emit('toggle-split')">
+        <button class="btn-split" :class="{ 'active': splitMode }" @click.stop="$emit('toggle-split')">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="3" x2="12" y2="21"></line></svg>
         </button>
 
-        <div class="drag-spacer"></div>
+        <div class="drag-spacer" data-tauri-drag-region></div>
 
         <!-- v2.11.29: Stealth Window Controls (Isolated) -->
         <div class="window-controls">
@@ -169,14 +169,6 @@ const switchTabSecondary = (id: string) => {
   flex-shrink: 0; 
   z-index: 10; 
   overflow: hidden;
-  position: relative;
-}
-
-.drag-handle-bg {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  cursor: default;
 }
 
 .tab-bar-content {
@@ -186,11 +178,6 @@ const switchTabSecondary = (id: string) => {
   align-items: center;
   width: 100%;
   height: 100%;
-  pointer-events: none; /* Let events pass to drag-handle-bg by default */
-}
-
-.tab-bar-content > * {
-  pointer-events: auto; /* Enable events for actual controls */
 }
 
 .status-indicator-zone {
@@ -293,10 +280,6 @@ const switchTabSecondary = (id: string) => {
 
 .tab-view-wrapper { position: absolute; inset: 0; width: 100%; height: 100%; }
 
-.editor-placeholder, .webview-placeholder { 
-  height: 100%; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: #09090b; color: #52525b; font-family: 'JetBrains Mono', monospace; gap: 10px;
-}
-.editor-placeholder .icon, .webview-placeholder .icon { font-size: 32px; }
 .empty-pane-msg { height: 100%; display: flex; align-items: center; justify-content: center; color: #3f3f46; font-size: 10px; font-family: 'JetBrains Mono', monospace; letter-spacing: 2px; }
 
 .status-dot { 
@@ -306,23 +289,6 @@ const switchTabSecondary = (id: string) => {
   background: #52525b; 
   position: relative;
   transition: all 0.1s;
-}
-.status-dot.pressing { transform: scale(1.5); background: #22c55e !important; box-shadow: 0 0 15px #22c55e; }
-
-.morse-visual-hint {
-  position: absolute;
-  top: 15px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: #22c55e;
-  color: #000;
-  font-size: 8px;
-  font-weight: bold;
-  padding: 1px 3px;
-  border-radius: 2px;
-  white-space: nowrap;
-  pointer-events: none;
-  z-index: 100;
 }
 .status-dot.connected { background: #3b82f6; box-shadow: 0 0 10px #3b82f6; }
 .status-dot.busy { background: #a855f7; box-shadow: 0 0 10px #a855f7; }
