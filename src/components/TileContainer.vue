@@ -20,6 +20,13 @@ const showHeader = computed(() => {
   // Hide header for specific structural panels to avoid ugly redundancy
   return !['SIDEBAR_PANEL', 'TERMINAL_MAIN', 'CYBER_HUD'].includes(props.widgetId);
 });
+
+// v2.14.17: Explicit Event Tunneling
+const emit = defineEmits([
+  'switch-tab', 'proc-context', 'terminal-context', 'run-skill', 
+  'fast-access', 'explorer-context', 'resize-sftp-start',
+  'change-dir', 'switch-web', 'web-context', 'open-vault-entry', 'view-changed'
+]);
 </script>
 
 <template>

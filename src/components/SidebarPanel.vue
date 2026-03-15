@@ -21,7 +21,7 @@ const props = defineProps<{
   isAutoPilot: boolean;
   isSafeMode: boolean;
   sftpHeight: number;
-  slots: Record<number, string>;
+  slots: string[]; // Fixed: Changed from Record to string array
   isLogsOverlay: boolean;
   hostName?: string;
 }>();
@@ -45,11 +45,8 @@ watch(activeView, (nv) => {
 });
 
 const cycleView = (direction: 1 | -1 = 1) => {
+  if (!props.slots || props.slots.length === 0) return;
   const currentIndex = props.slots.indexOf(activeView.value);
-  if (currentIndex === -1) {
-    activeView.value = props.slots[0];
-    return;
-  }
   const nextIndex = (currentIndex + direction + props.slots.length) % props.slots.length;
   activeView.value = props.slots[nextIndex];
 };
@@ -127,15 +124,6 @@ const stopVerticalResize = () => {
   document.removeEventListener('mouseup', stopVerticalResize);
 };
 
-const sortedFiles = computed(() => {
-  const baseFiles = props.files.filter(f => f.name !== '..');
-  return [...baseFiles].sort((a, b) => {
-    if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
-    return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
-  });
-});
-
-const onItemClick = (f: any) => { if (f.is_dir) emit('change-dir', f.name); };
 const onFastAccessClick = (path: string) => { emit('fast-access', path); };
 const isTabActive = (id: string) => (Date.now() - (props.lastActivityMap[id] || 0)) < 1000;
 
