@@ -27,15 +27,6 @@ export const globalState = reactive({
 
   // Explorer State
   currentPath: '/',
-  ...
-  export const storeActions = {
-  // Config Actions
-  setNativeWebview(val: boolean) {
-    globalState.useNativeWebview = val;
-    localStorage.setItem('ter_use_native_webview', val.toString());
-  },
-
-  pushLog(log: string) {
 
   currentAgentPort: null as number | null,
 
