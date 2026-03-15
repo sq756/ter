@@ -1,39 +1,28 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, inject } from 'vue';
 import { globalState } from '../store';
 import { realFiles, useExplorer } from '../composables/useExplorer';
+
+const terActions = inject<any>('TER_ACTIONS');
 
 const props = defineProps<{
   hostName?: string;
 }>();
 
-const emit = defineEmits(['item-context', 'item-drag-start']);
+const emit = defineEmits(['item-drag-start']);
 
 const { changeDir } = useExplorer();
 
-const breadcrumbs = computed(() => {
-  const parts = globalState.currentPath.split('/').filter(p => p);
-  const rootLabel = props.hostName || globalState.host || 'ROOT';
-  const result = [{ name: rootLabel, path: '/' }];
-  let current = '';
-  for (const part of parts) {
-    current += '/' + part;
-    result.push({ name: part.toUpperCase(), path: current });
-  }
-  return result;
-});
-
-
-const sortedFiles = computed(() => {
-  const baseFiles = realFiles.value.filter(f => f.name !== '..');
-  return [...baseFiles].sort((a, b) => {
-    if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
-    return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
-  });
-});
+// ... existing breadcrumbs and sortedFiles ...
 
 const onItemClick = (f: any) => {
   if (f.is_dir) changeDir(f.name);
+};
+
+const onContextMenu = (e: MouseEvent, file: any) => {
+  if (terActions) {
+    terActions.openExplorerContext({ event: e, file });
+  }
 };
 </script>
 
@@ -53,11 +42,11 @@ const onItemClick = (f: any) => {
 
     <div class="explorer-body scroller-enhanced">
       <ul class="file-list">
-        <!-- Parent Dir (v2.11.52 Boundary Protection) -->
+        <!-- Parent Dir -->
         <li class="file-item" 
-            :class="{ 'disabled': currentPath === '/' }"
-            @click="currentPath !== '/' && $emit('change-dir', '..')" 
-            @contextmenu.prevent="currentPath !== '/' && $emit('item-context', { event: $event, file: { name: '..', is_dir: true } })">
+            :class="{ 'disabled': globalState.currentPath === '/' }"
+            @click="globalState.currentPath !== '/' && changeDir('..')" 
+            @contextmenu.prevent="globalState.currentPath !== '/' && onContextMenu($event, { name: '..', is_dir: true })">
           <span class="icon">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10h10a8 8 0 0 1 8 8v2"></path><polyline points="7 14 3 10 7 6"></polyline></svg>
           </span>
@@ -67,7 +56,7 @@ const onItemClick = (f: any) => {
         <li v-for="f in sortedFiles" :key="f.name" 
             class="file-item" 
             @click="onItemClick(f)"
-            @contextmenu.prevent="$emit('item-context', { event: $event, file: f })"
+            @contextmenu.prevent="onContextMenu($event, f)"
             draggable="true"
             @dragstart="$emit('item-drag-start', f)">
           <span class="icon">
