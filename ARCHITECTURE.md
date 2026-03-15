@@ -56,9 +56,20 @@ To allow users to place your widget on the screen, add its ID to the dropdowns i
 *   **High-Frequency Data (Logs, PTY output):** Must be throttled. Never push directly to a reactive array inside a fast loop. Use the `storeActions.pushLog` Ring Buffer implementation to ensure 60fps UI performance without blocking the main thread.
 *   **Backend Communication (Tauri RPC):** Call `invoke` directly from the Composables (e.g., `useExplorer.ts`), update the global state, and let Vue's reactivity handle the UI updates.
 
-## 5. CSS & Styling Conventions
-*   **Theming:** Use CSS variables (e.g., `var(--ter-ui-scale)`) for all paddings, margins, and font sizes to ensure the global scaling system works.
-*   **Fonts:** 
-    *   System UI (Buttons, Titles): `Inter` or standard sans-serif.
-    *   Technical UI (Logs, Terminals, Code): `JetBrains Mono` or `monospace`. Use the `.app-shell :deep(.your-class)` pattern in `App.vue` carefully to assign monospace fonts.
-*   **Resizing:** If your widget contains internal resizable panes (splitters), use `flex: 1` and `flex: 0 0 auto` (for the splitter handle) instead of absolute heights, to prevent flexbox overriding inline styles.
+## 6. The Cyber-RPC & AutoPilot Engine (AI Integration)
+
+Ter is an "AI-Native" workstation. It bridges the text-based Terminal and the graphical Webview through a seamless interception layer located in `usePtyListener.ts`.
+
+### TER_RPC Protocol
+If a background script or AI agent prints a specific JSON string to the terminal (e.g., `[TER_RPC] {"action": "navigate", "url": "https://github.com"}`), the interceptor will:
+1.  Parse the JSON.
+2.  Strip the raw JSON string from the terminal output so the user never sees the ugly code.
+3.  Execute the action globally (e.g., automatically redirecting the `CYBER_HUD` webview).
+
+### AUTO_SYNC (AutoPilot)
+When `AUTO_SYNC` is enabled:
+*   **Port Sniffing:** If the terminal prints a local URL like `http://localhost:3000`, the system automatically captures the port and redirects the visual webview to that address.
+*   **Visual DOM Control:** If an AI agent prints `[TER_ACTION: click(12)]`, the interceptor instantly injects JavaScript into the running Webview to click the DOM element with ID 12. 
+*   **Auto-Confirm:** Matches terminal prompts against `activeTriggers` and automatically sends carriage returns (`\r`) to bypass repetitive confirmations.
+
+**Developer Rule:** When building new tools (like a Python or Go CLI script meant to be run inside Ter), you can control the entire Ter GUI simply by printing `[TER_RPC]` or `[TER_ACTION]` strings to standard output (`stdout`).

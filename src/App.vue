@@ -692,7 +692,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
 .main-view { display: flex; flex: 1; height: 100%; width: 100%; overflow: hidden; position: relative; }
 
 :deep(.side-bar) {
-  width: var(--ter-sidebar-width);
+  width: 100%;
   flex-shrink: 0;
   transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1), padding 0.2s ease, opacity 0.2s ease;
   overflow: hidden;
