@@ -1,14 +1,18 @@
-import { ref, computed, type Ref } from 'vue';
+import { computed, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { terminalManager } from '../TerminalManager';
+import { 
+  terminalTabs, activeTabId, activeTabIdSecondary, splitMode, 
+  globalState, backendLogs 
+} from '../store';
 
 export type ViewType = 'terminal' | 'webview' | 'editor';
 
-export function useTabs(isConnected: Ref<boolean>, backendLogs: Ref<string[]>) {
-  const terminalTabs = ref<any[]>([]);
-  const activeTabId = ref<string | null>(null);
-  const activeTabIdSecondary = ref<string | null>(null);
-  const splitMode = ref(false);
+/**
+ * useTabs Composable
+ * v2.14.0: Migrated to Global Store for dynamic tiling.
+ */
+export function useTabs() {
   const lastActivityMap = ref<Record<string, number>>({});
   const backgroundTabs = computed(() => terminalTabs.value.filter(t => t.isBackground));
 
@@ -18,17 +22,16 @@ export function useTabs(isConnected: Ref<boolean>, backendLogs: Ref<string[]>) {
     
     if (viewType === 'terminal') {
       terminalManager.setOnDataCallback(id, (tid, data) => { 
-        if (!skipPty && isConnected.value) {
+        if (!skipPty && globalState.isConnected) {
           invoke('write_pty', { tabId: tid, data }).catch(e => console.error("Write fail:", e)); 
         }
       });
 
       terminalManager.getOrCreate(id);
 
-      if (!skipPty && isConnected.value) {
+      if (!skipPty && globalState.isConnected) {
         try {
           await invoke('spawn_new_pty', { tabId: id });
-          // CRITICAL: 500ms delay to ensure PTY is ready
           setTimeout(() => invoke('write_pty', { tabId: id, data: "\n\r" }), 500);
         } catch (e) { 
           backendLogs.value.push(`[ERROR] PTY Spawn fail for ${id}: ${e}`); 
@@ -53,7 +56,6 @@ export function useTabs(isConnected: Ref<boolean>, backendLogs: Ref<string[]>) {
   const toggleSplit = () => {
     splitMode.value = !splitMode.value;
     if (splitMode.value && !activeTabIdSecondary.value) {
-      // Pick another visible tab if available
       const other = terminalTabs.value.find(t => !t.isBackground && t.id !== activeTabId.value);
       if (other) activeTabIdSecondary.value = other.id;
     }
@@ -76,14 +78,11 @@ export function useTabs(isConnected: Ref<boolean>, backendLogs: Ref<string[]>) {
       const tab = terminalTabs.value.find(t => t.id === tid);
       if (tab) {
         const s = terminalManager.getSelection(tab.id).trim();
-        
-        // v2.9.12: Protect custom names
         const currentTitle = tab.title;
         const isCustomName = currentTitle !== 'Shell' && currentTitle !== 'Main Shell' && !currentTitle.startsWith('Proc:') && !currentTitle.startsWith('tab-');
         if (!isCustomName) {
           tab.title = s ? `Proc: ${s.substring(0, 10)}...` : `Proc: ${tid.substring(0, 5)}`;
         }
-        
         tab.isBackground = true;
         if (activeTabId.value === tid) {
           activeTabId.value = terminalTabs.value.find(t => !t.isBackground)?.id || null;

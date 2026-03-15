@@ -2,6 +2,7 @@ import { onMounted, onUnmounted, type Ref } from 'vue';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { terminalManager } from '../TerminalManager';
+import { globalState, backendLogs, activeTabId } from '../store';
 
 // v2.11.56: Rendering Throttling
 const writeQueues: Map<string, Uint8Array[]> = new Map();
@@ -27,17 +28,17 @@ const processWriteQueues = () => {
   }
 };
 
+/**
+ * usePtyListener Composable
+ * v2.14.0: Migrated to Global Store for dynamic tiling.
+ */
 export function usePtyListener(
-  activeTabId: Ref<string | null>,
-  connectionStatus: Ref<'connected' | 'busy' | 'disconnected'>,
-  backendLogs: Ref<string[]>,
   isAutoPilot: Ref<boolean>,
   lastAutoPilotTime: Ref<number>,
   activeTriggers: Ref<string[]>,
   captureAndUpload: (auto: boolean) => Promise<void>,
   refreshWebview: (url?: string) => Promise<void>,
   handleExtractDOM: () => Promise<void>,
-  currentAgentPort: Ref<number | null>,
   lastActivityMap: Ref<Record<string, number>>
 ) {
   let unlistenPty: any;
@@ -48,15 +49,11 @@ export function usePtyListener(
       const { id, data } = ev.payload;
       if (!id || !data) return;
 
-      // Update activity timestamp for breathing effect
       lastActivityMap.value[id] = Date.now();
 
       let bytes = typeof data === 'string' ? new TextEncoder().encode(data) : new Uint8Array(data);
       let text = decoder.decode(bytes);
 
-      // ==========================================
-      // --- PTY RPC INTERCEPTOR ---
-      // ==========================================
       if (text.includes('[TER_RPC]')) {
         const rpcRegex = /\[TER_RPC\]\s*({.*?})/g;
         let match;
@@ -91,7 +88,6 @@ export function usePtyListener(
         }
       }
 
-      // v2.11.56: Batched writes via RAF
       if (!writeQueues.has(id)) writeQueues.set(id, []);
       writeQueues.get(id)!.push(bytes);
       
@@ -100,15 +96,13 @@ export function usePtyListener(
         requestAnimationFrame(processWriteQueues);
       }
       
-      // Update status pulse
-      if (connectionStatus.value === 'connected') { 
-        connectionStatus.value = 'busy'; 
+      if (globalState.connectionStatus === 'connected') { 
+        globalState.connectionStatus = 'busy'; 
         setTimeout(() => { 
-          if (connectionStatus.value === 'busy') connectionStatus.value = 'connected'; 
+          if (globalState.connectionStatus === 'busy') globalState.connectionStatus = 'connected'; 
         }, 200); 
       }
       
-      // AutoPilot Logic
       if (isAutoPilot.value) {
         const pt = text.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
         const actionMatch = pt.match(/\[TER_ACTION:\s*(click|type)\((\d+)(?:,\s*"(.*?)")?\)\]/);
@@ -116,13 +110,13 @@ export function usePtyListener(
         if (actionMatch) {
           const action = actionMatch[1], eid = actionMatch[2], txt = actionMatch[3] || "";
           const code = action === 'click' ? `window.TerAgent.click(${eid})` : `window.TerAgent.type(${eid}, ${JSON.stringify(txt)})`;
-          invoke('eval_cyber_webview', { code });
+          if (activeTabId.value) invoke('eval_cyber_webview', { label: activeTabId.value, code });
         } else if (!pt.includes('tab-') && (Date.now() - lastAutoPilotTime.value) > 500) {
           const lm = pt.match(/http:\/\/localhost:(\d+)/); 
           if (lm && lm[1]) {
             const port = parseInt(lm[1]);
-            if (currentAgentPort.value !== port) {
-              currentAgentPort.value = port;
+            if (globalState.currentAgentPort !== port) {
+              globalState.currentAgentPort = port;
               refreshWebview(`http://localhost:${port}`);
             }
           }

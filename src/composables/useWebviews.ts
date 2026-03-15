@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue';
+import { webviewInstances, activeWebviewId } from '../store';
 
 export interface WebviewInstance {
   id: string;
@@ -7,9 +7,10 @@ export interface WebviewInstance {
   isActive: boolean;
 }
 
-const webviewInstances = ref<WebviewInstance[]>([]);
-const activeWebviewId = ref<string | null>(null);
-
+/**
+ * useWebviews Composable
+ * v2.14.0: Migrated to Global Store for dynamic tiling.
+ */
 export function useWebviews() {
   const createWebview = (url: string = 'https://google.com', title: string = 'New Web Page') => {
     const id = `web-${Math.random().toString(36).substr(2, 9)}`;
