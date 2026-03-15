@@ -10,31 +10,38 @@ const props = defineProps<{
 }>();
 
 const terminalRef = ref<HTMLElement | null>(null);
+const showJumpBtn = ref(false);
 let resizeObserver: ResizeObserver | null = null;
+let fitTimeout: any = null;
 
 const performFit = () => {
-  if (props.active && terminalRef.value) {
-    const width = terminalRef.value.offsetWidth;
-    const height = terminalRef.value.offsetHeight;
-    
-    if (width > 0 && height > 0) {
-      console.log(`[TerminalView:${props.id}] Fitting terminal. Size: ${width}x${height}`);
-      const instance = terminalManager.getOrCreate(props.id);
-      instance.fit.fit();
+  if (fitTimeout) clearTimeout(fitTimeout);
+  fitTimeout = setTimeout(() => {
+    if (props.active && terminalRef.value) {
+      const width = terminalRef.value.offsetWidth;
+      const height = terminalRef.value.offsetHeight;
       
-      const { cols, rows } = instance.term;
-      console.log(`[TerminalView:${props.id}] Fit result: ${cols}x${rows}`);
-      
-      // Sync size with backend PTY
-      import('@tauri-apps/api/core').then(({ invoke }) => {
-        invoke('resize_pty', { tabId: props.id, cols, rows }).catch(e => {
-          console.warn(`[TerminalView:${props.id}] Failed to resize PTY:`, e);
+      if (width > 0 && height > 0) {
+        const instance = terminalManager.getOrCreate(props.id);
+        instance.fit.fit();
+        
+        const { cols, rows } = instance.term;
+        // Sync size with backend PTY
+        import('@tauri-apps/api/core').then(({ invoke }) => {
+          invoke('resize_pty', { tabId: props.id, cols, rows }).catch(() => {});
         });
-      });
-    } else {
-      console.debug(`[TerminalView:${props.id}] Skip fit, element hidden or 0 size`);
+        
+        // v2.14.13: Force scroll to bottom after fit to prevent "scrolling from top" lag
+        instance.term.scrollToBottom();
+      }
     }
-  }
+  }, 50); // 50ms debounce
+};
+
+const jumpToBottom = () => {
+  const instance = terminalManager.getOrCreate(props.id);
+  instance.term.scrollToBottom();
+  showJumpBtn.value = false;
 };
 
 const initTerminal = async (retries = 5) => {
@@ -45,30 +52,25 @@ const initTerminal = async (retries = 5) => {
   
   try {
     terminalManager.mount(props.id, terminalRef.value);
+    const instance = terminalManager.getOrCreate(props.id);
     
-    // Stabilize layout
-    setTimeout(performFit, 100);
-    setTimeout(performFit, 500);
-    setTimeout(performFit, 1000);
-  } catch (e) {
-    console.error(`[TerminalView:${props.id}] Mount failed, retrying...`, e);
-    if (retries > 0) {
-      setTimeout(() => initTerminal(retries - 1), 200);
-      return;
-    }
-  }
+    // Setup scroll listener for jump button
+    instance.term.onScroll(() => {
+      const buffer = instance.term.buffer.active;
+      // If user is more than 5 lines away from bottom
+      showJumpBtn.value = buffer.viewportY < buffer.baseY - 5;
+    });
 
-  const instance = terminalManager.getOrCreate(props.id);
+    setTimeout(performFit, 100);
+  } catch (e) {
+    if (retries > 0) setTimeout(() => initTerminal(retries - 1), 200);
+  }
 
   if (resizeObserver) resizeObserver.disconnect();
-  resizeObserver = new ResizeObserver(() => {
-    performFit();
-  });
+  resizeObserver = new ResizeObserver(() => performFit());
   resizeObserver.observe(terminalRef.value);
 
-  if (props.active) {
-    instance.term.focus();
-  }
+  if (props.active) terminalManager.getOrCreate(props.id).term.focus();
 };
 
 let unlistenDirect: any = null;
@@ -115,9 +117,16 @@ watch(() => props.active, async (isActive) => {
   }
 });
 </script>
-
 <template>
-  <div ref="terminalRef" class="terminal-view-container" @contextmenu.prevent.stop="$emit('terminal-context', { e: $event, id: props.id })"></div>
+  <div ref="terminalRef" class="terminal-view-container" @contextmenu.prevent.stop="$emit('terminal-context', { e: $event, id: props.id })">
+    <!-- v2.14.13: Floating Jump to Bottom Button -->
+    <transition name="fade">
+      <button v-if="showJumpBtn" class="jump-bottom-btn" @click="jumpToBottom">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="7 13 12 18 17 13"></polyline><polyline points="7 6 12 11 17 6"></polyline></svg>
+        <span>JUMP_TO_BOTTOM</span>
+      </button>
+    </transition>
+  </div>
 </template>
 
 <style>
@@ -136,7 +145,37 @@ watch(() => props.active, async (isActive) => {
   will-change: transform;
 }
 
+.jump-bottom-btn {
+  position: absolute;
+  bottom: calc(20px * var(--ter-ui-scale));
+  right: calc(30px * var(--ter-ui-scale));
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid #22c55e;
+  color: #22c55e;
+  padding: 6px 12px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: calc(10px * var(--ter-ui-scale));
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 100;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 0 15px rgba(34, 197, 94, 0.2);
+  transition: all 0.2s;
+}
+.jump-bottom-btn:hover {
+  background: #22c55e;
+  color: #000;
+  box-shadow: 0 0 20px rgba(34, 197, 94, 0.5);
+}
+
+.fade-enter-active, .fade-leave-active { transition: opacity 0.3s, transform 0.3s; }
+.fade-enter-from, .fade-leave-to { opacity: 0; transform: translateY(10px); }
+
 .terminal-view-container .xterm {
+...
   padding: 10px;
   height: 100%;
   width: 100%;

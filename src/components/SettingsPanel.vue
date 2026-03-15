@@ -89,6 +89,10 @@ const saveCondaPath = async () => {
     await invoke('set_conda_path', { path: condaPath.value });
   } catch (e) {}
 };
+
+const saveCursor = () => {
+  localStorage.setItem('ter_cursor', JSON.stringify(globalState.cursorConfig));
+};
 </script>
 
 <template>
@@ -241,6 +245,48 @@ const saveCondaPath = async () => {
           </div>
           <p class="hint">Real-time GPU rendering parameters. Verified for stability.</p>
         </section>
+
+        <section class="config-section">
+          <header>🖱️ CYBER_CURSOR (Interaction Model)</header>
+          <div class="cursor-settings-box">
+            <div class="setting-row mini">
+              <span class="label">ENABLE_CUSTOM_CURSOR</span>
+              <label class="mini-switch">
+                <input type="checkbox" v-model="globalState.cursorConfig.enabled" @change="saveCursor" />
+                <span class="slider"></span>
+              </label>
+            </div>
+            
+            <div class="cursor-controls" :class="{ disabled: !globalState.cursorConfig.enabled }">
+              <div class="pref-item">
+                <label>CURSOR_SIZE</label>
+                <div class="control-row">
+                  <input type="range" v-model="globalState.cursorConfig.size" min="4" max="24" @input="saveCursor" />
+                  <span class="val">{{ globalState.cursorConfig.size }}px</span>
+                </div>
+              </div>
+              <div class="pref-item">
+                <label>GLOW_RADIUS</label>
+                <div class="control-row">
+                  <input type="range" v-model="globalState.cursorConfig.glow" min="0" max="40" @input="saveCursor" />
+                  <span class="val">{{ globalState.cursorConfig.glow }}px</span>
+                </div>
+              </div>
+              <div class="setting-row mini borderless">
+                <span class="label">BREATHING_EFFECT</span>
+                <label class="mini-switch">
+                  <input type="checkbox" v-model="globalState.cursorConfig.breathing" @change="saveCursor" />
+                  <span class="slider"></span>
+                </label>
+              </div>
+              <div class="setting-row mini borderless">
+                <span class="label">CURSOR_COLOR</span>
+                <input type="color" v-model="globalState.cursorConfig.color" @change="saveCursor" class="color-picker" />
+              </div>
+            </div>
+          </div>
+          <p class="hint">Virtual pointer rendering with haptic feedback simulation.</p>
+        </section>
       </div>
 
       <footer class="drawer-footer">
@@ -298,6 +344,14 @@ const saveCondaPath = async () => {
 .config-section header { font-size: calc(11px * var(--ter-ui-scale)); color: #71717a; margin-bottom: calc(15px * var(--ter-ui-scale)); font-weight: bold; }
 
 .setting-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: calc(15px * var(--ter-ui-scale)); background: rgba(255, 255, 255, 0.03); padding: calc(10px * var(--ter-ui-scale)); border-radius: 6px; border: 1px solid #27272a; }
+.setting-row.mini { padding: calc(6px * var(--ter-ui-scale)) calc(10px * var(--ter-ui-scale)); margin-bottom: calc(8px * var(--ter-ui-scale)); }
+.setting-row.borderless { background: transparent; border: none; padding-left: 0; padding-right: 0; }
+
+.cursor-settings-box { background: rgba(255, 255, 255, 0.02); padding: calc(12px * var(--ter-ui-scale)); border-radius: 8px; border: 1px solid #27272a; }
+.cursor-controls { display: flex; flex-direction: column; gap: calc(12px * var(--ter-ui-scale)); margin-top: calc(10px * var(--ter-ui-scale)); }
+.cursor-controls.disabled { opacity: 0.3; pointer-events: none; }
+
+.color-picker { background: transparent; border: 1px solid #3f3f46; width: calc(40px * var(--ter-ui-scale)); height: calc(20px * var(--ter-ui-scale)); cursor: pointer; padding: 0; border-radius: 2px; }
 
 .slot-selector { display: flex; gap: calc(8px * var(--ter-ui-scale)); margin-bottom: calc(10px * var(--ter-ui-scale)); }
 .slot-selector button { flex: 1; padding: calc(6px * var(--ter-ui-scale)); background: #000; border: 1px solid #27272a; color: #52525b; font-size: calc(10px * var(--ter-ui-scale)); font-family: 'JetBrains Mono', monospace; cursor: pointer; border-radius: 4px; transition: all 0.2s; }

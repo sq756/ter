@@ -15,6 +15,7 @@ import SettingsPanel from './components/SettingsPanel.vue';
 import CyberGate from './components/CyberGate.vue';
 import NetworkMatrix from './components/NetworkMatrix.vue';
 import MatrixAllocator from './components/MatrixAllocator.vue';
+import CyberCursor from './components/CyberCursor.vue';
 
 // Composables
 import { useMorse } from './composables/useMorse';
@@ -485,7 +486,8 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
          '--ter-ui-scale': uiPrefs.ui_scale,
          '--ter-glow-opacity': uiPrefs.glow_intensity / 100,
          '--ter-pulse-duration': (2.0 - (uiPrefs.pulse_speed / 100) * 1.8) + 's',
-         'font-size': (14 * uiPrefs.ui_scale) + 'px'
+         'font-size': (14 * uiPrefs.ui_scale) + 'px',
+         'cursor': globalState.cursorConfig.enabled ? 'none' : 'default'
        }"
        @click="closeAllMenus" @contextmenu="closeAllMenus">
     <CyberGate v-if="!globalState.isConnected" @connected="onConnected" />
@@ -662,6 +664,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
     </div>
     <MatrixScreen :isLocked="globalState.isLocked" :logs="backendLogs" :cpuUsage="currentCpuUsage ?? 0" @unlock="globalState.isLocked = false" />
     <NetworkMatrix v-if="globalState.showNetworkMatrix" :activeId="globalState.activeServerId" :activeTabId="activeTabId" @close="globalState.showNetworkMatrix = false" />
+    <CyberCursor />
   </div>
 </template>
 

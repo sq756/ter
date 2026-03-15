@@ -46,6 +46,20 @@ export const globalState = reactive({
     leftRatio: 25, // percentage
     rightRatio: 25 // percentage
   },
+
+  // Cursor State (v2.14.14)
+  cursorConfig: (() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('ter_cursor') || 'null');
+      return saved || {
+        enabled: true,
+        size: 8,
+        glow: 15,
+        color: '#ffffff',
+        breathing: true
+      };
+    } catch { return { enabled: true, size: 8, glow: 15, color: '#ffffff', breathing: true }; }
+  })(),
 });
 
 export const backendLogs = shallowRef<string[]>([]);
