@@ -638,10 +638,10 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
 
           <div class="status-right">
             <button class="status-btn" :class="{ 'active': globalState.isSafeMode }" @click="storeActions.toggleSafeMode(!globalState.isSafeMode)">
-              🛡️ {{ globalState.isSafeMode ? 'SAFE_MODE: ON' : 'SAFE_MODE: OFF' }}
+              {{ globalState.isSafeMode ? 'SAFE_MODE: ON' : 'SAFE_MODE: OFF' }}
             </button>
             <span class="status-sep">|</span>
-            <button class="status-btn" :class="{ 'clip-flash': isClipFlashing }" @click="copyLatestAI">📋 CLIP</button>
+            <button class="status-btn" :class="{ 'clip-flash': isClipFlashing }" @click="copyLatestAI">CLIP</button>
             <span class="status-sep">|</span>
             <button class="status-btn" @click="captureAndUpload(false)">AUDIT_UI</button>
             <span class="status-sep">|</span>
@@ -653,7 +653,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
               AUTO_SYNC: {{ isAutoPilot ? 'ON' : 'OFF' }}
             </button>
             <span class="status-sep">|</span>
-            <button class="status-btn" @click="globalState.showSettings = true">⚙️ SETTINGS</button>
+            <button class="status-btn" @click="globalState.showSettings = true">SETTINGS</button>
             <span class="status-sep">|</span>
             <button class="status-btn lock-btn" :class="{ 'active': globalState.isLocked }" @click="globalState.isLocked = true">SYS_LOCK</button>
           </div>
@@ -685,7 +685,8 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
 .app-shell :deep(.cyber-input),
 .app-shell :deep(.address-bar-input),
 .app-shell :deep(.branding-text),
-.app-shell :deep(.status-btn) {
+.app-shell :deep(.status-btn),
+.app-shell :deep(.status-item) {
   font-family: 'JetBrains Mono', 'Fira Code', 'Ubuntu Mono', monospace !important;
 }
 
@@ -785,7 +786,8 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
 .status-left, .status-right, .hotkey-bar { display: flex; align-items: center; gap: calc(8px * var(--ter-ui-scale)); }
 .status-sep { color: #27272a; font-size: calc(10px * var(--ter-ui-scale)); margin: 0 calc(4px * var(--ter-ui-scale)); pointer-events: none; }
 
-.traffic-indicator { font-size: calc(9px * var(--ter-ui-scale)); color: #52525b; transition: all 0.1s; font-family: 'JetBrains Mono', monospace; }
+.traffic-indicator { font-size: calc(9px * var(--ter-ui-scale)); color: #52525b; transition: all 0.2s; font-family: 'JetBrains Mono', monospace; cursor: help; }
+.traffic-indicator:hover { color: #71717a; }
 .traffic-indicator.flashing { color: #22c55e; text-shadow: 0 0 calc(5px * var(--ter-ui-scale)) #22c55e; }
 
 .status-btn { 
@@ -807,7 +809,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
 
 .agent-zone.active { color: #22c55e; text-shadow: 0 0 calc(5px * var(--ter-ui-scale)) rgba(34, 197, 94, 0.5); animation: breathe 2s infinite ease-in-out; }
 .agent-zone.pressing { transform: scale(0.95); filter: brightness(1.5); }
-.agent-zone { position: relative; cursor: crosshair; padding: calc(4px * var(--ter-ui-scale)) calc(8px * var(--ter-ui-scale)); transition: all 0.1s; }
+.agent-zone { position: relative; cursor: pointer; padding: calc(4px * var(--ter-ui-scale)) calc(8px * var(--ter-ui-scale)); transition: all 0.1s; }
 
 .morse-preview {
   position: absolute;
@@ -836,7 +838,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
   50% { opacity: 0.7; filter: brightness(1.3); }
 }
 
-.node-info { cursor: pointer; color: #71717a; transition: color 0.2s; }
+.node-info { cursor: pointer; color: #71717a; transition: color 0.2s; font-size: calc(11px * var(--ter-ui-scale)); }
 .node-info:hover { color: #a855f7; }
 
 .context-menu { 
