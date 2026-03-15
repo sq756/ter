@@ -1,6 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
+import { globalState } from '../store';
+
+const matrixConfig = computed(() => globalState.workspaceMatrix);
+const saveMatrix = () => {
+  localStorage.setItem('ter_matrix', JSON.stringify(globalState.workspaceMatrix));
+};
 
 const props = defineProps<{
   isOpen: boolean;
@@ -109,13 +115,40 @@ const saveCondaPath = async () => {
         </section>
 
         <section class="config-section">
-          <header>📐 WORKSPACE LAYOUT (Grid Engine v2)</header>
-          <div class="slot-selector">
-            <button @click="$emit('update-layout', 'classic')">CLASSIC (2-PANE)</button>
-            <button @click="$emit('update-layout', 'developer')">DEVELOPER (WEB)</button>
-            <button @click="$emit('update-layout', 'ops')">OPS (SFTP)</button>
+          <header>📐 WORKSPACE MATRIX (Zone Allocation)</header>
+          <div class="matrix-configurator">
+            <div class="zone-row">
+              <span class="zone-label">ZONE_LEFT</span>
+              <select v-model="matrixConfig.zoneLeft" @change="saveMatrix" class="cyber-input cyber-select zone-select">
+                <option value="SIDEBAR_PANEL">SIDEBAR_PANEL (OPS/NAV)</option>
+                <option value="SFTP_EXPLORER">SFTP_EXPLORER</option>
+                <option value="CYBER_HUD">CYBER_HUD</option>
+                <option value="NONE">-- HIDDEN --</option>
+              </select>
+            </div>
+            <div class="zone-row">
+              <span class="zone-label">ZONE_MAIN</span>
+              <select v-model="matrixConfig.zoneMain" @change="saveMatrix" class="cyber-input cyber-select zone-select">
+                <option value="TERMINAL_MAIN">TERMINAL_MAIN</option>
+                <option value="CYBER_HUD">CYBER_HUD</option>
+              </select>
+            </div>
+            <div class="zone-row">
+              <span class="zone-label">ZONE_RIGHT</span>
+              <select v-model="matrixConfig.zoneRight" @change="saveMatrix" class="cyber-input cyber-select zone-select">
+                <option value="CYBER_HUD">CYBER_HUD (WEB)</option>
+                <option value="SFTP_EXPLORER">SFTP_EXPLORER</option>
+                <option value="SIDEBAR_PANEL">SIDEBAR_PANEL</option>
+                <option value="NONE">-- HIDDEN --</option>
+              </select>
+            </div>
           </div>
-          <p class="hint">Instantly reconfigures the structural grid layout.</p>
+          <div class="quick-presets">
+            <button class="preset-btn" @click="$emit('update-layout', 'classic')">[ CLASSIC ]</button>
+            <button class="preset-btn" @click="$emit('update-layout', 'developer')">[ WEB_DEV ]</button>
+            <button class="preset-btn" @click="$emit('update-layout', 'ops')">[ OPS_DUAL ]</button>
+          </div>
+          <p class="hint">Allocate widgets to specific screen zones dynamically.</p>
         </section>
 
         <section class="config-section">
@@ -269,6 +302,14 @@ const saveCondaPath = async () => {
 .slot-selector { display: flex; gap: calc(8px * var(--ter-ui-scale)); margin-bottom: calc(10px * var(--ter-ui-scale)); }
 .slot-selector button { flex: 1; padding: calc(6px * var(--ter-ui-scale)); background: #000; border: 1px solid #27272a; color: #52525b; font-size: calc(10px * var(--ter-ui-scale)); font-family: 'JetBrains Mono', monospace; cursor: pointer; border-radius: 4px; transition: all 0.2s; }
 .slot-selector button.active { border-color: #22c55e; color: #22c55e; box-shadow: 0 0 calc(10px * var(--ter-ui-scale)) rgba(34, 197, 94, 0.2); }
+
+.matrix-configurator { display: flex; flex-direction: column; gap: calc(8px * var(--ter-ui-scale)); margin-bottom: calc(15px * var(--ter-ui-scale)); background: rgba(255, 255, 255, 0.02); padding: calc(10px * var(--ter-ui-scale)); border-radius: 6px; border: 1px dashed #27272a; }
+.zone-row { display: flex; align-items: center; justify-content: space-between; gap: calc(10px * var(--ter-ui-scale)); }
+.zone-label { font-size: calc(9px * var(--ter-ui-scale)); color: #22c55e; font-family: 'JetBrains Mono', monospace; font-weight: bold; width: calc(80px * var(--ter-ui-scale)); }
+.zone-select { flex: 1; padding: calc(4px * var(--ter-ui-scale)) calc(8px * var(--ter-ui-scale)) !important; font-size: calc(10px * var(--ter-ui-scale)) !important; margin-bottom: 0 !important; }
+.quick-presets { display: flex; gap: calc(6px * var(--ter-ui-scale)); margin-bottom: calc(10px * var(--ter-ui-scale)); }
+.preset-btn { flex: 1; background: transparent; border: 1px solid #3f3f46; color: #a1a1aa; font-size: calc(9px * var(--ter-ui-scale)); font-family: 'JetBrains Mono', monospace; cursor: pointer; padding: calc(4px * var(--ter-ui-scale)); border-radius: 2px; transition: all 0.2s; }
+.preset-btn:hover { border-color: #22c55e; color: #22c55e; }
 
 .macro-list { display: flex; flex-direction: column; gap: calc(10px * var(--ter-ui-scale)); margin-bottom: calc(15px * var(--ter-ui-scale)); }
 .macro-item { display: flex; gap: calc(8px * var(--ter-ui-scale)); align-items: center; background: rgba(255, 255, 255, 0.03); padding: calc(8px * var(--ter-ui-scale)); border-radius: 6px; border: 1px solid #27272a; }

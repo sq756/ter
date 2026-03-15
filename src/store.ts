@@ -31,22 +31,20 @@ export const globalState = reactive({
   agentToken: '',
   currentAgentPort: null as number | null,
 
-  // Layout State
-  layout: (() => {
+  // Layout State (v2.14.7: Matrix Allocator)
+  workspaceMatrix: (() => {
     try {
-      const saved = JSON.parse(localStorage.getItem('ter_layout') || 'null');
-      if (saved && !saved.version) {
-        localStorage.removeItem('ter_layout');
-        return null;
-      }
-      return saved;
+      const saved = JSON.parse(localStorage.getItem('ter_matrix') || 'null');
+      if (saved && saved.version === 1) return saved;
+      return null;
     } catch { return null; }
   })() || {
-    version: 2,
-    type: 'split-horizontal',
-    ratio: 0.25,
-    left: { type: 'widget', id: 'SIDEBAR_PANEL' },
-    right: { type: 'widget', id: 'TERMINAL_MAIN' }
+    version: 1,
+    zoneLeft: 'SIDEBAR_PANEL',
+    zoneMain: 'TERMINAL_MAIN',
+    zoneRight: 'NONE',
+    leftRatio: 25, // percentage
+    rightRatio: 25 // percentage
   },
 });
 

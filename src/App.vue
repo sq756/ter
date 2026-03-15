@@ -14,8 +14,7 @@ import TerminalTabs from './components/TerminalTabs.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
 import CyberGate from './components/CyberGate.vue';
 import NetworkMatrix from './components/NetworkMatrix.vue';
-import CyberWebview from './components/CyberWebview.vue';
-import GridEngine from './components/GridEngine.vue';
+import MatrixAllocator from './components/MatrixAllocator.vue';
 
 // Composables
 import { useMorse } from './composables/useMorse';
@@ -120,33 +119,19 @@ const sharedProps = computed(() => ({
 
 const handleUpdateLayout = (layoutType: string) => {
   if (layoutType === 'classic') {
-    globalState.layout = {
-      version: 2, type: 'split-horizontal', ratio: 0.25,
-      left: { type: 'widget', id: 'SIDEBAR_PANEL' },
-      right: { type: 'widget', id: 'TERMINAL_MAIN' }
+    globalState.workspaceMatrix = {
+      version: 1, zoneLeft: 'SIDEBAR_PANEL', zoneMain: 'TERMINAL_MAIN', zoneRight: 'NONE', leftRatio: 25, rightRatio: 25
     };
   } else if (layoutType === 'developer') {
-    globalState.layout = {
-      version: 2, type: 'split-horizontal', ratio: 0.25,
-      left: { type: 'widget', id: 'SIDEBAR_PANEL' },
-      right: {
-        type: 'split-horizontal', ratio: 0.6,
-        left: { type: 'widget', id: 'TERMINAL_MAIN' },
-        right: { type: 'widget', id: 'CYBER_HUD' }
-      }
+    globalState.workspaceMatrix = {
+      version: 1, zoneLeft: 'SIDEBAR_PANEL', zoneMain: 'TERMINAL_MAIN', zoneRight: 'CYBER_HUD', leftRatio: 20, rightRatio: 30
     };
   } else if (layoutType === 'ops') {
-    globalState.layout = {
-      version: 2, type: 'split-horizontal', ratio: 0.25,
-      left: { type: 'widget', id: 'SIDEBAR_PANEL' },
-      right: {
-        type: 'split-horizontal', ratio: 0.6,
-        left: { type: 'widget', id: 'TERMINAL_MAIN' },
-        right: { type: 'widget', id: 'SFTP_EXPLORER' }
-      }
+    globalState.workspaceMatrix = {
+      version: 1, zoneLeft: 'SIDEBAR_PANEL', zoneMain: 'TERMINAL_MAIN', zoneRight: 'SFTP_EXPLORER', leftRatio: 20, rightRatio: 20
     };
   }
-  localStorage.setItem('ter_layout', JSON.stringify(globalState.layout));
+  localStorage.setItem('ter_matrix', JSON.stringify(globalState.workspaceMatrix));
 };
 
 // ==========================================
@@ -601,25 +586,25 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
           </div>
         </div>
 
-        <!-- Grid Engine Entry Point -->
+        <!-- Matrix Allocator Entry Point -->
         <div class="workspace-body">
-          <GridEngine :node="globalState.layout" :sharedProps="sharedProps" 
-                      @switch-tab="bringToForeground"
-                      @proc-context="onTerminalContextMenu"
-                      @terminal-context="onTerminalContextMenu"
-                      @run-skill="runSkill"
-                      @fast-access="onFastAccess"
-                      @explorer-context="onExplorerContextMenu"
-                      @resize-sftp-start="handleResizeSFTP"
-                      @view-changed="handleSidebarViewRevert"
-                      @switch-web="activeWebviewId = $event"
-                      @web-context="onWebContextMenu"
-                      @skill-context="onSkillContextMenu"
-                      @header-context="onHeaderContextMenu"
-                      @open-trigger-settings="globalState.showSettings = true"
-                      @cycle-health-mode="cycleHealthMode"
-                      @resize-charts="resizeCharts"
-                      @open-vault-entry="handleVaultEntry" />
+          <MatrixAllocator :sharedProps="sharedProps" 
+                           @switch-tab="bringToForeground"
+                           @proc-context="onTerminalContextMenu"
+                           @terminal-context="onTerminalContextMenu"
+                           @run-skill="runSkill"
+                           @fast-access="onFastAccess"
+                           @explorer-context="onExplorerContextMenu"
+                           @resize-sftp-start="handleResizeSFTP"
+                           @view-changed="handleSidebarViewRevert"
+                           @switch-web="activeWebviewId = $event"
+                           @web-context="onWebContextMenu"
+                           @skill-context="onSkillContextMenu"
+                           @header-context="onHeaderContextMenu"
+                           @open-trigger-settings="globalState.showSettings = true"
+                           @cycle-health-mode="cycleHealthMode"
+                           @resize-charts="resizeCharts"
+                           @open-vault-entry="handleVaultEntry" />
         </div>
 
         <footer class="status-bar">
