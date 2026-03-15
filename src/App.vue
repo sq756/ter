@@ -481,13 +481,15 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
 
 <template>
   <div class="app-shell" 
-       :class="{ 'safe-mode': globalState.isSafeMode }" 
+       :class="{ 
+         'safe-mode': globalState.isSafeMode,
+         'cyber-cursor-active': globalState.cursorConfig.enabled 
+       }" 
        :style="{ 
          '--ter-ui-scale': uiPrefs.ui_scale,
          '--ter-glow-opacity': uiPrefs.glow_intensity / 100,
          '--ter-pulse-duration': (2.0 - (uiPrefs.pulse_speed / 100) * 1.8) + 's',
-         'font-size': (14 * uiPrefs.ui_scale) + 'px',
-         'cursor': globalState.cursorConfig.enabled ? 'none' : 'default'
+         'font-size': (14 * uiPrefs.ui_scale) + 'px'
        }"
        @click="closeAllMenus" @contextmenu="closeAllMenus">
     <CyberGate v-if="!globalState.isConnected" @connected="onConnected" />
@@ -678,6 +680,11 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
   overflow: hidden; 
   display: flex; 
   flex-direction: column; 
+}
+
+.app-shell.cyber-cursor-active,
+.app-shell.cyber-cursor-active :deep(*) {
+  cursor: none !important;
 }
 
 /* Monospace zones for technical clarity */

@@ -53,7 +53,8 @@ const cursorStyle = computed(() => ({
   marginTop: `-${config.value.size / 2}px`,
   marginLeft: `-${config.value.size / 2}px`,
   backgroundColor: config.value.color,
-  boxShadow: `0 0 ${config.value.glow}px ${config.value.color}`,
+  // v2.14.20: Black Mist Glow (Ensures visibility on white backgrounds)
+  boxShadow: `0 0 ${config.value.glow}px ${config.value.color}, 0 0 ${config.value.glow * 2}px rgba(0,0,0,0.8), 0 0 ${config.value.glow * 4}px rgba(0,0,0,0.4)`,
   opacity: (config.value.enabled && !isFirstMove.value) ? 1 : 0
 }));
 </script>
@@ -80,7 +81,8 @@ const cursorStyle = computed(() => ({
   top: 0;
   left: 0;
   border-radius: 50%;
-  transition: transform 0.06s linear, opacity 0.3s;
+  /* v2.14.20: Removed transition to eliminate lag */
+  transition: opacity 0.3s;
   will-change: transform;
 }
 
