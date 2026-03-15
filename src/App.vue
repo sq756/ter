@@ -15,6 +15,7 @@ import SettingsPanel from './components/SettingsPanel.vue';
 import CyberGate from './components/CyberGate.vue';
 import NetworkMatrix from './components/NetworkMatrix.vue';
 import CyberWebview from './components/CyberWebview.vue';
+import GridEngine from './components/GridEngine.vue';
 
 // Composables
 import { useMorse } from './composables/useMorse';
@@ -96,6 +97,40 @@ const onHeaderContextMenu = (p: { event: MouseEvent, module: string }) => {
 
 const storageKey = (h: string) => `ter_tabs_${h.replace(/\s+/g, '_')}`;
 let statsIntervalId: any = null;
+
+const sharedProps = computed(() => ({
+  // Sidebar Props
+  hostName: globalState.host,
+  files: realFiles.value,
+  currentPath: globalState.currentPath,
+  bgTabs: backgroundTabs.value,
+  skills: skills.value,
+  webviewInstances: webviewInstances.value,
+  activeWebviewId: activeWebviewId.value,
+  lastActivityMap: lastActivityMap.value,
+  cpuChartRef: cpuChartRef.value,
+  memChartRef: memChartRef.value,
+  netChartRef: netChartRef.value,
+  healthMode: healthMode.value,
+  currentNetSpeed: currentNetSpeed.value,
+  extraStats: extraStats.value,
+  isAutoPilot: isAutoPilot.value,
+  isSafeMode: globalState.isSafeMode,
+  sftpHeight: globalState.sftpHeight,
+  slots: sidebarSlots.value,
+  isLogsOverlay: !!previousSlot3.value,
+  logs: backendLogs.value,
+  
+  // Terminal Props
+  tabs: terminalTabs.value,
+  activeTabId: activeTabId.value,
+  connectionStatus: globalState.connectionStatus,
+  isMorsePressed: isMorsePressed.value,
+  morseSequence: morseSequence.value,
+  uiScale: debouncedUIScale.value,
+  activeTabIdSecondary: activeTabIdSecondary.value,
+  splitMode: splitMode.value,
+}));
 
 // ==========================================
 // --- DECOUPLED LOGIC (UPDATED) ---
@@ -459,35 +494,8 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
                      @auto-detect="autoDetectScale"
                      @close="showSettings = false" @update-macros="(m) => activeMacros = m" />
       
-      <SidebarPanel
-        :class="{ 'collapsed': !globalState.isSidebarOpen }"
-        :hostName="globalState.host"
-        :files="realFiles" :currentPath="globalState.currentPath" :bgTabs="backgroundTabs" :skills="skills"        :webviewInstances="webviewInstances" :activeWebviewId="activeWebviewId"
-        :lastActivityMap="lastActivityMap"
-        :cpuChartRef="cpuChartRef" :memChartRef="memChartRef" :netChartRef="netChartRef"
-        :healthMode="healthMode" :currentNetSpeed="currentNetSpeed" :extraStats="extraStats"
-        :isAutoPilot="isAutoPilot"
-        :isSafeMode="globalState.isSafeMode"
-        :sftpHeight="globalState.sftpHeight"
-        :slots="sidebarSlots"
-        :isLogsOverlay="!!previousSlot3"
-        :logs="backendLogs"
-        @update:isAutoPilot="isAutoPilot = $event"
-        @switch-tab="bringToForeground" @switch-mode="(mode: number) => globalState.cyberMode = mode"
-        @view-history="viewHistory" @proc-context="(p: any) => onTerminalContextMenu({e: p.event, id: p.tab.id})" @run-skill="runSkill"
-        @change-dir="changeDir" @open-trigger-settings="showSettings = true" @fast-access="onFastAccess"
-        @explorer-context="onExplorerContextMenu" @cycle-health-mode="cycleHealthMode"
-        @skill-context="onSkillContextMenu"
-        @header-context="onHeaderContextMenu"
-        @resize-sftp-start="handleResizeSFTP"
-        @resize-charts="resizeCharts"
-        @view-changed="handleSidebarViewRevert"
-        @switch-web="switchWebview"
-        @web-context="onWebContextMenu"
-        @open-vault-entry="(e) => createNewTab(e.name, 'editor', { path: e.path, content: e.content })"
-      />
-
       <main class="workspace" @click.stop>
+        <!-- Modals and Context Menus -->
         <div v-if="showWebMenu" class="context-menu" :style="{ top: webMenuY + 'px', left: webMenuX + 'px' }">
           <header class="menu-header">WEB ACTIONS</header>
           <div class="menu-item" @click="invoke('reload_cyber_webview', { label: contextWebId! }); activeMenu = null">🔄 Reload</div>
@@ -551,7 +559,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
 
         <div v-if="showPrivilegeMenu" class="context-menu" :style="{ top: privilegeMenuY + 'px', left: privilegeMenuX + 'px' }">
           <header class="menu-header">CYBER PRIVILEGE: {{ privilegeModule.toUpperCase() }}</header>
-          <div class="menu-item">🛠️ Deep Diagnostic</div>
+          <div v-item">🛠️ Deep Diagnostic</div>
           <div class="menu-item">🛡️ Secure Isolation</div>
           <div class="menu-item highlight">☢️ Core Override</div>
         </div>
@@ -569,81 +577,9 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
           </div>
         </div>
 
+        <!-- Grid Engine Entry Point -->
         <div class="workspace-body">
-          <section class="terminal-pane">
-            <TerminalTabs 
-              :tabs="terminalTabs" :activeTabId="activeTabId" :connectionStatus="globalState.connectionStatus" 
-              :isMorsePressed="isMorsePressed" :morseSequence="morseSequence"
-              :uiScale="debouncedUIScale"
-              :activeTabIdSecondary="activeTabIdSecondary"
-              :splitMode="splitMode"
-              @switch-tab="bringToForeground" 
-              @switch-tab-secondary="(id) => activeTabIdSecondary = id"
-              @toggle-split="toggleSplit"
-              @save-complete="onSaveComplete"
-              @close-tab="closeTab" @new-tab="createNewTab()" 
-              @terminal-context="onTerminalContextMenu" 
-              @morse-input="handleMorseMouse"
-            />
-          </section>
-          <section class="cyber-pane" :class="{ 'open': globalState.cyberMode === 1 }">
-            <div class="cyber-container">
-              <div class="cyber-logs-view">
-                <header><span class="title">Cyber Logs (HUD)</span></header>
-                <div class="logs-container">
-                  <div v-for="(log, i) in tacticalLogs" :key="i" class="log-line" :style="{ color: getLogColor(log) }">
-                    {{ log }}
-                  </div>
-                </div>
-              </div>
-              <div class="cyber-webview-wrapper">
-                <nav class="webview-address-bar">
-                  <div class="engine-indicator" :class="{ 'native': useNativeWebview }">
-                    {{ useNativeWebview ? '⚡ Native' : '🐢 Iframe' }}
-                  </div>
-                  <input v-model="previewUrl" @keyup.enter="refreshWebview(previewUrl)" class="address-bar-input" />
-                  <button @click="refreshWebview(previewUrl)" class="refresh-btn">⚡</button>
-                  <button @click="handleScrapeData()" class="refresh-btn" title="Scrape Page Content (h3)">📊</button>
-                  <button @click="globalState.gridMode = !globalState.gridMode" class="refresh-btn" :title="globalState.gridMode ? 'Exit Grid Mode' : 'Enter Grid Mode (3x2)'" :style="{ color: globalState.gridMode ? '#3b82f6' : '#71717a' }">
-                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
-                  </button>
-                  <button @click="disableTunnel = !disableTunnel" class="refresh-btn" :title="disableTunnel ? 'Enable Remote Tunnel' : 'Disable Remote Tunnel'" :style="{ color: disableTunnel ? '#ef4444' : '#22c55e' }">                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v5"></path><rect x="5" y="11" width="14" height="10" rx="2"></rect><circle cx="12" cy="16" r="1"></circle></svg>
-                  </button>
-                  <button @click="addBookmark(activeWebviewId || 'Web', previewUrl)" class="refresh-btn">🔖</button>
-                </nav>
-                
-                <div class="bookmarks-bar" v-if="bookmarks.length > 0">
-                  <div v-for="b in bookmarks" :key="b.id" class="bookmark-item" @click="refreshWebview(b.url)" @contextmenu.prevent="removeBookmark(b.id)">
-                    {{ b.title }}
-                  </div>
-                </div>
-
-                <div class="webview-container" 
-                     :class="{ 'grid-layout': globalState.gridMode }"
-                     style="flex: 1; display: flex; flex-direction: column; height: 100%; background: #000;">
-                   <template v-if="globalState.cyberMode === 1 && useNativeWebview && !globalState.isSafeMode">
-                     <div v-for="(inst, idx) in webviewInstances" :key="inst.id"
-                          v-show="activeWebviewId === inst.id || globalState.gridMode"
-                          :style="getSlotStyle(idx)" class="grid-slot">
-                       <CyberWebview
-                         :id="inst.id"
-                         :url="inst.url"
-                         :isActive="activeTabId === 'HUD' && (activeWebviewId === inst.id || globalState.gridMode)"
-                         :isSafeMode="globalState.isSafeMode"
-                         @dom-extracted="onDomExtracted"
-                       />
-                     </div>
-                   </template>
-                   <div v-else-if="globalState.isSafeMode" class="safe-mode-placeholder">
-                     <span class="icon">🛡️</span>
-                     <div class="msg">WEB_ENGINE_DISABLED_IN_SAFE_MODE</div>
-                     <button class="os-browser-btn" @click="storeActions.toggleSafeMode(false)">DISABLE_SAFE_MODE</button>
-                   </div>
-                   <iframe v-else-if="globalState.cyberMode === 1 && !useNativeWebview" :src="previewUrl" class="cyber-iframe" frameborder="0" style="flex: 1; width: 100%; height: 100%; background: #ffffff;"></iframe>
-                </div>
-              </div>
-            </div>
-          </section>
+          <GridEngine :node="globalState.layout" :sharedProps="sharedProps" />
         </div>
 
         <footer class="status-bar">
@@ -779,6 +715,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
 .address-bar-input { flex: 1; background: #000; border: 1px solid #27272a; color: #22c55e; padding: 2px 8px; font-size: calc(11px * var(--ter-ui-scale)); outline: none; border-radius: 4px; }
 .refresh-btn { background: #18181b; border: 1px solid #27272a; color: #22c55e; cursor: pointer; padding: 0 calc(8px * var(--ter-ui-scale)); border-radius: 4px; }
 
+/* v2.11.43: Bookmarks Bar Styles */
 .bookmarks-bar { display: flex; gap: calc(8px * var(--ter-ui-scale)); padding: calc(4px * var(--ter-ui-scale)) calc(8px * var(--ter-ui-scale)); background: #000; border-bottom: 1px solid #18181b; overflow-x: auto; scrollbar-width: none; }
 .bookmarks-bar::-webkit-scrollbar { display: none; }
 .bookmark-item { font-size: calc(9px * var(--ter-ui-scale)); color: #a1a1aa; padding: 2px 8px; border: 1px solid rgba(113, 113, 122, 0.5); border-radius: 4px; cursor: pointer; white-space: nowrap; transition: all 0.25s ease; background: rgba(24, 24, 27, 0.5); }
