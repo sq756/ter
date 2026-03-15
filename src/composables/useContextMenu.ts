@@ -19,7 +19,7 @@ export function useContextMenu(
   // ... (calculateMenuPosition, onTerminalContextMenu, copySelectedText, pasteFromClipboard, renameTabAction remains similar)
 
   const calculateMenuPosition = (e: MouseEvent, estimatedHeight = 350, estimatedWidth = 160) => {
-    let x = e.clientX, y = e.clientY;
+    let x = e.clientX + 5, y = e.clientY + 5; // v2.13.3: Offset slightly
     if (y + estimatedHeight > window.innerHeight) y = window.innerHeight - estimatedHeight - 10;
     if (x + estimatedWidth > window.innerWidth) x = window.innerWidth - estimatedWidth - 10;
     menuX.value = x; menuY.value = y;

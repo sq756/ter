@@ -70,6 +70,27 @@ const onDropOnSkill = (skill: any) => {
   }
 };
 
+const isResizingSFTP = ref(false);
+const startResizingSFTP = (e: MouseEvent) => {
+  isResizingSFTP.value = true;
+  document.addEventListener('mousemove', handleSFTPResize);
+  document.addEventListener('mouseup', stopSFTPResize);
+};
+const handleSFTPResize = (e: MouseEvent) => {
+  if (!isResizingSFTP.value) return;
+  const explorerWrapper = document.querySelector('.explorer-wrapper');
+  if (explorerWrapper) {
+    const rect = explorerWrapper.getBoundingClientRect();
+    const newHeight = rect.bottom - e.clientY;
+    emit('resize-sftp-start', newHeight);
+  }
+};
+const stopSFTPResize = () => {
+  isResizingSFTP.value = false;
+  document.removeEventListener('mousemove', handleSFTPResize);
+  document.removeEventListener('mouseup', stopSFTPResize);
+};
+
 const lastVisited = computed(() => {
   try {
     const saved = localStorage.getItem('ter_fast_access');
@@ -289,6 +310,7 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
       
       <!-- v2.11.46: Refactored SFTP Explorer with Breadcrumbs and Proper Scrolling -->
       <div class="module explorer-wrapper" :style="{ height: sftpHeight + 'px', flex: 'none' }">
+        <div class="resizable-handle top" @mousedown="startResizingSFTP"></div>
         <SftpExplorer
           :currentPath="currentPath"
           :files="files"
@@ -296,7 +318,7 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
           @change-dir="(d) => $emit('change-dir', d)"
           @item-context="(p) => $emit('explorer-context', { e: p.event, file: p.file })"
           @item-drag-start="onDragStart"
-        />        <div class="resizable-handle" @mousedown="$emit('resize-sftp-start', $event)"></div>
+        />
       </div>
     </div>
 
@@ -385,5 +407,6 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
 .breathing { animation: breathe 0.8s infinite; }
 @keyframes breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
 .resizable-handle { height: 4px; cursor: ns-resize; background: transparent; }
+.resizable-handle.top { position: absolute; top: 0; left: 0; width: 100%; z-index: 20; }
 .resizable-handle:hover { background: #22c55e; }
 </style>

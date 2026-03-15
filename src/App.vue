@@ -87,9 +87,13 @@ const getLogColor = (log: string) => {
 const sftpHeight = ref(200);
 const isResizingSFTP = ref(false);
 
-const startResizingSFTP = (e: MouseEvent) => {
+const startResizingSFTP = () => {
   isResizingSFTP.value = true;
   document.body.style.cursor = 'ns-resize';
+};
+
+const handleResizeSFTP = (newHeight: number) => {
+  sftpHeight.value = Math.max(100, Math.min(600, newHeight));
 };
 
 const stopResizingSFTP = () => {
@@ -565,7 +569,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
         @explorer-context="onExplorerContextMenu" @cycle-health-mode="cycleHealthMode"
         @skill-context="onSkillContextMenu"
         @header-context="onHeaderContextMenu"
-        @resize-sftp-start="startResizingSFTP"
+        @resize-sftp-start="handleResizeSFTP"
         @resize-charts="resizeCharts"
         @view-changed="handleSidebarViewRevert"
         @switch-web="switchWebview"

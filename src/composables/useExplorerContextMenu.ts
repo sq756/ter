@@ -15,7 +15,7 @@ export function useExplorerContextMenu(
   const selectedFile = ref<any>(null);
 
   const calculateExplorerMenuPosition = (e: MouseEvent, estimatedHeight = 220, estimatedWidth = 160) => {
-    let x = e.clientX, y = e.clientY;
+    let x = e.clientX + 10, y = e.clientY + 10; // v2.13.3: Offset to keep target visible
     if (y + estimatedHeight > window.innerHeight) y = window.innerHeight - estimatedHeight - 10;
     if (x + estimatedWidth > window.innerWidth) x = window.innerWidth - estimatedWidth - 10;
     explorerMenuX.value = x; explorerMenuY.value = y;

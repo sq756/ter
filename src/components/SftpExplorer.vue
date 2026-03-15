@@ -39,11 +39,13 @@ const onItemClick = (f: any) => {
   <div class="sftp-explorer-container">
     <header class="explorer-header">
       <span class="title">SFTP_EXPLORER</span>
-      <div class="breadcrumbs">
-        <template v-for="(bc, i) in breadcrumbs" :key="bc.path">
-          <span class="bc-item" @click="$emit('change-dir', bc.path)">{{ bc.name }}</span>
-          <span v-if="i < breadcrumbs.length - 1" class="bc-sep">></span>
-        </template>
+      <div class="breadcrumbs-container">
+        <div class="breadcrumbs">
+          <template v-for="(bc, i) in breadcrumbs" :key="bc.path">
+            <span class="bc-item" @click="$emit('change-dir', bc.path)">{{ bc.name }}</span>
+            <span v-if="i < breadcrumbs.length - 1" class="bc-sep">></span>
+          </template>
+        </div>
       </div>
     </header>
 
@@ -89,6 +91,8 @@ const onItemClick = (f: any) => {
   padding: 12px 16px;
   border-bottom: 1px solid #27272a;
   flex-shrink: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .explorer-header .title {
@@ -99,12 +103,21 @@ const onItemClick = (f: any) => {
   margin-bottom: calc(8px * var(--ter-ui-scale));
 }
 
+.breadcrumbs-container {
+  width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none; /* Hide scrollbar */
+  position: relative;
+}
+.breadcrumbs-container::-webkit-scrollbar { display: none; }
+
 .breadcrumbs {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap; /* Prevent wrapping */
   gap: calc(4px * var(--ter-ui-scale));
   font-family: 'JetBrains Mono', monospace;
   font-size: calc(11px * var(--ter-ui-scale));
+  white-space: nowrap;
 }
 
 .bc-item {
