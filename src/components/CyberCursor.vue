@@ -9,16 +9,20 @@ const isPressed = ref(false);
 
 const config = computed(() => globalState.cursorConfig);
 
+const isFirstMove = ref(true);
+
 const updateMouse = (e: MouseEvent) => {
+  if (isFirstMove.value) isFirstMove.value = false;
   mouseX.value = e.clientX;
   mouseY.value = e.clientY;
   
   // Detect if hovering over clickable elements
   const target = e.target as HTMLElement;
-  isHovering.value = !!target.closest('button, a, input, select, .tab-item, .node-info, [role="button"]');
+  isHovering.value = !!target.closest('button, a, input, select, .tab-item, .node-info, [role="button"], .file-item, .bc-item');
 };
 
 const updateTouch = (e: TouchEvent) => {
+  if (isFirstMove.value) isFirstMove.value = false;
   if (e.touches.length > 0) {
     mouseX.value = e.touches[0].clientX;
     mouseY.value = e.touches[0].clientY;
@@ -43,14 +47,14 @@ onUnmounted(() => {
 });
 
 const cursorStyle = computed(() => ({
-  transform: `translate(${mouseX.value}px, ${mouseY.value}px) scale(${isPressed.value ? 0.8 : (isHovering.value ? 1.5 : 1)})`,
+  transform: `translate(${mouseX.value}px, ${mouseY.value}px) scale(${isPressed.value ? 0.8 : (isHovering.value ? 1.6 : 1)})`,
   width: `${config.value.size}px`,
   height: `${config.value.size}px`,
   marginTop: `-${config.value.size / 2}px`,
   marginLeft: `-${config.value.size / 2}px`,
   backgroundColor: config.value.color,
   boxShadow: `0 0 ${config.value.glow}px ${config.value.color}`,
-  opacity: config.value.enabled ? 1 : 0
+  opacity: (config.value.enabled && !isFirstMove.value) ? 1 : 0
 }));
 </script>
 
@@ -76,16 +80,16 @@ const cursorStyle = computed(() => ({
   top: 0;
   left: 0;
   border-radius: 50%;
-  transition: transform 0.08s linear, opacity 0.3s;
+  transition: transform 0.06s linear, opacity 0.3s;
   will-change: transform;
 }
 
 .breathing {
-  animation: cursor-breath 2s infinite ease-in-out;
+  animation: cursor-breath 2.5s infinite ease-in-out;
 }
 
 @keyframes cursor-breath {
-  0%, 100% { filter: brightness(1) blur(0px); }
-  50% { filter: brightness(1.8) blur(2px); transform: translate(var(--tw-translate-x), var(--tw-translate-y)) scale(1.2); }
+  0%, 100% { filter: brightness(1); opacity: 1; }
+  50% { filter: brightness(1.5); opacity: 0.7; }
 }
 </style>
