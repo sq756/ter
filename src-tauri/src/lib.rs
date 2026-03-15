@@ -174,31 +174,40 @@ const AD_BLOCK_CSS: &str = "iframe[src*='ads'], [class*='ad-'], [id*='ad-'], .go
 async fn create_embedded_webview(label: String, url: String, x: f64, y: f64, width: f64, height: f64, app: AppHandle) -> Result<(), String> {
     let target_url = url.parse::<Url>().map_err(|e| format!("Invalid URL: {}", e))?;
 
-    if let Some(wv) = app.get_webview_window(&label) {
-        let _ = wv.navigate(target_url).map_err(|e: tauri::Error| e.to_string())?;
-        let _ = wv.set_position(tauri::LogicalPosition::new(x, y)).map_err(|e: tauri::Error| e.to_string())?;
-        let _ = wv.set_size(tauri::LogicalSize::new(width, height)).map_err(|e: tauri::Error| e.to_string())?;
-        let _ = wv.show().map_err(|e: tauri::Error| e.to_string())?;
-    } else {
-        let wv_win = tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::External(target_url))
-            .position(x, y)
-            .inner_size(width, height)
-            .decorations(false)
-            .always_on_top(true)
-            .build()
-            .map_err(|e| e.to_string())?;
-            
-        // v2.13.3: Inject Ad-block CSS
-        let _ = wv_win.eval(&format!(
-            "const s = document.createElement('style'); s.innerHTML = `{}`; document.head.appendChild(s);",
-            AD_BLOCK_CSS
-        ));
+    #[cfg(desktop)]
+    {
+        if let Some(wv) = app.get_webview_window(&label) {
+            let _ = wv.navigate(target_url).map_err(|e: tauri::Error| e.to_string())?;
+            let _ = wv.set_position(tauri::LogicalPosition::new(x, y)).map_err(|e: tauri::Error| e.to_string())?;
+            let _ = wv.set_size(tauri::LogicalSize::new(width, height)).map_err(|e: tauri::Error| e.to_string())?;
+            let _ = wv.show().map_err(|e: tauri::Error| e.to_string())?;
+        } else {
+            let wv_win = tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::External(target_url))
+                .position(x, y)
+                .inner_size(width, height)
+                .decorations(false)
+                .always_on_top(true)
+                .build()
+                .map_err(|e: tauri::Error| e.to_string())?;
+                
+            let _ = wv_win.eval(&format!(
+                "const s = document.createElement('style'); s.innerHTML = `{}`; document.head.appendChild(s);",
+                AD_BLOCK_CSS
+            ));
+        }
     }
+    
+    #[cfg(mobile)]
+    {
+        log::info!("Embedded webview requested on mobile: {} -> {}", label, url);
+    }
+    
     Ok(())
 }
 
 #[tauri::command]
 async fn set_window_always_on_top(label: String, on_top: bool, app: AppHandle) -> Result<(), String> {
+    #[cfg(desktop)]
     if let Some(win) = app.get_webview_window(&label) {
         let _ = win.set_always_on_top(on_top);
     }
@@ -212,6 +221,7 @@ async fn open_auth_window(url: String, x: f64, y: f64, width: f64, height: f64, 
 
 #[tauri::command]
 async fn close_auth_window(app: AppHandle) -> Result<(), String> {
+    #[cfg(desktop)]
     if let Some(wv) = app.get_webview_window("auth-gateway") {
         let _ = wv.close();
     }
@@ -220,6 +230,7 @@ async fn close_auth_window(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 async fn update_webview_bounds(label: String, x: f64, y: f64, width: f64, height: f64, app: AppHandle) -> Result<(), String> {
+    #[cfg(desktop)]
     if let Some(wv) = app.get_webview_window(&label) {
         let _ = wv.set_position(tauri::LogicalPosition::new(x, y)).map_err(|e: tauri::Error| e.to_string())?;
         let _ = wv.set_size(tauri::LogicalSize::new(width, height)).map_err(|e: tauri::Error| e.to_string())?;
@@ -688,7 +699,7 @@ async fn connect_to_server(config: &ServerConfig, servers: &[ServerConfig], cryp
             if let Some(script) = &proxy_config.pre_connect_script {
                 if !script.is_empty() {
                     let _ = app.emit("conn-status", format!("[STEP] Running script on {}: {}", proxy_config.label, script));
-                    let mut channel = proxy_handle.channel_open_session().await.map_err(|e| e.to_string())?;
+                    let channel = proxy_handle.channel_open_session().await.map_err(|e| e.to_string())?;
                     channel.exec(true, script.as_str()).await.map_err(|e| e.to_string())?;
                     // We don't wait for completion here if it's a daemon, but we might need to sleep
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -696,7 +707,7 @@ async fn connect_to_server(config: &ServerConfig, servers: &[ServerConfig], cryp
             }
 
             let channel = proxy_handle.channel_open_direct_tcpip(&config.host, config.port as u32, "127.0.0.1", 0).await.map_err(|e| e.to_string())?;
-            let mut russh_config = client::Config::default();
+            let russh_config = client::Config::default();
             let mut sess = client::connect_stream(Arc::new(russh_config), channel.into_stream(), Client {}).await.map_err(|e| e.to_string())?;
             let auth = sess.authenticate_password(&config.user, pass).await.map_err(|e| e.to_string())?;
             if !matches!(auth, russh::client::AuthResult::Success) { return Err("Auth fail on target".to_string()); }
