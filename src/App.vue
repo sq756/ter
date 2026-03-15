@@ -152,6 +152,12 @@ const closePreview = () => {
   previewContent.value = '';
 };
 
+const handleVaultEntry = (entry: any) => {
+  previewFileName.value = entry.title || 'Vault Entry';
+  previewContent.value = entry.content || JSON.stringify(entry, null, 2);
+  showPreviewModal.value = true;
+};
+
 const handlePreviewAction = async () => {
   if (selectedFile.value) {
     previewFileName.value = selectedFile.value.name;
@@ -593,7 +599,11 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
                       @switch-web="activeWebviewId = $event"
                       @web-context="onWebContextMenu"
                       @skill-context="onSkillContextMenu"
-                      @header-context="onHeaderContextMenu" />
+                      @header-context="onHeaderContextMenu"
+                      @open-trigger-settings="globalState.showSettings = true"
+                      @cycle-health-mode="cycleHealthMode"
+                      @resize-charts="resizeCharts"
+                      @open-vault-entry="handleVaultEntry" />
         </div>
 
         <footer class="status-bar">

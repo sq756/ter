@@ -32,16 +32,21 @@ export const globalState = reactive({
   currentAgentPort: null as number | null,
 
   // Layout State
-  layout: JSON.parse(localStorage.getItem('ter_layout') || 'null') || {
+  layout: (() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('ter_layout') || 'null');
+      if (saved && !saved.version) {
+        localStorage.removeItem('ter_layout');
+        return null;
+      }
+      return saved;
+    } catch { return null; }
+  })() || {
+    version: 2,
     type: 'split-horizontal',
-    ratio: 0.2,
+    ratio: 0.25,
     left: { type: 'widget', id: 'SIDEBAR_PANEL' },
-    right: {
-      type: 'split-horizontal',
-      ratio: 0.6,
-      left: { type: 'widget', id: 'TERMINAL_MAIN' },
-      right: { type: 'widget', id: 'SFTP_EXPLORER' }
-    }
+    right: { type: 'widget', id: 'TERMINAL_MAIN' }
   },
 });
 

@@ -76,14 +76,13 @@ const startResizingSFTP = (e: MouseEvent) => {
   document.addEventListener('mousemove', handleSFTPResize);
   document.addEventListener('mouseup', stopSFTPResize);
 };
+const explorerWrapperRef = ref<HTMLElement | null>(null);
+
 const handleSFTPResize = (e: MouseEvent) => {
-  if (!isResizingSFTP.value) return;
-  const explorerWrapper = document.querySelector('.explorer-wrapper');
-  if (explorerWrapper) {
-    const rect = explorerWrapper.getBoundingClientRect();
-    const newHeight = rect.bottom - e.clientY;
-    emit('resize-sftp-start', newHeight);
-  }
+  if (!isResizingSFTP.value || !explorerWrapperRef.value) return;
+  const rect = explorerWrapperRef.value.getBoundingClientRect();
+  const newHeight = rect.bottom - e.clientY;
+  emit('resize-sftp-start', newHeight);
 };
 const stopSFTPResize = () => {
   isResizingSFTP.value = false;
@@ -309,8 +308,10 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
       </div>
       
       <!-- v2.11.46: Refactored SFTP Explorer with Breadcrumbs and Proper Scrolling -->
-      <div class="module explorer-wrapper" :style="{ height: sftpHeight + 'px', flex: 'none' }">
-        <div class="resizable-handle top" @mousedown="startResizingSFTP"></div>
+      <div class="v-splitter" @mousedown="startResizingSFTP">
+        <div class="v-line"></div>
+      </div>
+      <div class="module explorer-wrapper" ref="explorerWrapperRef" :style="{ height: sftpHeight + 'px', flex: 'none' }">
         <SftpExplorer
           :currentPath="currentPath"
           :files="files"
@@ -373,7 +374,7 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
 .processes { flex: 1; height: 100%; min-height: 0; }
 
 /* v2.11.54: Vertical Splitter Styles */
-.v-splitter { height: 6px; cursor: row-resize; display: flex; align-items: center; justify-content: center; background: #000; flex-shrink: 0; z-index: 10; }
+.v-splitter { height: 6px; cursor: row-resize; display: flex; align-items: center; justify-content: center; background: #000; flex: 0 0 auto; z-index: 10; }
 .v-splitter:hover .v-line { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
 .v-line { width: 100%; height: 1px; background: #27272a; transition: all 0.1s; }
 
