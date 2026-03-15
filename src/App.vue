@@ -405,6 +405,9 @@ const isCtrlPressed = ref(false);
 
 onMounted(async () => {
   await loadUIPreferences();
+  // v2.14.2: Force unlock on fresh load to prevent interaction freeze
+  globalState.isLocked = false;
+  
   window.addEventListener('keydown', handleGlobalKeyDown);
   window.addEventListener('keydown', (e) => { if (e.ctrlKey) isCtrlPressed.value = true; });
   window.addEventListener('keyup', (e) => { if (!e.ctrlKey) isCtrlPressed.value = false; });
@@ -657,27 +660,22 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
   width: 100vw; 
   background: #000; 
   color: #d4d4d8; 
-  font-family: 'Inter', 'Segoe UI', 'Ubuntu', 'Noto Sans', 'Cantarell', 'Helvetica Neue', system-ui, sans-serif;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
   overflow: hidden; 
   display: flex; 
   flex-direction: column; 
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  text-rendering: optimizeLegibility;
 }
 
-.app-shell :deep(*) {
-  font-family: 'Inter', 'Segoe UI', 'Ubuntu', 'Noto Sans', 'Cantarell', 'Helvetica Neue', system-ui, sans-serif;
-}
-
-/* Maintain monospace for specific technical elements */
-.app-shell :deep(.terminal-pane *), 
-.app-shell :deep(.logs-container *), 
-.app-shell :deep(.kb-pendant),
-.app-shell :deep(.branding-text),
+/* Monospace zones for technical clarity */
+.app-shell :deep(.terminal-pane), 
+.app-shell :deep(.logs-container), 
+.app-shell :deep(.log-stream-static),
+.app-shell :deep(.preview-text),
 .app-shell :deep(.cyber-input),
-.app-shell :deep(.address-bar-input) {
-  font-family: 'JetBrains Mono', 'Ubuntu Mono', 'DejaVu Sans Mono', 'Liberation Mono', 'Fira Code', 'Courier New', monospace !important;
+.app-shell :deep(.address-bar-input),
+.app-shell :deep(.branding-text),
+.app-shell :deep(.status-btn) {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Ubuntu Mono', monospace !important;
 }
 
 .main-view { display: flex; flex: 1; height: 100%; width: 100%; overflow: hidden; position: relative; }

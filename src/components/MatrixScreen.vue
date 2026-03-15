@@ -171,6 +171,7 @@ onUnmounted(() => {
   background: #000;
   overflow: hidden;
   cursor: none;
+  pointer-events: auto; /* v2.14.3: Explicitly auto only when active */
 }
 
 canvas { display: block; filter: blur(0.5px); }
