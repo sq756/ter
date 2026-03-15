@@ -39,7 +39,21 @@ const emit = defineEmits([
       </div>
     </header>
     <div class="tile-content">
-      <component :is="widgetComponent" v-bind="widgetProps" v-on="$attrs" />
+      <component :is="widgetComponent" 
+                 v-bind="widgetProps" 
+                 @switch-tab="$emit('switch-tab', $event)"
+                 @proc-context="$emit('proc-context', $event)"
+                 @terminal-context="$emit('terminal-context', $event)"
+                 @run-skill="$emit('run-skill', $event)"
+                 @fast-access="$emit('fast-access', $event)"
+                 @explorer-context="$emit('explorer-context', $event)"
+                 @resize-sftp-start="$emit('resize-sftp-start', $event)"
+                 @change-dir="$emit('change-dir', $event)"
+                 @switch-web="$emit('switch-web', $event)"
+                 @web-context="$emit('web-context', $event)"
+                 @open-vault-entry="$emit('open-vault-entry', $event)"
+                 @view-changed="$emit('view-changed', $event)"
+                 @save-complete="$emit('save-complete', $event)" />
     </div>
   </div>
 </template>

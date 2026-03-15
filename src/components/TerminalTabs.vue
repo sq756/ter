@@ -44,10 +44,9 @@ const switchTabSecondary = (id: string) => {
   <div class="terminal-workspace">
     <!-- Multi-Terminal Tab Bar -->
     <nav class="tab-bar">
-      <!-- v2.14.16: Safe Drag Logic (Non-blocking) -->
       <div class="tab-bar-content">
         <!-- Status Indicator & Quick Switcher -->
-        <div class="status-indicator-zone" @click="$emit('new-tab')" data-tauri-drag-region>
+        <div class="status-indicator-zone" @click="$emit('new-tab')">
           <div class="status-dot" :class="connectionStatus"></div>
           <div class="quick-switcher-icon">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
@@ -82,6 +81,7 @@ const switchTabSecondary = (id: string) => {
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="3" x2="12" y2="21"></line></svg>
         </button>
 
+        <!-- v2.14.22: Re-enabling pure drag spacer to fix interaction dead zones -->
         <div class="drag-spacer" data-tauri-drag-region></div>
 
         <!-- v2.11.29: Stealth Window Controls (Isolated) -->
@@ -179,6 +179,7 @@ const switchTabSecondary = (id: string) => {
   width: 100%;
   height: 100%;
 }
+
 
 .status-indicator-zone {
   padding: 0 calc(12px * var(--ter-ui-scale));

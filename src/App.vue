@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick, watch, computed, shallowRef } from 'vue';
+import { ref, onMounted, onUnmounted, nextTick, watch, computed, shallowRef, provide } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -146,6 +146,15 @@ const {
 const {
   realFiles, refreshExplorer, changeDir, onFastAccess
 } = useExplorer();
+
+// v2.14.21: Global Action Provider
+const globalActions = {
+  openTerminalContext: (p: { e: MouseEvent, id: string }) => onTerminalContextMenu(p),
+  openExplorerContext: (p: { e: MouseEvent, file: any }) => onExplorerContextMenu(p),
+  openWebContext: (p: { e: MouseEvent, id: string }) => onWebContextMenu(p),
+  switchTab: (id: string) => bringToForeground(id),
+};
+provide('TER_ACTIONS', globalActions);
 
 const showPreviewModal = ref(false);
 const previewFileName = ref('');
@@ -788,7 +797,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
   padding: 0 calc(12px * var(--ter-ui-scale)); 
   font-size: calc(11px * var(--ter-ui-scale)); 
   flex-shrink: 0; 
-  z-index: 1000;
+  z-index: 2000; /* v2.14.22: Increased to ensure clickability above all matrices */
   text-transform: uppercase;
   letter-spacing: 1px;
 }

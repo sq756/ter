@@ -1,5 +1,6 @@
-import { ref, watch } from 'vue';
+import { ref, watch, computed } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
+import { globalState } from '../store';
 import html2canvas from 'html2canvas';
 
 export function useCyber(activeTabId: any, backendLogs: any, activeWebviewId: any, updateWebviewUrl: any) {
@@ -11,13 +12,8 @@ export function useCyber(activeTabId: any, backendLogs: any, activeWebviewId: an
     localStorage.setItem('ter_disable_tunnel', val.toString());
   });
 
-  // v2.11.12: Persistent Native Webview Toggle
-  const savedMode = localStorage.getItem('ter_use_native_webview');
-  const useNativeWebview = ref(savedMode === null ? true : savedMode === 'true');
-
-  watch(useNativeWebview, (val) => {
-    localStorage.setItem('ter_use_native_webview', val.toString());
-  });
+  // v2.14.21: Now reactively linked to globalState
+  const useNativeWebview = computed(() => globalState.useNativeWebview);
 
   const refreshWebview = async (fUrl?: string) => {
     if (fUrl) previewUrl.value = fUrl;

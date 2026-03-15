@@ -10,6 +10,7 @@ export const WIDGET_REGISTRY: Record<string, any> = {
   SFTP_EXPLORER: markRaw(defineAsyncComponent(() => import('./components/SftpExplorer.vue'))),
   SIDEBAR_PANEL: markRaw(defineAsyncComponent(() => import('./components/SidebarPanel.vue'))),
   CYBER_HUD: markRaw(defineAsyncComponent(() => import('./components/CyberHUD.vue'))),
+  RUNNING_PROCESSES: markRaw(defineAsyncComponent(() => import('./components/RunningProcesses.vue'))),
 };
 
 export type WidgetId = keyof typeof WIDGET_REGISTRY;

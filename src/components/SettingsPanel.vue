@@ -127,6 +127,7 @@ const saveCursor = () => {
                 <option value="SIDEBAR_PANEL">SIDEBAR_PANEL (OPS/NAV)</option>
                 <option value="SFTP_EXPLORER">SFTP_EXPLORER</option>
                 <option value="CYBER_HUD">CYBER_HUD</option>
+                <option value="RUNNING_PROCESSES">RUNNING_PROCESSES</option>
                 <option value="NONE">-- HIDDEN --</option>
               </select>
             </div>
@@ -135,6 +136,7 @@ const saveCursor = () => {
               <select v-model="matrixConfig.zoneMain" @change="saveMatrix" class="cyber-input cyber-select zone-select">
                 <option value="TERMINAL_MAIN">TERMINAL_MAIN</option>
                 <option value="CYBER_HUD">CYBER_HUD</option>
+                <option value="RUNNING_PROCESSES">RUNNING_PROCESSES</option>
               </select>
             </div>
             <div class="zone-row">
@@ -143,6 +145,7 @@ const saveCursor = () => {
                 <option value="CYBER_HUD">CYBER_HUD (WEB)</option>
                 <option value="SFTP_EXPLORER">SFTP_EXPLORER</option>
                 <option value="SIDEBAR_PANEL">SIDEBAR_PANEL</option>
+                <option value="RUNNING_PROCESSES">RUNNING_PROCESSES</option>
                 <option value="NONE">-- HIDDEN --</option>
               </select>
             </div>
@@ -184,7 +187,7 @@ const saveCursor = () => {
           <div class="setting-row">
             <span class="label">USE_NATIVE_ENGINE (Unlock Google/GitHub)</span>
             <label class="mini-switch">
-              <input type="checkbox" :checked="useNativeWebview" @change="$emit('update:useNativeWebview', $event.target.checked)" />
+              <input type="checkbox" :checked="globalState.useNativeWebview" @change="storeActions.setNativeWebview(($event.target as HTMLInputElement).checked)" />
               <span class="slider"></span>
             </label>
           </div>

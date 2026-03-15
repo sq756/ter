@@ -140,6 +140,7 @@ async fn spawn_mihomo(config_path: String, bin_path: String, tab_id: Option<Stri
     let mut guard = state.mihomo_child.lock().await;
     if let Some(mut child) = guard.take() {
         let _ = child.kill().await;
+        let _ = child.wait().await;
     }
 
     let mut cmd = TokioCommand::new(bin_path);
@@ -240,7 +241,6 @@ async fn update_webview_bounds(label: String, x: f64, y: f64, width: f64, height
 
 #[tauri::command]
 async fn open_reverse_tunnel(remote_port: u16, local_port: u16, _state: State<'_, AppState>) -> Result<(), String> {
-    // v2.12.7: Temporary stub to fix build
     log::info!("Reverse tunnel requested (STUB): Remote:{} -> Local:{}", remote_port, local_port);
     Ok(())
 }
@@ -255,6 +255,22 @@ async fn close_pty(tab_id: String, state: State<'_, AppState>) -> Result<(), Str
     }
     state.pty_channels.remove(&tab_id);
     state.ctrl_channels.remove(&tab_id);
+    Ok(())
+}
+
+#[tauri::command]
+async fn detach_pty(tab_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    state.pty_channels.remove(&tab_id);
+    state.ctrl_channels.remove(&tab_id);
+    Ok(())
+}
+
+#[tauri::command]
+async fn kill_remote_tmux_session(id: String, state: State<'_, AppState>) -> Result<(), String> {
+    if let Some(session) = state.session.lock().await.as_ref() {
+        let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
+        let _ = channel.exec(true, format!("tmux kill-session -t {}", id)).await;
+    }
     Ok(())
 }
 
@@ -353,7 +369,6 @@ async fn list_ui_preferences(state: State<'_, AppState>) -> Result<std::collecti
 async fn get_device_fingerprint() -> Result<serde_json::Value, String> {
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;
-    // Simple fingerprint based on OS/Arch for now, can be expanded with hardware IDs
     Ok(serde_json::json!({
         "os": os,
         "arch": arch,
@@ -422,7 +437,7 @@ async fn get_connection_chain(id: String, state: State<'_, AppState>) -> Result<
             break;
         }
     }
-    chain.reverse(); // Local -> Proxy -> Target
+    chain.reverse(); 
     Ok(chain)
 }
 
@@ -454,7 +469,6 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
         let mut capture_active = false;
         let mut last_capture_time = std::time::Instant::now();
         
-        // v2.11.56: 16ms Pulse Aggregation Buffer
         let mut aggregation_buffer = Vec::new();
         let mut interval = tokio::time::interval(std::time::Duration::from_millis(16));
 
@@ -492,7 +506,6 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
                                     capture_active = false;
                                 }
                             }
-                            // Buffer the data instead of immediate emit
                             aggregation_buffer.extend_from_slice(&data);
                         }
                         Some(russh::ChannelMsg::ExtendedData { data, .. }) => {
@@ -523,14 +536,12 @@ use russh_sftp::client::SftpSession;
 
 #[tauri::command]
 async fn ls_remote(path: String, state: State<'_, AppState>) -> Result<RemoteDirContent, String> {
-    log::debug!("[ls_remote] Received path: {}", path);
     let session_guard = state.session.lock().await;
     let session = session_guard.as_ref().ok_or("No active SSH session")?;
     let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
     channel.request_subsystem(true, "sftp").await.map_err(|e| e.to_string())?;
     let sftp = SftpSession::new(channel.into_stream()).await.map_err(|e| e.to_string())?;
     
-    // v2.11.52: Canonicalize path to ensure absolute referencing
     let target_path = if path.is_empty() { ".".to_string() } else { path };
     let real_path = sftp.canonicalize(&target_path).await.map_err(|e| e.to_string())?;
     
@@ -551,7 +562,6 @@ async fn ls_remote(path: String, state: State<'_, AppState>) -> Result<RemoteDir
         files.push(RemoteFile { name: name.to_string(), is_dir, size, path: full_path });
     }
     
-    // Sort: Dirs first, then alpha
     files.sort_by(|a, b| {
         if a.is_dir != b.is_dir {
             b.is_dir.cmp(&a.is_dir)
@@ -632,7 +642,6 @@ async fn load_remote_skills(state: State<'_, AppState>) -> Result<Vec<Skill>, St
 
 #[tauri::command]
 async fn download_file(remote_path: String, local_path: String, state: State<'_, AppState>) -> Result<(), String> {
-    log::debug!("[download_file] Received remote_path: {}", remote_path);
     let session_guard = state.session.lock().await;
     let session = session_guard.as_ref().ok_or("No active SSH session")?;
     let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
@@ -659,7 +668,6 @@ async fn upload_file(remote_path: String, local_path: String, state: State<'_, A
 
 #[tauri::command]
 async fn delete_remote_file(remote_path: String, state: State<'_, AppState>) -> Result<(), String> {
-    log::debug!("[delete_remote_file] Received remote_path: {}", remote_path);
     let session_guard = state.session.lock().await;
     let session = session_guard.as_ref().ok_or("No active SSH session")?;
     let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
@@ -671,7 +679,6 @@ async fn delete_remote_file(remote_path: String, state: State<'_, AppState>) -> 
 
 #[tauri::command]
 async fn read_remote_file(remote_path: String, state: State<'_, AppState>) -> Result<String, String> {
-    log::debug!("[read_remote_file] Received remote_path: {}", remote_path);
     let session_guard = state.session.lock().await;
     let session = session_guard.as_ref().ok_or("No active SSH session")?;
     let channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
@@ -686,26 +693,20 @@ async fn read_remote_file(remote_path: String, state: State<'_, AppState>) -> Re
 async fn connect_to_server(config: &ServerConfig, servers: &[ServerConfig], crypto: &Option<Crypto>, app: &AppHandle) -> Result<Vec<Arc<client::Handle<Client>>>, String> {
     let mut pass = String::new();
     if let Some(enc) = &config.password_enc { if let Some(c) = crypto.as_ref() { pass = c.decrypt(enc).ok_or("Decrypt failed")?; } }
-
     let mut stack = Vec::new();
-
     if let Some(proxy_id) = &config.proxy_id {
         if !proxy_id.is_empty() {
             let proxy_config = servers.iter().find(|s| &s.id == proxy_id).ok_or("Proxy not found")?;
             stack = Box::pin(connect_to_server(proxy_config, servers, crypto, app)).await?;
             let proxy_handle = stack.last().ok_or("Proxy stack empty")?.clone();
-
-            // v2.12.3: Execute pre-connect script on jump host if present
             if let Some(script) = &proxy_config.pre_connect_script {
                 if !script.is_empty() {
                     let _ = app.emit("conn-status", format!("[STEP] Running script on {}: {}", proxy_config.label, script));
                     let channel = proxy_handle.channel_open_session().await.map_err(|e| e.to_string())?;
                     channel.exec(true, script.as_str()).await.map_err(|e| e.to_string())?;
-                    // We don't wait for completion here if it's a daemon, but we might need to sleep
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 }
             }
-
             let channel = proxy_handle.channel_open_direct_tcpip(&config.host, config.port as u32, "127.0.0.1", 0).await.map_err(|e| e.to_string())?;
             let russh_config = client::Config::default();
             let mut sess = client::connect_stream(Arc::new(russh_config), channel.into_stream(), Client {}).await.map_err(|e| e.to_string())?;
@@ -715,7 +716,6 @@ async fn connect_to_server(config: &ServerConfig, servers: &[ServerConfig], cryp
             return Ok(stack);
         }
     }
-
     let russh_config = client::Config::default();
     let _ = app.emit("conn-status", format!("[STEP] Connecting to {}...", config.host));
     let connect_future = client::connect(Arc::new(russh_config), (config.host.as_str(), config.port as u16), Client {});
@@ -732,57 +732,45 @@ async fn connect_with_id(id: String, app_handle: AppHandle, state: State<'_, App
     let servers = db.list_servers().await.map_err(|e| e.to_string())?;
     let config = servers.iter().find(|c| c.id == id).ok_or("Not found")?;
     let crypto = state.crypto.lock().await;
-    
     let _ = app_handle.emit("conn-status", "[START] Orchestrating multi-layer connection...");
     let stack = connect_to_server(config, &servers, &*crypto, &app_handle).await?;
-    
     let mut stack_guard = state.session_stack.lock().await;
     *stack_guard = stack;
     let final_session = stack_guard.last().unwrap().clone();
     *state.session.lock().await = Some(final_session.clone());
-
-    // v2.12.3: Auto Dynamic Tunnel (-D)
     if config.auto_tunnel.unwrap_or(false) {
         let _ = app_handle.emit("conn-status", "[TUNNEL] Opening Dynamic Forwarding (SOCKS5)...");
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.map_err(|e| e.to_string())?;
         let local_port = listener.local_addr().map_err(|e| e.to_string())?.port();
-        
         let session_for_tunnel = final_session.clone();
         let abort_mutex = state.dynamic_abort.clone();
         let port_mutex = state.dynamic_port.clone();
-        
         if let Some(h) = abort_mutex.lock().await.take() { h.abort(); }
         *port_mutex.lock().await = Some(local_port);
-
         let handle = tokio::spawn(async move {
             loop {
                 if let Ok((_stream, _)) = listener.accept().await {
                     let _sess = session_for_tunnel.clone();
-                    tokio::spawn(async move {
-                        // Minimal SOCKS5 handshake (Stub for now, or use a crate)
-                        // For now just emit status
-                    });
+                    tokio::spawn(async move {});
                 }
             }
         });
         *abort_mutex.lock().await = Some(handle.abort_handle());
         let _ = app_handle.emit("conn-status", format!("[SUCCESS] Dynamic Tunnel active on port {}", local_port));
     }
-
     let _ = app_handle.emit("conn-status", "[FINISH] Connection established.");
     Ok(())
 }
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct RemoteFile { name: String, is_dir: bool, size: u64, path: String }
-
 #[derive(serde::Serialize, serde::Deserialize)]
 struct RemoteDirContent { files: Vec<RemoteFile>, current_path: String }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let _ = log::set_logger(&LOGGER); log::set_max_level(log::LevelFilter::Debug);
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
@@ -813,7 +801,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             set_master_password, check_master_password_set, list_server_configs, delete_server_config, connect_with_id,
-            spawn_new_pty, write_pty, close_pty, resize_pty, get_terminal_logs, get_active_ports,
+            spawn_new_pty, write_pty, close_pty, detach_pty, resize_pty, get_terminal_logs, get_active_ports,
             get_agent_token, open_dynamic_tunnel, ls_remote, load_remote_skills,
             navigate_cyber_webview, reload_cyber_webview, extract_cyber_dom, eval_cyber_webview,
             save_server_config, set_model_path, get_model_path, 
@@ -823,11 +811,24 @@ pub fn run() {
             get_latest_ai_response, list_vault, read_local_file, get_connection_chain,
             spawn_mihomo, open_auth_window, close_auth_window, update_webview_bounds, create_embedded_webview, set_window_always_on_top, open_reverse_tunnel,
             copy_latest_to_clipboard,
-            list_remote_tmux_sessions,
+            list_remote_tmux_sessions, kill_remote_tmux_session,
             list_bookmarks, save_bookmark, delete_bookmark,
             save_ui_preference, list_ui_preferences,
             get_device_fingerprint
-        ])
-        .run(tauri::generate_context!())
-        .expect("error");
+        ]);
+
+    let app = builder.build(tauri::generate_context!()).expect("error");
+    app.run(|app_handle, event| match event {
+        tauri::RunEvent::Exit => {
+            let state = app_handle.state::<AppState>();
+            if let Ok(mut guard) = state.mihomo_child.try_lock() {
+                if let Some(mut child) = guard.take() {
+                    let _ = child.start_kill();
+                }
+            }
+            state.pty_channels.clear();
+            state.ctrl_channels.clear();
+        }
+        _ => {}
+    });
 }
