@@ -82,7 +82,8 @@ const handleSFTPResize = (e: MouseEvent) => {
   if (!isResizingSFTP.value || !explorerWrapperRef.value) return;
   const rect = explorerWrapperRef.value.getBoundingClientRect();
   const newHeight = rect.bottom - e.clientY;
-  emit('resize-sftp-start', newHeight);
+  globalState.sftpHeight = Math.max(100, Math.min(600, newHeight));
+  localStorage.setItem('ter_sftp_height', globalState.sftpHeight.toString());
 };
 const stopSFTPResize = () => {
   isResizingSFTP.value = false;
@@ -99,6 +100,8 @@ const lastVisited = computed(() => {
   return [];
 });
 
+const sidebarRef = ref<HTMLElement | null>(null);
+
 // v2.11.54: Sidebar Vertical Splitter Logic
 const processesHeightPercent = ref(Number(localStorage.getItem('ter_sidebar_split')) || 40);
 const isResizingVertical = ref(false);
@@ -110,14 +113,11 @@ const startResizingVertical = (e: MouseEvent) => {
 };
 
 const handleVerticalResize = (e: MouseEvent) => {
-  if (!isResizingVertical.value) return;
-  const sidebar = document.querySelector('.side-bar');
-  if (sidebar) {
-    const rect = sidebar.getBoundingClientRect();
-    const relativeY = e.clientY - rect.top;
-    const percent = Math.max(10, Math.min(90, (relativeY / rect.height) * 100));
-    processesHeightPercent.value = percent;
-  }
+  if (!isResizingVertical.value || !sidebarRef.value) return;
+  const rect = sidebarRef.value.getBoundingClientRect();
+  const relativeY = e.clientY - rect.top;
+  const percent = Math.max(10, Math.min(90, (relativeY / rect.height) * 100));
+  processesHeightPercent.value = percent;
 };
 
 const stopVerticalResize = () => {
@@ -174,7 +174,7 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
 </script>
 
 <template>
-  <aside class="side-bar" @contextmenu.prevent.stop @wheel="handleWheel">
+  <aside class="side-bar" ref="sidebarRef" @contextmenu.prevent.stop @wheel="handleWheel">
     <div class="sidebar-branding" @click="globalState.showSettings = true">
       <div class="branding-text">TER // CYBER_DECK</div>
       <div class="scanline"></div>
@@ -226,7 +226,7 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
         </div>
       </div>
 
-      <div class="module scroller processes" :style="{ height: processesHeightPercent + '%', flex: 'none' }">
+      <div class="module scroller flex-scroller processes" :style="{ height: processesHeightPercent + '%', flex: 'none' }">
         <header>Running Processes</header>
         <ul class="data-list">
           <!-- Terminal Tabs -->
@@ -251,7 +251,7 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
         <div class="v-line"></div>
       </div>
 
-      <div class="module scroller explorer-wrapper" :style="{ flex: '1', minHeight: '0' }">
+      <div class="module scroller flex-scroller explorer-wrapper" :style="{ flex: '1', minHeight: '0' }">
         <SftpExplorer
           :hostName="hostName"
           @item-context="(p) => $emit('explorer-context', { e: p.event, file: p.file })"
@@ -261,7 +261,7 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
 
     <!-- ARS View: Removed Settings Button -->
     <div v-show="activeView === 'ARS'" class="safe-view-wrapper safe-flex-wrapper">
-      <div class="module scroller skills-hub">
+      <div class="module scroller flex-scroller skills-hub">
         <header class="header-minimal">
           <span>Skill Hub</span>
         </header>
@@ -279,7 +279,7 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
 
     <!-- NAV View -->
     <div v-show="activeView === 'NAV'" class="safe-view-wrapper safe-flex-wrapper">
-      <div class="module scroller history">
+      <div class="module scroller flex-scroller history">
         <header>FAST ACCESS</header>
         <ul class="data-list">
           <li v-for="path in lastVisited" :key="path" @click="onFastAccessClick(path)">
@@ -340,11 +340,11 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
 
 @keyframes border-pulse { 0%, 100% { border-bottom-width: 2px; } 50% { border-bottom-width: 4px; } }
 
-.side-bar { background: #09090b; width: var(--ter-sidebar-width); height: 100%; display: flex; flex-direction: column; flex-shrink: 0; border-right: 1px solid #27272a; overflow: hidden; }
+.side-bar { background: #09090b; width: 100%; height: 100%; display: flex; flex-direction: column; flex-shrink: 0; border-right: 1px solid #27272a; overflow: hidden; }
 .sidebar-branding { height: var(--ter-header-height); display: flex; align-items: center; padding: 0 calc(16px * var(--ter-ui-scale)); background: rgba(34, 197, 94, 0.05); border-bottom: 1px solid #27272a; position: relative; overflow: hidden; cursor: pointer; }
 .branding-text { font-size: calc(10px * var(--ter-ui-scale)); color: #22c55e; letter-spacing: 0.2em; font-family: 'JetBrains Mono', monospace; font-weight: bold; z-index: 1; }
 .safe-view-wrapper { display: flex; flex-direction: column; flex: 1; overflow: hidden; height: 100%; }
-.safe-flex-wrapper .module.scroller { flex: 1 !important; max-height: none !important; height: 100% !important; }
+.safe-flex-wrapper .flex-scroller { flex: 1; max-height: none; height: 100%; }
 .module { padding: calc(16px * var(--ter-ui-scale)); border-bottom: 1px solid #27272a; }
 
 /* v2.11.33: Unified Header Letter Spacing */
