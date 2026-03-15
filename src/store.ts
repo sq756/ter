@@ -148,7 +148,11 @@ export const storeActions = {
       terminalManager.getOrCreate(id);
       if (!skipPty && globalState.isConnected) {
         try {
-          await invoke('spawn_new_pty', { tabId: id });
+          if (globalState.host === 'LOCAL') {
+            await invoke('spawn_local_pty', { tabId: id });
+          } else {
+            await invoke('spawn_new_pty', { tabId: id });
+          }
           setTimeout(() => invoke('write_pty', { tabId: id, data: "\n\r" }), 500);
         } catch (e) { 
           backendLogs.value.push(`[ERROR] PTY Spawn fail for ${id}: ${e}`); 

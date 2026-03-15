@@ -13,7 +13,25 @@ const emit = defineEmits(['item-drag-start']);
 
 const { changeDir } = useExplorer();
 
-// ... existing breadcrumbs and sortedFiles ...
+const breadcrumbs = computed(() => {
+  const parts = (globalState.currentPath || '/').split('/').filter(p => p);
+  const rootLabel = props.hostName || globalState.host || 'ROOT';
+  const result = [{ name: rootLabel, path: '/' }];
+  let current = '';
+  for (const part of parts) {
+    current += '/' + part;
+    result.push({ name: part.toUpperCase(), path: current });
+  }
+  return result;
+});
+
+const sortedFiles = computed(() => {
+  const baseFiles = realFiles.value.filter(f => f.name !== '..');
+  return [...baseFiles].sort((a, b) => {
+    if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+    return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+  });
+});
 
 const onItemClick = (f: any) => {
   if (f.is_dir) changeDir(f.name);

@@ -125,6 +125,13 @@ onMounted(async () => {
         </div>
 
         <div class="server-list">
+          <div class="server-card local-card" @click.stop="emit('connected', { label: 'LOCAL', id: 'local-pty' })">
+            <div class="icon-box local">LOCAL</div>
+            <div class="info">
+              <b>LOCAL SHELL</b><br/>
+              <small>GUEST_MODE (NO SSH)</small>
+            </div>
+          </div>
           <div v-for="s in savedServers" :key="s.id" class="server-card" @click.stop="connectWithId(s.id)">
             <div class="icon-box">NODE</div>
             <div class="info">
@@ -197,6 +204,8 @@ onMounted(async () => {
 .server-card { background: #050505; border: 1px solid #18181b; padding: 15px; display: flex; align-items: center; cursor: pointer; transition: all 0.2s; gap: 15px; }
 .server-card:hover { border-color: #22c55e; transform: translateY(-2px); box-shadow: 0 5px 15px rgba(34, 197, 94, 0.1); }
 .server-card .icon-box { background: rgba(34, 197, 94, 0.1); color: #22c55e; padding: 4px 8px; font-size: 10px; font-weight: bold; border: 1px solid rgba(34, 197, 94, 0.3); }
+.server-card .icon-box.local { background: rgba(59, 130, 246, 0.1); color: #3b82f6; border-color: rgba(59, 130, 246, 0.3); }
+.server-card.local-card:hover { border-color: #3b82f6; box-shadow: 0 5px 15px rgba(59, 130, 246, 0.1); }
 .server-card small { color: #52525b; font-size: 11px; }
 .empty-nodes { grid-column: span 2; text-align: center; color: #3f3f46; font-size: 12px; padding: 40px; border: 1px dashed #18181b; }
 

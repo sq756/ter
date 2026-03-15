@@ -380,10 +380,15 @@ const onConnected = async (data: { label: string, id: string }) => {
   }
 
   setTimeout(() => {
-    refreshExplorer();
-    invoke('load_remote_skills').then((s: any) => {
-      skills.value = Array.isArray(s) ? s : [];
-    });
+    if (globalState.host !== 'LOCAL') {
+      refreshExplorer();
+      invoke('load_remote_skills').then((s: any) => {
+        skills.value = Array.isArray(s) ? s : [];
+      });
+    } else {
+      skills.value = [];
+      // v2.14.22: In local mode, we might want to show local explorer or just stay empty
+    }
   }, 1000);
 
   if (statsIntervalId) clearInterval(statsIntervalId);
@@ -426,6 +431,12 @@ onMounted(async () => {
   await loadUIPreferences();
   // v2.14.2: Force unlock on fresh load to prevent interaction freeze
   globalState.isLocked = false;
+
+  await listen('auth-trigger', () => {
+    if (globalState.isConnected) {
+      globalState.isLocked = true;
+    }
+  });
   
   window.addEventListener('keydown', handleGlobalKeyDown);
   window.addEventListener('keydown', (e) => { if (e.ctrlKey) isCtrlPressed.value = true; });

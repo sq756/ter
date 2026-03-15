@@ -15,6 +15,8 @@ use tauri::Emitter;
 use uuid::Uuid;
 use std::sync::OnceLock;
 use tauri_plugin_clipboard_manager::ClipboardExt;
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
+use std::io::{Read, Write};
 
 static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 
@@ -452,6 +454,80 @@ async fn list_vault() -> Result<Vec<serde_json::Value>, String> {
 }
 
 #[tauri::command]
+async fn spawn_local_pty(tab_id: String, app_handle: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    let pty_system = native_pty_system();
+    let pair = pty_system.openpty(PtySize {
+        rows: 24,
+        cols: 80,
+        pixel_width: 0,
+        pixel_height: 0,
+    }).map_err(|e: anyhow::Error| e.to_string())?;
+
+    #[cfg(target_os = "windows")]
+    let shell = "powershell.exe";
+    #[cfg(not(target_os = "windows"))]
+    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+
+    let cmd = CommandBuilder::new(&shell);
+    let _child = pair.slave.spawn_command(cmd).map_err(|e: anyhow::Error| e.to_string())?;
+
+    let reader = pair.master.try_clone_reader().map_err(|e: anyhow::Error| e.to_string())?;
+    let mut writer = pair.master.take_writer().map_err(|e: anyhow::Error| e.to_string())?;
+
+    let (tx, mut rx) = mpsc::channel::<String>(100);
+    let (ctrl_tx, mut ctrl_rx) = mpsc::channel::<PtyControl>(10);
+    state.pty_channels.insert(tab_id.clone(), tx);
+    state.ctrl_channels.insert(tab_id.clone(), ctrl_tx);
+
+    let tab_id_cap = tab_id.clone();
+    let app_handle_cap = app_handle.clone();
+    let master = pair.master;
+
+    // Read loop
+    std::thread::spawn(move || {
+        let mut reader = reader;
+        let mut buffer = [0u8; 8192];
+        loop {
+            match reader.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let data = buffer[..n].to_vec();
+                    if data.windows(10).any(|w| w == b"[TER_AUTH]") {
+                        let _ = app_handle_cap.emit("auth-trigger", ());
+                    }
+                    let _ = app_handle_cap.emit("pty-data", serde_json::json!({"id": tab_id_cap, "data": data}));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    // Write & Control loop
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::select! {
+                Some(ctrl) = ctrl_rx.recv() => {
+                    let PtyControl::Resize(c, r) = ctrl;
+                    let _ = master.resize(PtySize {
+                        rows: r as u16,
+                        cols: c as u16,
+                        pixel_width: 0,
+                        pixel_height: 0,
+                    });
+                }
+                Some(data) = rx.recv() => {
+                    let _ = writer.write_all(data.as_bytes());
+                    let _ = writer.flush();
+                }
+                else => break,
+            }
+        }
+    });
+
+    Ok(())
+}
+
+#[tauri::command]
 async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let session = state.session.lock().await.as_ref().ok_or("No session")?.clone();
     let mut channel = session.channel_open_session().await.map_err(|e| e.to_string())?;
@@ -493,6 +569,9 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
                 msg = channel.wait() => { 
                     match msg {
                         Some(russh::ChannelMsg::Data { data }) => {
+                            if data.windows(10).any(|w| w == b"[TER_AUTH]") {
+                                let _ = app_handle.emit("auth-trigger", ());
+                            }
                             if ARCHIVER.is_semantic_start(&data) {
                                 capture_active = true;
                                 ARCHIVER.clear_latest(&tab_id_cap);
@@ -801,7 +880,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             set_master_password, check_master_password_set, list_server_configs, delete_server_config, connect_with_id,
-            spawn_new_pty, write_pty, close_pty, detach_pty, resize_pty, get_terminal_logs, get_active_ports,
+            spawn_new_pty, spawn_local_pty, write_pty, close_pty, detach_pty, resize_pty, get_terminal_logs, get_active_ports,
             get_agent_token, open_dynamic_tunnel, ls_remote, load_remote_skills,
             navigate_cyber_webview, reload_cyber_webview, extract_cyber_dom, eval_cyber_webview,
             save_server_config, set_model_path, get_model_path, 
