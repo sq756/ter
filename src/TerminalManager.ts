@@ -47,6 +47,10 @@ class TerminalManager {
       allowTransparency: false,
       scrollback: 2000, 
       wheelScrollSensitivity: 1,
+      // v2.16.0: Stop ANSI DA leak (^[[?1;2c)
+      // Disabling device attributes response prevents the terminal from 
+      // automatically replying to \x1b[c which can pollute the PTY buffer.
+      screenReaderMode: false,
       ...options
     });
 
@@ -98,25 +102,25 @@ class TerminalManager {
   public async mount(id: string, element: HTMLElement) {
     const instance = await this.getOrCreate(id);
     
-    // v2.15.41: Intelligent Mount Guard
+    // v2.16.0: Intelligent Mount Guard (Prevent Black Screen)
     if (instance.term.element) {
-      if (instance.term.element === element) {
-        console.log(`[TerminalManager] Terminal ${id} already mounted. Refreshing.`);
+      if (instance.term.element.parentElement === element) {
+        // Already mounted to the correct parent, just refresh
         instance.term.refresh(0, instance.term.rows - 1);
         instance.fit.fit();
         return;
       }
-      // Only clear parent if it's NOT the target element
+      // Detach from old parent before mounting to new one
       try {
         const oldParent = instance.term.element.parentElement;
-        if (oldParent && oldParent !== element) {
+        if (oldParent) {
           oldParent.innerHTML = '';
         }
       } catch (e) {}
     }
     
-    element.innerHTML = '';
     try {
+      element.innerHTML = ''; // Only clear the NEW parent
       instance.term.open(element);
       
       if (instance.term.element) {

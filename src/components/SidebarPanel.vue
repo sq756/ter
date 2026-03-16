@@ -135,10 +135,9 @@ const isTabActive = (id: string) => (Date.now() - (props.lastActivityMap[id] || 
 
 // v2.11.47: LOGS Tactical Matrix & Vault Recovery
 const logsActiveMode = ref<'live' | 'vault'>('live');
-const staticLogTab = ref<'ALL' | 'NET' | 'AI' | 'VAULT' | 'SYS' | 'SEC'>('ALL');
 
 const setLogTab = (tab: any) => {
-  staticLogTab.value = tab;
+  globalState.activeLogTab = tab;
   if (tab === 'VAULT') {
     logsActiveMode.value = 'vault';
   } else {
@@ -155,10 +154,10 @@ const getLogColor = (log: string) => {
 };
 
 const filteredStrategicLogs = computed(() => {
-  if (staticLogTab.value === 'ALL') return backendLogs.value;
+  if (globalState.activeLogTab === 'ALL') return backendLogs.value;
   return backendLogs.value.filter(log => {
-    if (staticLogTab.value === 'AI') return log.includes('AI') || log.includes('Reasoning') || log.includes('Thinking') || log.includes('Observation');
-    if (staticLogTab.value === 'NET') return log.includes('NET') || log.includes('SSH') || log.includes('Tunnel');
+    if (globalState.activeLogTab === 'AI') return log.includes('AI') || log.includes('Reasoning') || log.includes('Thinking') || log.includes('Observation');
+    if (globalState.activeLogTab === 'NET') return log.includes('NET') || log.includes('SSH') || log.includes('Tunnel') || log.includes('[STATUS]') || log.includes('DOWNLOAD') || log.includes('UPLOAD');
     return true;
   });
 });
@@ -302,7 +301,7 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
     <div v-show="activeView === 'LOGS'" class="safe-view-wrapper safe-flex-wrapper">
       <div class="tactical-logs-matrix">
         <button v-for="t in (['ALL', 'NET', 'AI', 'VAULT', 'SYS', 'SEC'] as const)" :key="t"
-                :class="{ active: staticLogTab === t, 'is-special': ['AI', 'VAULT'].includes(t) && staticLogTab === t }"
+                :class="{ active: globalState.activeLogTab === t, 'is-special': ['AI', 'VAULT'].includes(t) && globalState.activeLogTab === t }"
                 @click="setLogTab(t)">
           [{{ t }}]
         </button>

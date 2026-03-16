@@ -53,6 +53,13 @@ Send data to render a mini-chart in the user's dashboard:
 [TER_RPC] {"action": "chart", "data": {"cpu": 45, "mem": 60}}
 ```
 
+### Trigger a File Download
+Command the Ter workstation to download a specific remote file to the user's local machine:
+```json
+[TER_RPC] {"action": "download", "path": "/home/user/build_output.zip"}
+```
+*(Ter will open a "Save As" dialog on the human user's desktop).*
+
 ## Best Practices for AI Agents
 1.  **Always Flush:** Always ensure you flush your `stdout` (e.g., `sys.stdout.flush()` in Python) immediately after printing an RPC command so the frontend receives it without buffering delay.
 2.  **Narrate your Actions:** It is good practice to print a normal, human-readable log right before an RPC command. Example:

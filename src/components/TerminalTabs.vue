@@ -129,26 +129,31 @@ const handleTabWheel = (e: WheelEvent) => {
       <!-- Primary Pane -->
       <section class="pane primary-pane" :class="{ 'active-pane': activeTabId && globalState.focusedPane === 'primary' }">
         <div v-if="activeTabId" class="tab-view-wrapper">
-          <!-- v2.15.61: SINGLE SLOT RENDERER - Never unmount TerminalView -->
-          <TerminalView 
-            v-show="primaryActiveTab?.viewType === 'terminal'"
-            :id="activeTabId" 
-            :active="globalState.focusedPane === 'primary'" 
-            :uiScale="uiScale"
-            @terminal-context="$emit('terminal-context', $event)" 
-          />
+          <!-- v2.16.0: MULTI-SLOT PERSISTENT RENDERER - Prevents Black Screen -->
+          <template v-for="t in getVisibleTabs()" :key="'pane-prim-' + t.id">
+            <TerminalView 
+              v-if="t.viewType === 'terminal'"
+              v-show="t.id === activeTabId"
+              :id="t.id" 
+              :active="t.id === activeTabId && globalState.focusedPane === 'primary'" 
+              :uiScale="uiScale"
+              @terminal-context="$emit('terminal-context', $event)" 
+            />
+          </template>
           
-          <TerEditor v-if="primaryActiveTab?.viewType === 'editor'" 
-                     :key="'prim-editor-' + activeTabId"
-                     :id="activeTabId" 
-                     :path="primaryActiveTab.data?.path" 
-                     :initialContent="primaryActiveTab.data?.content"
-                     @save-complete="$emit('save-complete')" />
+          <template v-for="t in getVisibleTabs()" :key="'pane-prim-editor-' + t.id">
+            <TerEditor v-if="t.viewType === 'editor' && t.id === activeTabId" 
+                       :id="t.id" 
+                       :path="t.data?.path" 
+                       :initialContent="t.data?.content"
+                       @save-complete="$emit('save-complete')" />
+          </template>
           
-          <CyberPdfViewer v-if="primaryActiveTab?.viewType === 'webview'" 
-                          :key="'prim-web-' + activeTabId"
-                          :url="primaryActiveTab.data?.url" 
-                          :title="primaryActiveTab.title" />
+          <template v-for="t in getVisibleTabs()" :key="'pane-prim-web-' + t.id">
+            <CyberPdfViewer v-if="t.viewType === 'webview' && t.id === activeTabId" 
+                            :url="t.data?.url" 
+                            :title="t.title" />
+          </template>
         </div>
         <div v-else class="empty-pane-msg">SELECT_TAB_FOR_DECK_1</div>
       </section>
@@ -156,26 +161,31 @@ const handleTabWheel = (e: WheelEvent) => {
       <!-- Secondary Pane -->
       <section v-if="splitMode" class="pane secondary-pane" :class="{ 'active-pane-sec': activeTabIdSecondary && globalState.focusedPane === 'secondary' }">
         <div v-if="activeTabIdSecondary" class="tab-view-wrapper">
-          <!-- v2.15.61: SINGLE SLOT RENDERER - Secondary Pane -->
-          <TerminalView 
-            v-show="secondaryActiveTab?.viewType === 'terminal'"
-            :id="activeTabIdSecondary" 
-            :active="globalState.focusedPane === 'secondary'" 
-            :uiScale="uiScale"
-            @terminal-context="$emit('terminal-context', $event)" 
-          />
+          <!-- v2.16.0: Secondary Pane Persistent Renderer -->
+          <template v-for="t in getVisibleTabs()" :key="'pane-sec-' + t.id">
+            <TerminalView 
+              v-if="t.viewType === 'terminal'"
+              v-show="t.id === activeTabIdSecondary"
+              :id="t.id" 
+              :active="t.id === activeTabIdSecondary && globalState.focusedPane === 'secondary'" 
+              :uiScale="uiScale"
+              @terminal-context="$emit('terminal-context', $event)" 
+            />
+          </template>
           
-          <TerEditor v-if="secondaryActiveTab?.viewType === 'editor'" 
-                     :key="'sec-editor-' + activeTabIdSecondary"
-                     :id="activeTabIdSecondary" 
-                     :path="secondaryActiveTab.data?.path" 
-                     :initialContent="secondaryActiveTab.data?.content"
-                     @save-complete="$emit('save-complete')" />
+          <template v-for="t in getVisibleTabs()" :key="'pane-sec-editor-' + t.id">
+            <TerEditor v-if="t.viewType === 'editor' && t.id === activeTabIdSecondary" 
+                       :id="t.id" 
+                       :path="t.data?.path" 
+                       :initialContent="t.data?.content"
+                       @save-complete="$emit('save-complete')" />
+          </template>
           
-          <CyberPdfViewer v-if="secondaryActiveTab?.viewType === 'webview'" 
-                          :key="'sec-web-' + activeTabIdSecondary"
-                          :url="secondaryActiveTab.data?.url" 
-                          :title="secondaryActiveTab.title" />
+          <template v-for="t in getVisibleTabs()" :key="'pane-sec-web-' + t.id">
+            <CyberPdfViewer v-if="t.viewType === 'webview' && t.id === activeTabIdSecondary" 
+                            :url="t.data?.url" 
+                            :title="t.title" />
+          </template>
         </div>
         <div v-else class="empty-pane-msg">SELECT_TAB_FOR_DECK_2</div>
       </section>

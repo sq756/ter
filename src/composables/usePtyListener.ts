@@ -2,7 +2,7 @@ import { onMounted, onUnmounted, type Ref } from 'vue';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { terminalManager } from '../TerminalManager';
-import { globalState, backendLogs, activeTabId } from '../store';
+import { globalState, activeTabId, storeActions } from '../store';
 
 // v2.11.56: Rendering Throttling
 const writeQueues: Map<string, Uint8Array[]> = new Map();
@@ -43,7 +43,8 @@ export function usePtyListener(
   captureAndUpload: (auto: boolean) => Promise<void>,
   refreshWebview: (url?: string) => Promise<void>,
   handleExtractDOM: () => Promise<void>,
-  lastActivityMap: Ref<Record<string, number>>
+  lastActivityMap: Ref<Record<string, number>>,
+  explorerActionDownload?: (onStatus?: (s: string) => void, remotePathOverride?: string) => Promise<void>
 ) {
   let unlistenPty: any;
   const decoder = new TextDecoder('utf-8', { fatal: false });
@@ -59,7 +60,7 @@ export function usePtyListener(
       let text = decoder.decode(bytes);
 
       if (text.includes('[TER_RPC]')) {
-        const rpcRegex = /\[TER_RPC\]\s*({.*?})/g;
+        const rpcRegex = /\[TER_RPC\]\s*(\{.*?\})/g;
         let match;
         let cleanedText = text;
         let foundRpc = false;
@@ -77,9 +78,14 @@ export function usePtyListener(
             } else if (rpc.action === 'extract_dom') {
               handleExtractDOM();
             } else if (rpc.action === 'notify') {
-              backendLogs.value.push(`[🔔 AI NOTIFY] ${rpc.msg || rpc.message}`);
+              storeActions.pushLog(`[🔔 AI NOTIFY] ${rpc.msg || rpc.message}`);
             } else if (rpc.action === 'chart') {
-              backendLogs.value.push(`[📊 AI CHART DATA] ${JSON.stringify(rpc.data)}`);
+              storeActions.pushLog(`[📊 AI CHART DATA] ${JSON.stringify(rpc.data)}`);
+            } else if (rpc.action === 'download' && rpc.path) {
+              if (explorerActionDownload) {
+                // v2.16.1: Direct download via RPC
+                explorerActionDownload((msg) => storeActions.pushLog(`[STATUS] ${msg}`), rpc.path);
+              }
             }
             
             cleanedText = cleanedText.replace(match[0], '');

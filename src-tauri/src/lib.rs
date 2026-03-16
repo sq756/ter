@@ -884,7 +884,65 @@ pub fn run() {
             let db_url = format!("sqlite:///{}?mode=rwc", app_dir.join("ter.db").to_string_lossy());
             let state = app.state::<AppState>();
             let ah_telemetry = ah.clone();
-            tauri::async_runtime::spawn(async move { loop { tokio::time::sleep(std::time::Duration::from_secs(3)).await; let _ = ah_telemetry.emit("system-stats", serde_json::json!({ "cpu_usage": 0.0, "mem_used": 0, "mem_total": 1, "net_sent": 0, "net_recv": 0, "uptime": 0, "is_heartbeat": true })); } });
+            tauri::async_runtime::spawn(async move { 
+                let mut prev_net_recv = 0u64;
+                let mut prev_net_sent = 0u64;
+                let mut prev_cpu_idle = 0u64;
+                let mut prev_cpu_total = 0u64;
+
+                loop { 
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await; 
+                    
+                    let mut cpu_usage = 0.0;
+                    let mut net_recv_speed = 0u64;
+                    let mut net_sent_speed = 0u64;
+
+                    // v2.16.2: Tactical Telemetry Collector for Linux
+                    if let Ok(stat) = std::fs::read_to_string("/proc/stat") {
+                        if let Some(line) = stat.lines().next() {
+                            let parts: Vec<u64> = line.split_whitespace().skip(1).filter_map(|s| s.parse().ok()).collect();
+                            if parts.len() >= 7 {
+                                let idle = parts[3];
+                                let total: u64 = parts.iter().sum();
+                                if prev_cpu_total > 0 {
+                                    let diff_idle = idle.saturating_sub(prev_cpu_idle);
+                                    let diff_total = total.saturating_sub(prev_cpu_total);
+                                    if diff_total > 0 {
+                                        cpu_usage = (1.0 - (diff_idle as f64 / diff_total as f64)) * 100.0;
+                                    }
+                                }
+                                prev_cpu_idle = idle;
+                                prev_cpu_total = total;
+                            }
+                        }
+                    }
+
+                    if let Ok(net_dev) = std::fs::read_to_string("/proc/net/dev") {
+                        let mut total_recv = 0u64;
+                        let mut total_sent = 0u64;
+                        for line in net_dev.lines().skip(2) {
+                            let parts: Vec<&str> = line.split_whitespace().collect();
+                            if parts.len() >= 10 {
+                                total_recv += parts[1].parse::<u64>().unwrap_or(0);
+                                total_sent += parts[9].parse::<u64>().unwrap_or(0);
+                            }
+                        }
+                        if prev_net_recv > 0 {
+                            net_recv_speed = total_recv.saturating_sub(prev_net_recv) / 2;
+                            net_sent_speed = total_sent.saturating_sub(prev_net_sent) / 2;
+                        }
+                        prev_net_recv = total_recv;
+                        prev_net_sent = total_sent;
+                    }
+
+                    let _ = ah_telemetry.emit("system-stats", serde_json::json!({ 
+                        "cpu_usage": cpu_usage, 
+                        "mem_used": 0, "mem_total": 1, 
+                        "net_sent": net_sent_speed, "net_recv": net_recv_speed, 
+                        "uptime": 0, "is_heartbeat": true 
+                    })); 
+                } 
+            });
             tauri::async_runtime::block_on(async move { match Db::new(&db_url).await { Ok(db) => { let _ = state.db.set(db); } Err(e) => { *state.db_error.lock().await = Some(e.to_string()); } } });
             Ok(())
         })

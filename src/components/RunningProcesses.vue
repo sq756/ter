@@ -21,7 +21,18 @@ const refresh = async () => {
 };
 
 const attach = async (id: string) => {
-  await storeActions.createNewTab(id, 'terminal', {}, false, id);
+  const tid = await storeActions.createNewTab(id, 'terminal', {}, false, id);
+  // v2.16.1: Force primary focus and bring to foreground
+  activeTabId.value = tid;
+  globalState.focusedPane = 'primary';
+  
+  // Sync activity for sidebar and HUD indicators
+  window.dispatchEvent(new CustomEvent('ter-tab-activity', { detail: { id: tid, timestamp: Date.now() } }));
+  
+  // Close any overlay panels if necessary
+  if (globalState.workspaceMatrix.zoneLeft === 'RUNNING_PROCESSES') {
+     // Optional: behavior to minimize or focus main
+  }
 };
 
 const kill = async (id: string) => {

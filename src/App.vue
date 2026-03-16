@@ -205,16 +205,16 @@ const copyLatestAI = async () => {
   if (!activeTabId.value) return;
   try {
     await invoke('copy_latest_to_clipboard', { tabId: activeTabId.value });
-    backendLogs.value.push(`[INFO] Latest AI response copied via Native API.`);
+    storeActions.pushLog(`[INFO] Latest AI response copied via Native API.`);
     isClipFlashing.value = true;
     setTimeout(() => isClipFlashing.value = false, 500);
   } catch (e) {
-    backendLogs.value.push(`[ERROR] CLIP failed: ${e}`);
+    storeActions.pushLog(`[ERROR] CLIP failed: ${e}`);
   }
 };
 
 const updateStatus = (msg: string) => {
-  backendLogs.value.push(`[STATUS] ${msg}`);
+  storeActions.pushLog(`[STATUS] ${msg}`);
 };
 
 const {
@@ -241,7 +241,7 @@ watch(() => uiPrefs.value.ui_scale, (newScale) => {
 
 const {
   previewUrl, isWebviewLoading, refreshWebview, handleExtractDOM, handleScrapeData, onDomExtracted, captureAndUpload, useNativeWebview, disableTunnel
-} = useCyber(activeTabId, backendLogs, activeWebviewId, updateWebviewUrl);
+} = useCyber(activeTabId, activeWebviewId, updateWebviewUrl);
 
 watch(activeWebviewId, (newId) => {
   if (newId) {
@@ -300,7 +300,8 @@ const {
 
 usePtyListener(
   isAutoPilot, lastAutoPilotTime, 
-  activeTriggers, captureAndUpload, refreshWebview, handleExtractDOM, lastActivityMap
+  activeTriggers, captureAndUpload, refreshWebview, handleExtractDOM, lastActivityMap,
+  handleDirectDownload
 );
 
 const {
@@ -322,7 +323,7 @@ const handleQuickEdit = async () => {
       const content = await invoke<string>('read_remote_file', { remotePath: path });
       await createNewTab(selectedFile.value.name, 'editor', { path, content });
     } catch (e) {
-      backendLogs.value.push(`[ERROR] Failed to open editor: ${e}`);
+      storeActions.pushLog(`[ERROR] Failed to open editor: ${e}`);
     }
   }
   showExplorerMenu.value = false;
@@ -341,15 +342,20 @@ const handleOpenInWebview = async () => {
 
 const handleExplorerDownload = async () => {
   onAgentZoneClick(); 
-  nextTick(() => {
-    const sidebar = document.querySelector('.side-bar');
-    if (sidebar) {
-      const netBtn = Array.from(sidebar.querySelectorAll('.tactical-logs-matrix button'))
-        .find(b => b.textContent?.includes('NET')) as HTMLButtonElement;
-      if (netBtn) netBtn.click();
-    }
-  });
+  globalState.activeLogTab = 'NET';
   await explorerActionDownload(updateStatus);
+};
+
+const handleExplorerUpload = async () => {
+  onAgentZoneClick();
+  globalState.activeLogTab = 'NET';
+  await explorerActionUpload(updateStatus);
+};
+
+const handleDirectDownload = async (onStatus?: (s: string) => void, remotePath?: string) => {
+  onAgentZoneClick();
+  globalState.activeLogTab = 'NET';
+  await explorerActionDownload(onStatus || updateStatus, remotePath);
 };
 
 const cycleHealthMode = () => {
@@ -601,7 +607,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
           <header class="menu-header">FILE ACTIONS</header>
           <template v-if="selectedFile?.is_dir">
             <div class="menu-item" @click="explorerActionCd">📂 Open Folder</div>
-            <div class="menu-item" @click="explorerActionUpload">📤 Upload</div>
+            <div class="menu-item" @click="handleExplorerUpload">📤 Upload</div>
           </template>
           <template v-else>
             <div class="menu-item highlight" @click="handleOpenInWebview">👁️ OPEN_IN_WEBVIEW</div>

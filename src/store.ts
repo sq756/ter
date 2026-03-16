@@ -30,6 +30,7 @@ export const globalState = reactive({
 
   // Explorer State
   currentPath: '/',
+  activeLogTab: 'ALL' as 'ALL' | 'NET' | 'AI' | 'VAULT' | 'SYS' | 'SEC',
 
   currentAgentPort: null as number | null,
 
@@ -164,9 +165,8 @@ export const storeActions = {
           } else {
             await invoke('spawn_new_pty', { tabId: id });
           }
-          setTimeout(() => invoke('write_pty', { tabId: id, data: "\n\r" }), 500);
         } catch (e) { 
-          backendLogs.value.push(`[ERROR] PTY Spawn fail for ${id}: ${e}`); 
+          storeActions.pushLog(`[ERROR] PTY Spawn fail for ${id}: ${e}`); 
         }
       }
     }

@@ -89,28 +89,29 @@ export function useExplorerContextMenu(
     showExplorerMenu.value = false;
   };
 
-  const explorerActionDownload = async (onStatus?: (s: string) => void) => {
-    if (selectedFile.value && !selectedFile.value.is_dir) {
-      const remotePath = getFullPath();
+  const explorerActionDownload = async (onStatus?: (s: string) => void, remotePathOverride?: string) => {
+    const remotePath = remotePathOverride || (selectedFile.value && !selectedFile.value.is_dir ? getFullPath() : null);
+    if (remotePath) {
+      const fileName = remotePath.split('/').pop() || 'downloaded_file';
       const localPath = await save({
-        defaultPath: selectedFile.value.name,
+        defaultPath: fileName,
         title: 'Save Remote File'
       });
       if (localPath) {
-        if (onStatus) onStatus(`📥 DOWNLOADING: ${selectedFile.value.name}...`);
+        if (onStatus) onStatus(`📥 DOWNLOADING: ${fileName}...`);
         try {
           await invoke('download_file', { remotePath, localPath });
-          if (onStatus) onStatus(`✅ DOWNLOADED: ${selectedFile.value.name}`);
+          if (onStatus) onStatus(`✅ DOWNLOADED: ${fileName}`);
         } catch (e) {
           alert("Download failed: " + e);
-          if (onStatus) onStatus(`❌ DOWNLOAD_FAIL: ${selectedFile.value.name}`);
+          if (onStatus) onStatus(`❌ DOWNLOAD_FAIL: ${fileName}`);
         }
       }
     }
     showExplorerMenu.value = false;
   };
 
-  const explorerActionUpload = async () => {
+  const explorerActionUpload = async (onStatus?: (s: string) => void) => {
     const localPath = await openDialog({
       multiple: false,
       title: 'Select File to Upload'
@@ -118,11 +119,14 @@ export function useExplorerContextMenu(
     if (localPath && typeof localPath === 'string') {
       const fileName = localPath.split(/[/\\]/).pop();
       const remotePath = (currentPath.value === '/' ? '' : currentPath.value) + '/' + fileName;
+      if (onStatus) onStatus(`📤 UPLOADING: ${fileName}...`);
       try {
         await invoke('upload_file', { remotePath, localPath });
+        if (onStatus) onStatus(`✅ UPLOADED: ${fileName}`);
         await refreshExplorer();
       } catch (e) {
         alert("Upload failed: " + e);
+        if (onStatus) onStatus(`❌ UPLOAD_FAIL: ${fileName}`);
       }
     }
     showExplorerMenu.value = false;
