@@ -42,3 +42,18 @@ Ter has evolved into a **Local-First & AI-Native Visual SSH Workstation**. v2.15
 1. **Local Explorer**: Implement `ls_local` in Rust and update `SftpExplorer.vue` to support local file browsing.
 2. **Dynamic Theming**: Support for user-defined CSS variables for the Cyber UI via the Settings panel.
 3. **Agent Local Memory**: Enable the Agent to read/write local project files for better context.
+
+## [2026-03-16] UI Status Archive (v2.15.1-stable)
+
+### Current Major Issues:
+1. **Network Health Missing**: SYSTEM HEALTH (NETWORK) has no data/rendering.
+2. **Process Navigation Broken**: RUNNING PROCESSES items don't trigger automatic UI expansion/focus to tabs or HUD.
+3. **Terminal Tab Black-out & Handshake Noise**:
+   - Tab switching results in black screen (DOM present, context lost).
+   - New tabs show after '+' but leak ANSI sequences (e.g., ^[[?1;2c) and 'command not found' errors, indicating PTY handshake failure.
+4. **Web Engine Size Mismatch**: Iframe and Native modes display inconsistent dimensions and padding.
+
+### Strategy for Next Session:
+- Investigate Backend telemetry for Network data loss.
+- Fix XTerm.js Device Attributes (DA) request handling to stop the '1;2c' command injection.
+- Implement a true 'Virtual PTY' bridge to keep terminal buffers active regardless of UI attachment.

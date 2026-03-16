@@ -46,12 +46,16 @@ const updateWebviewBounds = async () => {
   const rect = containerRef.value.getBoundingClientRect();
   const windowPos = await getCurrentWindow().innerPosition();
   
-  // Logical coordinates for screen alignment
+  // v2.15.50: Height Safety Guard
+  // rect.height could be small during layout transitions, causing GDK crashes
+  const safeHeight = Math.max(100, rect.height - 24);
+  const safeWidth = Math.max(100, rect.width);
+
   const bounds = { 
     x: Math.round(windowPos.x + rect.x),
     y: Math.round(windowPos.y + rect.y + 24), 
-    width: Math.round(rect.width),
-    height: Math.round(rect.height - 24)
+    width: Math.round(safeWidth),
+    height: Math.round(safeHeight)
   };
 
   if (props.isActive) {
@@ -70,15 +74,19 @@ const initWebview = async () => {
   isWebviewError.value = false;
   isWebviewReady.value = false;
 
+  // v2.15.51: Layout Stabilization Delay
   await nextTick();
+  await new Promise(r => setTimeout(r, 150));
+  
   const rect = containerRef.value.getBoundingClientRect();
+  const windowPos = await getCurrentWindow().innerPosition();
 
   try {
     await webviewManager.create(props.id, props.url, {
-      x: props.isActive ? Math.round(rect.x) : -10000,
-      y: props.isActive ? Math.round(rect.y + 24) : -10000,
-      width: Math.round(rect.width),
-      height: Math.round(rect.height - 24)
+      x: props.isActive ? Math.round(windowPos.x + rect.x) : -10000,
+      y: props.isActive ? Math.round(windowPos.y + rect.y + 24) : -10000,
+      width: Math.max(100, Math.round(rect.width)),
+      height: Math.max(100, Math.round(rect.height - 24))
     });
 
     unlistenExtracted = await listen<string>(`dom-extracted-${props.id}`, (ev) => { emit('dom-extracted', ev.payload); });

@@ -151,8 +151,16 @@ const getSlotStyle = (idx: number) => {
              display: 'grid', 
              gridTemplateColumns: `repeat(${globalState.gridLayout.cols}, 1fr)`,
              gridTemplateRows: `repeat(${globalState.gridLayout.rows}, 1fr)`,
-             gap: '2px'
-           } : { display: 'flex', flexDirection: 'column' }">
+             gap: '2px',
+             flex: 1,
+             minHeight: 0
+           } : { 
+             display: 'flex', 
+             flexDirection: 'column',
+             flex: 1,
+             minHeight: 0,
+             height: '100%'
+           }">
          
          <!-- v2.15.46: Intelligent Multi-Instance Rendering -->
          <template v-if="globalState.gridMode">
