@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch, onMounted, watchEffect } from 'vue';
 import { globalState, backendLogs, webviewInstances, activeWebviewId, activeTabId, storeActions } from '../store';
 import { useCyber } from '../composables/useCyber';
 import CyberWebview from './CyberWebview.vue';
@@ -19,14 +19,17 @@ const getLogColor = (log: string) => {
 };
 
 // v2.15.3: Instance Ownership
-// Each HUD zone now owns a specific webview instance to prevent mirroring
 const ownedInstanceId = computed(() => `web-${props.zoneId.toLowerCase()}`);
 
-const currentInstance = computed(() => {
-  const inst = webviewInstances.value.find(w => w.id === ownedInstanceId.value);
-  if (inst) return inst;
-  // Fallback: Create it if it doesn't exist (v2.15.3 Auto-provisioning)
-  return null; 
+const currentInstance = ref<any>(null);
+
+watchEffect(() => {
+  const targetId = ownedInstanceId.value;
+  let inst = webviewInstances.value.find(w => w.id === targetId);
+  if (!inst && webviewInstances.value.length > 0) {
+    inst = webviewInstances.value[0];
+  }
+  currentInstance.value = inst;
 });
 
 const updateWebviewUrl = (id: string, url: string) => {
@@ -41,15 +44,18 @@ const {
 // Sync local previewUrl with instance url when instance changes
 watch(() => currentInstance.value?.url, (newUrl) => {
   if (newUrl && newUrl !== previewUrl.value) {
+    console.log(`[CyberHUD:${props.zoneId}] Syncing previewUrl to:`, newUrl);
     previewUrl.value = newUrl;
   }
 }, { immediate: true });
 
 onMounted(() => {
-  // Ensure the instance exists in the global store
-  if (!webviewInstances.value.find(w => w.id === ownedInstanceId.value)) {
+  const targetId = ownedInstanceId.value;
+  console.log(`[CyberHUD:${props.zoneId}] Mounting. Ensuring instance.`);
+  
+  if (webviewInstances.value.length === 0) {
     webviewInstances.value.push({
-      id: ownedInstanceId.value,
+      id: targetId,
       title: `Web Deck [${props.zoneId}]`,
       url: 'http://localhost:5173',
       isActive: true
@@ -57,13 +63,41 @@ onMounted(() => {
   }
 });
 
+const showLogs = ref(true);
+const showGridMenu = ref(false);
+const gridMenuPos = ref({ x: 0, y: 0 });
+
+const toggleWebEngine = () => {
+  storeActions.setNativeWebview(!globalState.useNativeWebview);
+};
+
+const onGridContextMenu = (e: MouseEvent) => {
+  e.preventDefault();
+  gridMenuPos.value = { x: e.clientX, y: e.clientY };
+  showGridMenu.value = true;
+};
+
+const setGridLayout = (r: number, c: number) => {
+  globalState.gridLayout.rows = r;
+  globalState.gridLayout.cols = c;
+  showGridMenu.value = false;
+};
+
 const getSlotStyle = (idx: number) => {
-  if (!globalState.gridMode) return {};
-  const row = Math.floor(idx / 3) + 1;
-  const col = (idx % 3) + 1;
+  if (!globalState.gridMode) return { width: '100%', height: '100%' };
+  const rows = globalState.gridLayout.rows;
+  const cols = globalState.gridLayout.cols;
+  
+  // Fill order: row by row
+  const r = Math.floor(idx / cols) + 1;
+  const c = (idx % cols) + 1;
+  
+  // If we have more instances than grid cells, hide them
+  if (r > rows) return { display: 'none' };
+
   return {
-    gridRow: row,
-    gridColumn: col,
+    gridRow: r,
+    gridColumn: c,
     width: '100%',
     height: '100%',
     position: 'relative'
@@ -73,23 +107,37 @@ const getSlotStyle = (idx: number) => {
 
 <template>
   <div class="cyber-hud-container">
-    <div class="cyber-logs-view">
-      <header><span class="title">Cyber Logs (HUD)</span></header>
+    <div v-if="showLogs" class="cyber-logs-view">
+      <header @click="showLogs = false" style="cursor: pointer;" title="Click to Collapse Logs">
+        <span class="title">Cyber Logs (HUD) [CLOSE]</span>
+      </header>
       <div class="logs-container">
         <div v-for="(log, i) in tacticalLogs" :key="i" class="log-line" :style="{ color: getLogColor(log) }">
           {{ log }}
         </div>
       </div>
     </div>
+    <div v-else class="logs-collapsed-bar" @click="showLogs = true" title="Click to Expand Logs">
+      <span>LOGS_COLLAPSED [EXPAND]</span>
+    </div>
     <div class="cyber-webview-wrapper">
       <nav class="webview-address-bar">
-        <div class="engine-indicator" :class="{ 'native': useNativeWebview }">
-          {{ useNativeWebview ? '⚡ Native' : '🐢 Iframe' }}
+        <div class="engine-indicator" 
+             :class="{ 'native': globalState.useNativeWebview }" 
+             @click="toggleWebEngine" 
+             style="cursor: pointer;" 
+             title="Click to Switch Engine (Native/Iframe)">
+          {{ globalState.useNativeWebview ? '⚡ Native' : '🐢 Iframe' }}
         </div>
         <input v-model="previewUrl" @keyup.enter="refreshWebview(previewUrl)" class="address-bar-input" />
         <button @click="refreshWebview(previewUrl)" class="refresh-btn">⚡</button>
         <button @click="handleScrapeData()" class="refresh-btn" title="Scrape Page Content (h3)">📊</button>
-        <button @click="globalState.gridMode = !globalState.gridMode" class="refresh-btn" :title="globalState.gridMode ? 'Exit Grid Mode' : 'Enter Grid Mode (3x2)'" :style="{ color: globalState.gridMode ? '#3b82f6' : '#71717a' }">
+        <button v-if="!showLogs" @click="showLogs = true" class="refresh-btn" title="Show Logs">📖</button>
+        <button @click="globalState.gridMode = !globalState.gridMode" 
+                @contextmenu="onGridContextMenu"
+                class="refresh-btn" 
+                :title="globalState.gridMode ? 'Exit Grid Mode' : 'Enter Grid Mode (Right Click for Layouts)'" 
+                :style="{ color: globalState.gridMode ? '#3b82f6' : '#71717a' }">
           <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
         </button>
         <button @click="disableTunnel = !disableTunnel" class="refresh-btn" :title="disableTunnel ? 'Enable Remote Tunnel' : 'Disable Remote Tunnel'" :style="{ color: disableTunnel ? '#ef4444' : '#22c55e' }">
@@ -98,13 +146,37 @@ const getSlotStyle = (idx: number) => {
       </nav>
 
       <div class="webview-container" 
-           style="flex: 1; display: flex; flex-direction: column; height: 100%; background: #000;">
-         <template v-if="useNativeWebview && !globalState.isSafeMode">
+           :class="{ 'grid-layout': globalState.gridMode }"
+           :style="globalState.gridMode ? { 
+             display: 'grid', 
+             gridTemplateColumns: `repeat(${globalState.gridLayout.cols}, 1fr)`,
+             gridTemplateRows: `repeat(${globalState.gridLayout.rows}, 1fr)`,
+             gap: '2px'
+           } : { display: 'flex', flexDirection: 'column' }">
+         
+         <!-- v2.15.46: Intelligent Multi-Instance Rendering -->
+         <template v-if="globalState.gridMode">
+           <div v-for="(inst, idx) in webviewInstances" 
+                :key="inst.id" 
+                :style="getSlotStyle(idx)"
+                class="grid-slot">
+             <CyberWebview
+               :id="inst.id"
+               :url="inst.url"
+               :isActive="true"
+               :isSafeMode="globalState.isSafeMode"
+               :zoneId="zoneId"
+               @dom-extracted="onDomExtracted"
+             />
+           </div>
+         </template>
+
+         <template v-else-if="useNativeWebview && !globalState.isSafeMode">
            <div v-if="currentInstance" class="grid-slot" style="width: 100%; height: 100%; position: relative;">
              <CyberWebview
                :id="currentInstance.id"
                :url="currentInstance.url"
-               :isActive="activeTabId === 'HUD' || true"
+               :isActive="true"
                :isSafeMode="globalState.isSafeMode"
                :zoneId="zoneId"
                @dom-extracted="onDomExtracted"
@@ -119,10 +191,78 @@ const getSlotStyle = (idx: number) => {
          <iframe v-else :src="previewUrl" class="cyber-iframe" frameborder="0" style="flex: 1; width: 100%; height: 100%; background: #ffffff; border: none;"></iframe>
       </div>
     </div>
+
+    <!-- v2.15.47: Grid Layout Context Menu -->
+    <div v-if="showGridMenu" 
+         class="grid-context-menu" 
+         :style="{ top: gridMenuPos.y + 'px', left: gridMenuPos.x + 'px' }"
+         v-on-click-outside="() => showGridMenu = false">
+      <header>GRID_LAYOUT_PRESETS</header>
+      <div class="menu-item" @click="setGridLayout(2, 3)">2 x 3 (Classic)</div>
+      <div class="menu-item" @click="setGridLayout(3, 3)">3 x 3 (Standard)</div>
+      <div class="menu-item" @click="setGridLayout(3, 4)">3 x 4 (Tall)</div>
+      <div class="menu-item" @click="setGridLayout(4, 4)">4 x 4 (Dense)</div>
+      <div class="menu-separator"></div>
+      <div class="menu-item disabled">CUSTOM_LAYOUT...</div>
+    </div>
   </div>
 </template>
 
 <style scoped>
+.grid-context-menu {
+  position: fixed;
+  z-index: 10000;
+  background: #09090b;
+  border: 1px solid #22c55e44;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.8);
+  min-width: 160px;
+  padding: 4px;
+  border-radius: 4px;
+}
+.grid-context-menu header {
+  padding: 6px 10px;
+  font-size: 9px;
+  color: #71717a;
+  border-bottom: 1px solid #18181b;
+  margin-bottom: 4px;
+  font-family: 'JetBrains Mono', monospace;
+}
+.grid-context-menu .menu-item {
+  padding: 8px 12px;
+  font-size: 11px;
+  color: #a1a1aa;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+}
+.grid-context-menu .menu-item:hover {
+  background: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+}
+.grid-context-menu .menu-separator {
+  height: 1px;
+  background: #18181b;
+  margin: 4px 0;
+}
+.grid-context-menu .menu-item.disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.logs-collapsed-bar {
+  background: #050505;
+  border-bottom: 1px solid #27272a;
+  padding: 4px 10px;
+  font-size: 9px;
+  color: #52525b;
+  cursor: pointer;
+  text-align: center;
+  font-family: 'JetBrains Mono', monospace;
+  letter-spacing: 1px;
+}
+.logs-collapsed-bar:hover { background: #09090b; color: #22c55e; }
+
 .cyber-hud-container { display: flex; flex-direction: column; height: 100%; width: 100%; background: #000; }
 .cyber-logs-view { flex: 0 0 30%; border-bottom: 1px solid #27272a; overflow: hidden; display: flex; flex-direction: column; }
 .cyber-logs-view header { padding: calc(5px * var(--ter-ui-scale)) calc(10px * var(--ter-ui-scale)); font-size: calc(11px * var(--ter-ui-scale)); color: #71717a; border-bottom: 1px solid #18181b; letter-spacing: 0.5px; }

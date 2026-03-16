@@ -9,20 +9,22 @@ const props = defineProps<{
   uiScale: number;
 }>();
 
+const emit = defineEmits(['terminal-context', 'new-tab', 'close-tab', 'toggle-split']);
+
 const terminalRef = ref<HTMLElement | null>(null);
 const showJumpBtn = ref(false);
 let resizeObserver: ResizeObserver | null = null;
 let fitTimeout: any = null;
 
-const performFit = () => {
+const performFit = async () => {
   if (fitTimeout) clearTimeout(fitTimeout);
-  fitTimeout = setTimeout(() => {
+  fitTimeout = setTimeout(async () => {
     if (props.active && terminalRef.value) {
       const width = terminalRef.value.offsetWidth;
       const height = terminalRef.value.offsetHeight;
       
       if (width > 0 && height > 0) {
-        const instance = terminalManager.getOrCreate(props.id);
+        const instance = await terminalManager.getOrCreate(props.id);
         instance.fit.fit();
         
         const { cols, rows } = instance.term;
@@ -41,11 +43,13 @@ const performFit = () => {
   }, 100); // Increased debounce for stability
 };
 
-const jumpToBottom = () => {
-  const instance = terminalManager.getOrCreate(props.id);
+const jumpToBottom = async () => {
+  const instance = await terminalManager.getOrCreate(props.id);
   instance.term.scrollToBottom();
   showJumpBtn.value = false;
 };
+
+let refreshIntervalId: any = null;
 
 const initTerminal = async (retries = 5) => {
   if (!terminalRef.value) {
@@ -54,13 +58,14 @@ const initTerminal = async (retries = 5) => {
   }
   
   try {
+    // v2.15.16: Clear existing content to prevent ghosting
+    terminalRef.value.innerHTML = '';
     terminalManager.mount(props.id, terminalRef.value);
-    const instance = terminalManager.getOrCreate(props.id);
+    const instance = await terminalManager.getOrCreate(props.id);
     
     // Setup scroll listener for jump button
     instance.term.onScroll(() => {
       const buffer = instance.term.buffer.active;
-      // v2.14.15: Only show jump button in normal buffer mode
       if (buffer.type === 'alternate') {
         showJumpBtn.value = false;
         return;
@@ -68,62 +73,89 @@ const initTerminal = async (retries = 5) => {
       showJumpBtn.value = buffer.viewportY < buffer.baseY - 5;
     });
 
-    setTimeout(performFit, 150);
+    setTimeout(performFit, 200);
   } catch (e) {
+    console.error("Terminal init failed:", e);
     if (retries > 0) setTimeout(() => initTerminal(retries - 1), 200);
   }
 
   if (resizeObserver) resizeObserver.disconnect();
-  resizeObserver = new ResizeObserver(() => performFit());
+  resizeObserver = new ResizeObserver(() => {
+    if (props.active) performFit();
+  });
   resizeObserver.observe(terminalRef.value);
 
   if (props.active) {
-    // v2.14.15: Enhanced focus capture
-    const instance = terminalManager.getOrCreate(props.id);
+    const instance = await terminalManager.getOrCreate(props.id);
     setTimeout(() => {
       instance.term.focus();
-      // Double focus for stubborn browsers/focus-thieves
-      setTimeout(() => instance.term.focus(), 100);
-    }, 50);
+      instance.term.refresh(0, instance.term.rows - 1); // Force redraw
+    }, 150);
   }
+  
+  // v2.15.16: Safety refresh interval
+  if (refreshIntervalId) clearInterval(refreshIntervalId);
+  refreshIntervalId = setInterval(async () => {
+    if (props.active && terminalRef.value) {
+      const instance = await terminalManager.getOrCreate(props.id);
+      if (instance.term.element && instance.term.element.offsetWidth > 0) {
+         // Only refresh if visible to save CPU
+         instance.term.refresh(0, instance.term.rows - 1);
+      }
+    }
+  }, 3000);
 };
 
 let unlistenDirect: any = null;
 
 onMounted(async () => {
-  initTerminal();
-  unlistenDirect = await listen(`pty-data-${props.id}`, (event: any) => {
-    terminalManager.write(props.id, event.payload);
-  });
+  await initTerminal();
+  // v2.15.18: Removed individual listener as it's now handled by the manager for stability
 });
 
 onUnmounted(() => {
   if (resizeObserver) resizeObserver.disconnect();
-  if (unlistenDirect) unlistenDirect();
-});
-
-// v2.11.53: Real-time Terminal Scaling
-watch(() => props.uiScale, (newScale) => {
-  const instance = terminalManager.getOrCreate(props.id);
-  if (instance) {
-    instance.term.options.fontSize = 14 * newScale;
-    nextTick(() => performFit());
-  }
+  if (refreshIntervalId) clearInterval(refreshIntervalId);
 });
 
 watch(() => props.active, async (isActive) => {
-  if (isActive) {
+  if (isActive && terminalRef.value) {
     await nextTick(); 
-    const instance = terminalManager.getOrCreate(props.id);
+    
+    // v2.15.23: Aggressive UI Refresh
+    // Multiple stages of fitting to account for split transitions
+    await terminalManager.mount(props.id, terminalRef.value);
+    
+    // Global resize trigger to force layout recalcs
+    window.dispatchEvent(new Event('resize'));
     
     requestAnimationFrame(() => {
-      performFit();
-      // v2.14.15: Force focus on active change with double-check
-      instance.term.focus();
-      setTimeout(() => instance.term.focus(), 100);
+      setTimeout(() => {
+        performFit();
+        const instance = terminalManager.instances.get(props.id);
+        if (instance) {
+          instance.term.refresh(0, instance.term.rows - 1);
+          instance.term.focus();
+        }
+      }, 50);
     });
-    
-    setTimeout(performFit, 300);
+  }
+});
+
+// v2.15.14: Explicit Re-mount Watcher on ID change
+watch(() => props.id, async (newId, oldId) => {
+  if (newId !== oldId && terminalRef.value) {
+    console.log(`[TerminalView] Tab ID changed from ${oldId} to ${newId}. Re-mounting.`);
+    await nextTick();
+    terminalManager.mount(newId, terminalRef.value);
+    const instance = await terminalManager.getOrCreate(newId);
+    performFit();
+    if (props.active) {
+      setTimeout(() => {
+        instance.term.focus();
+        instance.term.refresh(0, instance.term.rows - 1);
+      }, 100);
+    }
   }
 });
 </script>

@@ -57,7 +57,7 @@ const emit = defineEmits([
   'fast-access', 'explorer-context', 'resize-sftp-start',
   'change-dir', 'switch-web', 'web-context', 'open-vault-entry', 'view-changed',
   'save-complete', 'cycle-health-mode', 'skill-context', 'header-context',
-  'resize-charts', 'open-trigger-settings'
+  'resize-charts', 'open-trigger-settings', 'close-tab', 'new-tab', 'toggle-split'
 ]);
 </script>
 
@@ -71,7 +71,7 @@ const emit = defineEmits([
                      @terminal-context="$emit('terminal-context', $event)"
                      @run-skill="$emit('run-skill', $event)"
                      @fast-access="$emit('fast-access', $event)"
-                     @explorer-context="$emit('explorer-context', $event)"
+                     @explorer-context="(e: any) => { console.log('[MatrixAllocator] explorer-context'); $emit('explorer-context', e); }"
                      @resize-sftp-start="$emit('resize-sftp-start', $event)"
                      @change-dir="$emit('change-dir', $event)"
                      @switch-web="$emit('switch-web', $event)"
@@ -84,6 +84,9 @@ const emit = defineEmits([
                      @header-context="$emit('header-context', $event)"
                      @resize-charts="$emit('resize-charts', $event)"
                      @open-trigger-settings="$emit('open-trigger-settings', $event)"
+                     @close-tab="$emit('close-tab', $event)"
+                     @new-tab="$emit('new-tab', $event)"
+                     @toggle-split="$emit('toggle-split', $event)"
                      v-on="$attrs" />
     </div>
 
@@ -98,7 +101,7 @@ const emit = defineEmits([
                      @terminal-context="$emit('terminal-context', $event)"
                      @run-skill="$emit('run-skill', $event)"
                      @fast-access="$emit('fast-access', $event)"
-                     @explorer-context="$emit('explorer-context', $event)"
+                     @explorer-context="(e: any) => { console.log('[MatrixAllocator] explorer-context'); $emit('explorer-context', e); }"
                      @resize-sftp-start="$emit('resize-sftp-start', $event)"
                      @change-dir="$emit('change-dir', $event)"
                      @switch-web="$emit('switch-web', $event)"
@@ -111,6 +114,9 @@ const emit = defineEmits([
                      @header-context="$emit('header-context', $event)"
                      @resize-charts="$emit('resize-charts', $event)"
                      @open-trigger-settings="$emit('open-trigger-settings', $event)"
+                     @close-tab="$emit('close-tab', $event)"
+                     @new-tab="$emit('new-tab', $event)"
+                     @toggle-split="$emit('toggle-split', $event)"
                      v-on="$attrs" />
     </div>
 
@@ -125,7 +131,7 @@ const emit = defineEmits([
                      @terminal-context="$emit('terminal-context', $event)"
                      @run-skill="$emit('run-skill', $event)"
                      @fast-access="$emit('fast-access', $event)"
-                     @explorer-context="$emit('explorer-context', $event)"
+                     @explorer-context="(e: any) => { console.log('[MatrixAllocator] explorer-context'); $emit('explorer-context', e); }"
                      @resize-sftp-start="$emit('resize-sftp-start', $event)"
                      @change-dir="$emit('change-dir', $event)"
                      @switch-web="$emit('switch-web', $event)"
@@ -138,6 +144,9 @@ const emit = defineEmits([
                      @header-context="$emit('header-context', $event)"
                      @resize-charts="$emit('resize-charts', $event)"
                      @open-trigger-settings="$emit('open-trigger-settings', $event)"
+                     @close-tab="$emit('close-tab', $event)"
+                     @new-tab="$emit('new-tab', $event)"
+                     @toggle-split="$emit('toggle-split', $event)"
                      v-on="$attrs" />
     </div>
   </div>

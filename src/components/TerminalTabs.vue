@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick } from 'vue';
+import { ref, nextTick } from 'vue';
 import TerminalView from './TerminalView.vue';
 import TerEditor from './TerEditor.vue';
 import CyberPdfViewer from './CyberPdfViewer.vue';
@@ -7,6 +7,8 @@ import { terminalManager } from '../TerminalManager';
 
 import { getCurrentWindow } from '@tauri-apps/api/window';
 const appWindow = getCurrentWindow();
+
+import { globalState } from '../store';
 
 const props = defineProps<{
   tabs: any[];
@@ -19,6 +21,8 @@ const props = defineProps<{
 
 const emit = defineEmits(['switch-tab', 'switch-tab-secondary', 'close-tab', 'new-tab', 'terminal-context', 'rename-tab', 'pin-tab', 'copy-tab-id', 'toggle-split', 'save-complete']);
 
+const splitVertical = ref(localStorage.getItem('ter_split_vertical') === 'true');
+
 const getVisibleTabs = () => props.tabs.filter(t => !t.isBackground);
 
 const minimize = () => appWindow.minimize();
@@ -27,6 +31,7 @@ const closeApp = () => appWindow.close();
 
 const switchTab = (id: string) => {
   emit('switch-tab', id);
+  globalState.focusedPane = 'primary';
   nextTick(() => {
     terminalManager.focus(id);
   });
@@ -34,16 +39,42 @@ const switchTab = (id: string) => {
 
 const switchTabSecondary = (id: string) => {
   emit('switch-tab-secondary', id);
+  globalState.focusedPane = 'secondary';
   nextTick(() => {
     terminalManager.focus(id);
   });
+};
+
+const toggleSplitDirection = () => {
+  splitVertical.value = !splitVertical.value;
+  localStorage.setItem('ter_split_vertical', splitVertical.value.toString());
+  nextTick(() => {
+    window.dispatchEvent(new Event('resize'));
+  });
+};
+
+const handleTabWheel = (e: WheelEvent) => {
+  if (e.shiftKey) {
+    e.preventDefault();
+    const visibleTabs = getVisibleTabs();
+    if (visibleTabs.length <= 1) return;
+    
+    const currentIndex = visibleTabs.findIndex(t => t.id === props.activeTabId);
+    if (currentIndex === -1) return;
+    
+    const nextIndex = e.deltaY > 0 
+      ? (currentIndex + 1) % visibleTabs.length
+      : (currentIndex - 1 + visibleTabs.length) % visibleTabs.length;
+    
+    switchTab(visibleTabs[nextIndex].id);
+  }
 };
 </script>
 
 <template>
   <div class="terminal-workspace">
     <!-- Multi-Terminal Tab Bar -->
-    <nav class="tab-bar">
+    <nav class="tab-bar" @wheel="handleTabWheel">
       <div class="tab-bar-content">
         <!-- Status Indicator & Quick Switcher -->
         <div class="status-indicator-zone" @click="$emit('new-tab')">
@@ -74,11 +105,16 @@ const switchTabSecondary = (id: string) => {
           </div>
         </div>
 
-        <button class="btn-new-tab" @click.stop="$emit('new-tab')">
+        <button class="btn-new-tab" @click.stop="$emit('new-tab')" title="New Tab">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
         </button>
-        <button class="btn-split" :class="{ 'active': splitMode }" @click.stop="$emit('toggle-split')">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="3" x2="12" y2="21"></line></svg>
+        <button class="btn-split" 
+                :class="{ 'active': splitMode, 'vertical': splitVertical }" 
+                @click.stop="$emit('toggle-split')" 
+                @contextmenu.prevent="toggleSplitDirection"
+                title="Toggle Split (Right-click for direction)">
+          <svg v-if="!splitVertical" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="3" x2="12" y2="21"></line></svg>
+          <svg v-else viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="3" y1="12" x2="21" y2="12"></line></svg>
         </button>
 
         <!-- v2.14.22: Re-enabling pure drag spacer to fix interaction dead zones -->
@@ -99,48 +135,53 @@ const switchTabSecondary = (id: string) => {
       </div>
     </nav>
 
-    <div class="workspace-body" :class="{ 'split-mode': splitMode }">
+    <div class="workspace-body" :class="{ 'split-mode': splitMode, 'split-vertical': splitVertical }">
       <!-- Primary Pane -->
-      <section class="pane primary-pane">
-        <div v-for="t in tabs" :key="t.id" 
+      <section class="pane primary-pane" :class="{ 'active-pane': activeTabId && globalState.focusedPane === 'primary' }">
+        <div v-if="activeTabId" 
              class="tab-view-wrapper"
-             v-show="t.id === activeTabId"
-             @click="t.viewType === 'terminal' && terminalManager.focus(t.id)">
-          <TerminalView v-if="t.viewType === 'terminal'" 
-                        :id="t.id" 
-                        :active="t.id === activeTabId" 
-                        :uiScale="uiScale"
-                        @terminal-context="$emit('terminal-context', $event)" />
-          <TerEditor v-else-if="t.viewType === 'editor'" 
-                     :id="t.id" 
-                     :path="t.data?.path" 
-                     :initialContent="t.data?.content"
-                     @save-complete="$emit('save-complete')" />
-          <CyberPdfViewer v-else-if="t.viewType === 'webview'" 
-                          :url="t.data?.url" 
-                          :title="t.title" />
+             @mousedown="globalState.focusedPane = 'primary'; terminalManager.focus(activeTabId)">
+          <!-- v2.15.28: Slot-based rendering to prevent DOM thrashing -->
+          <template v-for="t in [tabs.find(x => x.id === activeTabId)]" :key="'prim-active-' + activeTabId">
+            <TerminalView v-if="t && t.viewType === 'terminal'" 
+                          :id="t.id" 
+                          :active="true" 
+                          :uiScale="uiScale"
+                          @terminal-context="$emit('terminal-context', $event)" />
+            <TerEditor v-else-if="t && t.viewType === 'editor'" 
+                       :id="t.id" 
+                       :path="t.data?.path" 
+                       :initialContent="t.data?.content"
+                       @save-complete="$emit('save-complete')" />
+            <CyberPdfViewer v-else-if="t && t.viewType === 'webview'" 
+                            :url="t.data?.url" 
+                            :title="t.title" />
+          </template>
         </div>
+        <div v-if="!activeTabId" class="empty-pane-msg">SELECT_TAB_FOR_DECK_1</div>
       </section>
 
-      <!-- Secondary Pane (Visible only in Split Mode) -->
-      <section v-if="splitMode" class="pane secondary-pane">
-        <div v-for="t in tabs" :key="'sec-' + t.id" 
+      <!-- Secondary Pane -->
+      <section v-if="splitMode" class="pane secondary-pane" :class="{ 'active-pane-sec': activeTabIdSecondary && globalState.focusedPane === 'secondary' }">
+        <div v-if="activeTabIdSecondary" 
              class="tab-view-wrapper"
-             v-show="t.id === activeTabIdSecondary"
-             @click="t.viewType === 'terminal' && terminalManager.focus(t.id)">
-          <TerminalView v-if="t.viewType === 'terminal'" 
-                        :id="t.id" 
-                        :active="t.id === activeTabIdSecondary" 
-                        :uiScale="uiScale"
-                        @terminal-context="$emit('terminal-context', $event)" />
-          <TerEditor v-else-if="t.viewType === 'editor'" 
-                     :id="t.id" 
-                     :path="t.data?.path" 
-                     :initialContent="t.data?.content"
-                     @save-complete="$emit('save-complete')" />
-          <CyberPdfViewer v-else-if="t.viewType === 'webview'" 
-                          :url="t.data?.url" 
-                          :title="t.title" />
+             @mousedown="globalState.focusedPane = 'secondary'; terminalManager.focus(activeTabIdSecondary)">
+          <!-- v2.15.28: Slot-based rendering for secondary pane -->
+          <template v-for="t in [tabs.find(x => x.id === activeTabIdSecondary)]" :key="'sec-active-' + activeTabIdSecondary">
+            <TerminalView v-if="t && t.viewType === 'terminal'" 
+                          :id="t.id" 
+                          :active="true" 
+                          :uiScale="uiScale"
+                          @terminal-context="$emit('terminal-context', $event)" />
+            <TerEditor v-else-if="t && t.viewType === 'editor'" 
+                       :id="t.id" 
+                       :path="t.data?.path" 
+                       :initialContent="t.data?.content"
+                       @save-complete="$emit('save-complete')" />
+            <CyberPdfViewer v-else-if="t && t.viewType === 'webview'" 
+                            :url="t.data?.url" 
+                            :title="t.title" />
+          </template>
         </div>
         <div v-if="!activeTabIdSecondary" class="empty-pane-msg">SELECT_TAB_FOR_DECK_2</div>
       </section>
@@ -173,7 +214,7 @@ const switchTabSecondary = (id: string) => {
 
 .tab-bar-content {
   position: relative;
-  z-index: 1;
+  z-index: 100 !important;
   display: flex;
   align-items: center;
   width: 100%;
@@ -190,6 +231,8 @@ const switchTabSecondary = (id: string) => {
   height: 100%;
   cursor: pointer;
   flex-shrink: 0;
+  position: relative;
+  z-index: 101 !important;
 }
 
 .tabs-scroll-area {
@@ -199,6 +242,8 @@ const switchTabSecondary = (id: string) => {
   overflow-y: hidden;
   flex: 0 1 auto;
   scrollbar-width: none;
+  position: relative;
+  z-index: 101 !important;
 }
 .tabs-scroll-area::-webkit-scrollbar { display: none; }
 
@@ -217,11 +262,19 @@ const switchTabSecondary = (id: string) => {
   border-right: 1px solid #18181b;
   flex-shrink: 0 !important;
   white-space: nowrap;
+  z-index: 20; 
+}
+
+.btn-new-tab, .btn-split, .win-btn {
+  position: relative;
+  z-index: 120 !important;
+  pointer-events: auto !important;
 }
 
 .drag-spacer {
   flex: 1;
   height: 100%;
+  pointer-events: none !important;
 }
 
 .window-controls {
@@ -271,13 +324,29 @@ const switchTabSecondary = (id: string) => {
 .btn-split { background: transparent; border: none; color: #52525b; cursor: pointer; padding: 0 12px; height: 100%; transition: all 0.1s; border-left: 1px solid #18181b; }
 .btn-split:hover { color: #fff; }
 .btn-split.active { color: #22c55e; background: rgba(34, 197, 94, 0.05); }
+.btn-split.vertical { color: #3b82f6; background: rgba(59, 130, 246, 0.05); }
 
 .workspace-body { flex: 1; position: relative; overflow: hidden; display: flex; width: 100%; height: 100%; }
 .workspace-body.split-mode { flex-direction: row; }
+.workspace-body.split-mode.split-vertical { flex-direction: column; }
 
-.pane { flex: 1; height: 100%; position: relative; overflow: hidden; min-width: 0; }
+.pane { flex: 1; height: 100%; position: relative; overflow: hidden; min-width: 0; transition: all 0.3s ease; border: 2px solid transparent; }
 .primary-pane { background: #000; }
 .secondary-pane { border-left: 1px solid #27272a; background: #000; }
+.split-vertical .secondary-pane { border-left: none; border-top: 1px solid #27272a; }
+
+.active-pane { border-color: rgba(59, 130, 246, 0.5); animation: glow-blue 3s infinite ease-in-out; }
+.active-pane-sec { border-color: rgba(168, 85, 247, 0.5); animation: glow-purple 3s infinite ease-in-out; }
+
+@keyframes glow-blue {
+  0%, 100% { box-shadow: inset 0 0 15px rgba(59, 130, 246, 0.1); border-color: rgba(59, 130, 246, 0.3); }
+  50% { box-shadow: inset 0 0 25px rgba(59, 130, 246, 0.3); border-color: rgba(59, 130, 246, 0.6); }
+}
+
+@keyframes glow-purple {
+  0%, 100% { box-shadow: inset 0 0 15px rgba(168, 85, 247, 0.1); border-color: rgba(168, 85, 247, 0.3); }
+  50% { box-shadow: inset 0 0 25px rgba(168, 85, 247, 0.3); border-color: rgba(168, 85, 247, 0.6); }
+}
 
 .tab-view-wrapper { position: absolute; inset: 0; width: 100%; height: 100%; }
 

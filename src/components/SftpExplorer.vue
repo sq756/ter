@@ -9,7 +9,7 @@ const props = defineProps<{
   hostName?: string;
 }>();
 
-const emit = defineEmits(['item-drag-start']);
+const emit = defineEmits(['item-drag-start', 'explorer-context']);
 
 const { changeDir } = useExplorer();
 
@@ -38,7 +38,10 @@ const onItemClick = (f: any) => {
 };
 
 const onContextMenu = (e: MouseEvent, file: any) => {
+  console.log('[SftpExplorer] Context menu triggered for:', file?.name);
+  emit('explorer-context', { e, file });
   if (terActions) {
+    console.log('[SftpExplorer] Calling injected terActions.openExplorerContext');
     terActions.openExplorerContext({ e, file });
   }
 };
@@ -64,7 +67,7 @@ const onContextMenu = (e: MouseEvent, file: any) => {
         <li class="file-item" 
             :class="{ 'disabled': globalState.currentPath === '/' }"
             @click="globalState.currentPath !== '/' && changeDir('..')" 
-            @contextmenu.prevent="globalState.currentPath !== '/' && onContextMenu($event, { name: '..', is_dir: true })">
+            @contextmenu.prevent.stop="globalState.currentPath !== '/' && onContextMenu($event, { name: '..', is_dir: true })">
           <span class="icon">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 10h10a8 8 0 0 1 8 8v2"></path><polyline points="7 14 3 10 7 6"></polyline></svg>
           </span>
@@ -74,7 +77,7 @@ const onContextMenu = (e: MouseEvent, file: any) => {
         <li v-for="f in sortedFiles" :key="f.name" 
             class="file-item" 
             @click="onItemClick(f)"
-            @contextmenu.prevent="onContextMenu($event, f)"
+            @contextmenu.prevent.stop="onContextMenu($event, f)"
             draggable="true"
             @dragstart="$emit('item-drag-start', f)">
           <span class="icon">

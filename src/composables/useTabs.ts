@@ -30,12 +30,27 @@ export function useTabs() {
 
   const createNewTab = storeActions.createNewTab;
 
-  const toggleSplit = () => {
+  const toggleSplit = async () => {
     splitMode.value = !splitMode.value;
-    if (splitMode.value && !activeTabIdSecondary.value) {
-      const other = terminalTabs.value.find(t => !t.isBackground && t.id !== activeTabId.value);
-      if (other) activeTabIdSecondary.value = other.id;
+    if (splitMode.value) {
+      // v2.15.10: Smart tab assignment for split mode
+      // If primary and secondary are same, or secondary is empty, find a new one
+      if (!activeTabIdSecondary.value || activeTabIdSecondary.value === activeTabId.value) {
+        const other = terminalTabs.value.find(t => !t.isBackground && t.id !== activeTabId.value);
+        if (other) {
+          activeTabIdSecondary.value = other.id;
+        } else {
+          // If no other tab exists, auto-create one to prevent black screen
+          const newId = await createNewTab("Deck-2", 'terminal');
+          activeTabIdSecondary.value = newId;
+        }
+      }
     }
+    // Force terminal fit after layout change
+    setTimeout(() => {
+      window.dispatchEvent(new Event('resize'));
+      terminalManager.fitAll();
+    }, 100);
   };
 
   const closeTab = (id: string) => {

@@ -140,8 +140,25 @@ const handleUpdateLayout = (layoutType: string) => {
 // ==========================================
 const { 
   backgroundTabs, lastActivityMap,
-  createNewTab, closeTab, sendToBackground, bringToForeground, renameTab 
+  createNewTab: _createNewTab, closeTab: _closeTab, sendToBackground, bringToForeground: _bringToForeground, renameTab, toggleSplit: _toggleSplit 
 } = useTabs();
+
+const createNewTab = (t?: string, v?: any, d?: any, b?: boolean, f?: string) => {
+  console.log('[App] createNewTab', { t, v });
+  return _createNewTab(t, v, d, b, f);
+};
+const closeTab = (id: string) => {
+  console.log('[App] closeTab', id);
+  return _closeTab(id);
+};
+const bringToForeground = (id: string) => {
+  console.log('[App] bringToForeground', id);
+  return _bringToForeground(id);
+};
+const toggleSplit = () => {
+  console.log('[App] toggleSplit');
+  return _toggleSplit();
+};
 
 const {
   realFiles, refreshExplorer, changeDir, onFastAccess
@@ -238,6 +255,7 @@ const webMenuY = ref(0);
 const contextWebId = ref<string | null>(null);
 
 const onWebContextMenu = (p: { event: MouseEvent, web: any }) => {
+  console.log('[App] onWebContextMenu', p.web?.id);
   webMenuX.value = p.event.clientX;
   webMenuY.value = p.event.clientY;
   contextWebId.value = p.web.id;
@@ -254,15 +272,25 @@ listen('web-context-menu', (ev: any) => {
 
 const {
   showContextMenu, menuX, menuY, contextMenuTabId, hasErrorSelection,
-  onTerminalContextMenu, copySelectedText, pasteFromClipboard, 
+  onTerminalContextMenu: _onTerminalContextMenu, copySelectedText, pasteFromClipboard, 
   renameTabAction, copyTabIdAction, copyRuntimeEnv, generateRunReport, diagnoseSelection, calculateMenuPosition
 } = useContextMenu(activeTabId, renameTab, computed(() => globalState.host), computed(() => globalState.currentPath), computed(() => globalState.currentAgentPort), terminalTabs);
+
+const onTerminalContextMenu = (p: any) => {
+  console.log('[App] onTerminalContextMenu', p?.id);
+  return _onTerminalContextMenu(p);
+};
 
 const { 
   cpuChartRef, memChartRef, netChartRef, currentCpuUsage, 
   healthMode, currentNetSpeed, extraStats,
-  initCharts, resizeCharts, fetchStats, setHealthMode
+  initCharts, resizeCharts: _resizeCharts, fetchStats, setHealthMode
 } = useStats(computed(() => globalState.currentAgentPort), computed(() => globalState.agentToken));
+
+const resizeCharts = () => {
+  console.log('[App] resizeCharts');
+  return _resizeCharts();
+};
 
 const { 
   morseSequence, morseText, showMorseMacro, isMorsePressed, possibleLetters,
@@ -276,10 +304,15 @@ usePtyListener(
 
 const {
   showExplorerMenu, explorerMenuX, explorerMenuY, selectedFile,
-  onExplorerContextMenu, explorerActionCd, explorerActionCat, explorerActionVim, explorerActionCopyPath, explorerActionRun,
+  onExplorerContextMenu: _onExplorerContextMenu, explorerActionCd, explorerActionCat, explorerActionVim, explorerActionCopyPath, explorerActionRun,
   explorerActionDownload, explorerActionUpload, explorerActionDelete, explorerActionPreview,
   explorerActionDump, explorerActionWrite
 } = useExplorerContextMenu(activeTabId, computed(() => globalState.currentPath), refreshExplorer);
+
+const onExplorerContextMenu = (p: any) => {
+  console.log('[App] onExplorerContextMenu triggered for:', p?.file?.name);
+  return _onExplorerContextMenu(p);
+};
 
 const handleQuickEdit = async () => {
   if (selectedFile.value) {
@@ -353,7 +386,8 @@ const onConnected = async (data: { label: string, id: string }) => {
   storeActions.setConnected(true, hostLabel, hostIdValue);
   
   if (webviewInstances.value.length === 0) {
-    createWebview('http://localhost:5173', 'Main Deck');
+    // v2.15.27: Using production-safe URL for initial load
+    createWebview('https://cstimer.net', 'Main Deck');
   }
   
   const saved = localStorage.getItem(storageKey(globalState.host));
@@ -511,7 +545,14 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
          '--ter-pulse-duration': (2.0 - (uiPrefs.pulse_speed / 100) * 1.8) + 's',
          'font-size': (14 * uiPrefs.ui_scale) + 'px'
        }"
-       @click="closeAllMenus" @contextmenu="closeAllMenus">
+       @click="closeAllMenus" 
+       @contextmenu="(e) => { 
+         const target = e.target as HTMLElement;
+         if (target.closest('.file-item') || target.closest('.terminal-view-container') || target.closest('.tab-item')) {
+           return;
+         }
+         closeAllMenus();
+       }">
     <CyberGate v-if="!globalState.isConnected" @connected="onConnected" />
     
     <div v-else class="main-view">
@@ -613,22 +654,25 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
         <!-- Matrix Allocator Entry Point -->
         <div class="workspace-body">
           <MatrixAllocator :sharedProps="sharedProps" 
-                           @switch-tab="bringToForeground"
-                           @proc-context="onTerminalContextMenu"
-                           @terminal-context="onTerminalContextMenu"
-                           @run-skill="runSkill"
-                           @fast-access="onFastAccess"
-                           @explorer-context="onExplorerContextMenu"
-                           @resize-sftp-start="handleResizeSFTP"
-                           @view-changed="handleSidebarViewRevert"
+                           @switch-tab="bringToForeground($event)"
+                           @proc-context="onTerminalContextMenu($event)"
+                           @terminal-context="onTerminalContextMenu($event)"
+                           @run-skill="runSkill($event)"
+                           @fast-access="onFastAccess($event)"
+                           @explorer-context="onExplorerContextMenu($event)"
+                           @resize-sftp-start="handleResizeSFTP($event)"
+                           @view-changed="handleSidebarViewRevert($event)"
                            @switch-web="activeWebviewId = $event"
-                           @web-context="onWebContextMenu"
-                           @skill-context="onSkillContextMenu"
-                           @header-context="onHeaderContextMenu"
+                           @web-context="onWebContextMenu($event)"
+                           @skill-context="onSkillContextMenu($event)"
+                           @header-context="onHeaderContextMenu($event)"
                            @open-trigger-settings="globalState.showSettings = true"
-                           @cycle-health-mode="cycleHealthMode"
-                           @resize-charts="resizeCharts"
-                           @open-vault-entry="handleVaultEntry" />
+                           @cycle-health-mode="cycleHealthMode()"
+                           @resize-charts="resizeCharts()"
+                           @open-vault-entry="handleVaultEntry($event)"
+                           @close-tab="closeTab($event)"
+                           @new-tab="createNewTab()"
+                           @toggle-split="toggleSplit()" />
         </div>
 
         <footer class="status-bar">

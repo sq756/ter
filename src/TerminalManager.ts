@@ -2,11 +2,13 @@ import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 export interface TerminalInstance {
   id: string;
   term: Terminal;
   fit: FitAddon;
+  unlisten?: UnlistenFn;
 }
 
 /**
@@ -14,7 +16,7 @@ export interface TerminalInstance {
  * DOM operations are handled by the TerminalView component.
  */
 class TerminalManager {
-  private instances: Map<string, TerminalInstance> = new Map();
+  public instances: Map<string, TerminalInstance> = new Map();
   private callbacks: Map<string, (id: string, data: string) => void> = new Map();
   private static instance: TerminalManager;
 
@@ -32,7 +34,7 @@ class TerminalManager {
     this.callbacks.set(id, cb);
   }
 
-  public getOrCreate(id: string, options: any = {}): TerminalInstance {
+  public async getOrCreate(id: string, options: any = {}): Promise<TerminalInstance> {
     const existing = this.instances.get(id);
     if (existing) return existing;
 
@@ -41,9 +43,9 @@ class TerminalManager {
       cursorBlink: true,
       fontSize: 14,
       fontFamily: "'JetBrains Mono', 'Ubuntu Mono', 'Fira Code', monospace",
-      theme: { background: '#09090b', foreground: '#d4d4d8' },
+      theme: { background: '#000000', foreground: '#d4d4d8' },
       allowTransparency: false,
-      scrollback: 2000, // v2.11.56: Optimized scrollback limit
+      scrollback: 2000, 
       wheelScrollSensitivity: 1,
       ...options
     });
@@ -51,79 +53,87 @@ class TerminalManager {
     const fit = new FitAddon();
     term.loadAddon(fit);
 
-    // v2.11.56: Performance Push - Try WebGL with fallback
-    // DISABLED: v2.12.1 - Too many WebGL contexts cause lag/crashes
-    /*
-    try {
-      const webgl = new WebglAddon();
-      term.loadAddon(webgl);
-      console.log(`[TerminalManager:${id}] WebglAddon loaded successfully`);
-      
-      webgl.onContextLoss(() => {
-        console.warn(`[TerminalManager:${id}] WebGL context lost, disposing...`);
-        webgl.dispose();
-      });
-    } catch (e) {
-      console.warn(`[TerminalManager:${id}] WebGL load failed, falling back to DOM`, e);
-    }
-    */
-
+    // v2.15.40: Re-enabling Canvas for standard rendering
+    // WebGL remains disabled for multi-pane stability
+    
     // Atomic data binding
     term.onData((data) => {
       const cb = this.callbacks.get(id);
-      if (cb) {
-        cb(id, data);
-      } else {
-        console.warn(`[TerminalManager] No data callback for terminal ${id}`);
-      }
+      if (cb) cb(id, data);
     });
+
+    // v2.15.35: Global Listener Registration
+    if (!this.isGlobalListenerActive) {
+      this.setupGlobalPtyListener();
+    }
 
     const instance: TerminalInstance = { id, term, fit };
     this.instances.set(id, instance);
     return instance;
   }
 
+  private isGlobalListenerActive = false;
+  private async setupGlobalPtyListener() {
+    this.isGlobalListenerActive = true;
+    console.log("[TerminalManager] Activating Global PTY Dispatcher");
+    await listen('pty-data', (event: any) => {
+      const payload = event.payload as any;
+      const id = payload.id;
+      const data = payload.data;
+      
+      const instance = this.instances.get(id);
+      if (instance) {
+        if (Array.isArray(data)) {
+          instance.term.write(new Uint8Array(data));
+        } else {
+          instance.term.write(data);
+        }
+      }
+    });
+  }
+
   /**
    * Explicitly mount terminal to a DOM element.
-   * Ensures that the terminal is correctly attached and focused.
    */
-  public mount(id: string, element: HTMLElement) {
-    console.log(`[TerminalManager] Mounting terminal ${id} to element`, element);
-    const instance = this.getOrCreate(id);
+  public async mount(id: string, element: HTMLElement) {
+    const instance = await this.getOrCreate(id);
     
+    // v2.15.41: Intelligent Mount Guard
     if (instance.term.element) {
       if (instance.term.element === element) {
-        console.log(`[TerminalManager] Terminal ${id} already mounted to this element`);
+        console.log(`[TerminalManager] Terminal ${id} already mounted. Refreshing.`);
+        instance.term.refresh(0, instance.term.rows - 1);
+        instance.fit.fit();
         return;
       }
-      console.log(`[TerminalManager] Terminal ${id} relocation from`, instance.term.element);
-      if (instance.term.element.parentElement) {
-        instance.term.element.parentElement.innerHTML = '';
-      }
+      // Only clear parent if it's NOT the target element
+      try {
+        const oldParent = instance.term.element.parentElement;
+        if (oldParent && oldParent !== element) {
+          oldParent.innerHTML = '';
+        }
+      } catch (e) {}
     }
     
     element.innerHTML = '';
     try {
       instance.term.open(element);
       
-      // v2.11.27: Break the xterm event black hole to close menus
       if (instance.term.element) {
         instance.term.element.onmousedown = () => {
           window.dispatchEvent(new CustomEvent('close-all-menus'));
         };
       }
 
-      // Wait for next frame to ensure DOM is ready for measurement
-      requestAnimationFrame(() => {
+      setTimeout(() => {
         if (element.offsetWidth > 0) {
           instance.fit.fit();
-          console.log(`[TerminalManager] Initial fit for ${id}: ${instance.term.cols}x${instance.term.rows}`);
-        } else {
-          console.warn(`[TerminalManager] Element for ${id} has 0 width during mount`);
+          instance.term.refresh(0, instance.term.rows - 1);
+          instance.term.focus();
         }
-      });
+      }, 50);
     } catch (e) {
-      console.error(`[TerminalManager] Failed to open terminal ${id}:`, e);
+      console.error(`[TerminalManager] Mount Fail ${id}:`, e);
     }
   }
 

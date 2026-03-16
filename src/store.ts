@@ -1,6 +1,7 @@
 import { reactive, computed, shallowRef, ref, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { terminalManager } from './TerminalManager';
+import { webviewManager } from './WebviewManager';
 
 /**
  * TER_CORE GLOBAL STATE CENTER
@@ -15,7 +16,8 @@ export const globalState = reactive({
   connectionStatus: 'disconnected' as 'connected' | 'busy' | 'disconnected',
   
   // UI State
-  isLocked: false,
+  gridMode: false,
+  gridLayout: { rows: 2, cols: 3 }, // v2.15.45: Default 2x3 grid
   isSafeMode: localStorage.getItem('ter_safe_mode') === 'true',
   useNativeWebview: localStorage.getItem('ter_use_native_webview') !== 'false', // Default true
   showSettings: false,
@@ -45,6 +47,8 @@ export const globalState = reactive({
     leftRatio: 25, // percentage
     rightRatio: 25 // percentage
   },
+
+  focusedPane: 'primary' as 'primary' | 'secondary',
 
   // Cursor State (v2.14.14)
   cursorConfig: (() => {
@@ -118,6 +122,20 @@ export const storeActions = {
     localStorage.setItem('ter_safe_mode', val.toString());
   },
 
+  async setNativeWebview(val: boolean) {
+    globalState.useNativeWebview = val;
+    localStorage.setItem('ter_use_native_webview', val.toString());
+    
+    // v2.15.36: Stable Dynamic Engine Switch
+    if (!val) {
+      try {
+        await webviewManager.destroyAll();
+      } catch (e) {
+        console.error("Failed to cleanup native windows:", e);
+      }
+    }
+  },
+
   // Tab Actions
   bringToForeground(id: string) {
     const t = terminalTabs.value.find(t => t.id === id);
@@ -137,7 +155,7 @@ export const storeActions = {
           invoke('write_pty', { tabId: tid, data: d }).catch(() => {}); 
         }
       });
-      terminalManager.getOrCreate(id);
+      await terminalManager.getOrCreate(id);
       if (!skipPty && globalState.isConnected) {
         try {
           if (globalState.host === 'LOCAL') {

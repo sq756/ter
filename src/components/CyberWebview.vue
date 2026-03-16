@@ -3,6 +3,7 @@ import { ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue';
 import { open } from '@tauri-apps/plugin-shell';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { AGENT_SCRIPT } from '../constants';
 import { globalState } from '../store';
 import { webviewManager } from '../WebviewManager';
@@ -40,25 +41,27 @@ const togglePin = async () => {
 
 const updateWebviewBounds = async () => {
   if (!containerRef.value || !isWebviewReady.value || !isNative.value) return;
-  await nextTick();
+  
+  // v2.15.42: Absolute Coordinate Anchoring
   const rect = containerRef.value.getBoundingClientRect();
+  const windowPos = await getCurrentWindow().innerPosition();
+  
+  // Logical coordinates for screen alignment
+  const bounds = { 
+    x: Math.round(windowPos.x + rect.x),
+    y: Math.round(windowPos.y + rect.y + 24), 
+    width: Math.round(rect.width),
+    height: Math.round(rect.height - 24)
+  };
 
   if (props.isActive) {
-    await webviewManager.updateBounds(props.id, { 
-      x: rect.x,
-      y: rect.y + 24, // Drag handle offset
-      width: rect.width,
-      height: rect.height - 24
-    });
+    await webviewManager.updateBounds(props.id, bounds);
   } else {
-    await webviewManager.updateBounds(props.id, { 
-      x: -10000,
-      y: -10000,
-      width: 100,
-      height: 100
-    });
+    await webviewManager.updateBounds(props.id, { x: -10000, y: -10000, width: 100, height: 100 });
   }
 };
+
+let syncInterval: any = null;
 
 const initWebview = async () => {
   if (!isNative.value) return;
@@ -67,14 +70,15 @@ const initWebview = async () => {
   isWebviewError.value = false;
   isWebviewReady.value = false;
 
+  await nextTick();
   const rect = containerRef.value.getBoundingClientRect();
 
   try {
     await webviewManager.create(props.id, props.url, {
-      x: props.isActive ? rect.x : -10000,
-      y: props.isActive ? rect.y + 24 : -10000,
-      width: rect.width,
-      height: rect.height - 24
+      x: props.isActive ? Math.round(rect.x) : -10000,
+      y: props.isActive ? Math.round(rect.y + 24) : -10000,
+      width: Math.round(rect.width),
+      height: Math.round(rect.height - 24)
     });
 
     unlistenExtracted = await listen<string>(`dom-extracted-${props.id}`, (ev) => { emit('dom-extracted', ev.payload); });
@@ -86,6 +90,13 @@ const initWebview = async () => {
     if (resizeObserver) resizeObserver.disconnect();
     resizeObserver = new ResizeObserver(() => { updateWebviewBounds(); });
     resizeObserver.observe(containerRef.value);
+    
+    // v2.15.30: Heartbeat Sync (Every 1s) to prevent window drift
+    if (syncInterval) clearInterval(syncInterval);
+    syncInterval = setInterval(() => {
+      if (props.isActive) updateWebviewBounds();
+    }, 1000);
+
   } catch (e) {
     console.error("Webview Creation Failed:", e);
     isWebviewError.value = true;
@@ -95,6 +106,7 @@ const initWebview = async () => {
 const destroyWebview = async () => {
   if (unlistenExtracted) { unlistenExtracted(); unlistenExtracted = null; }
   if (resizeObserver) { resizeObserver.disconnect(); resizeObserver = null; }
+  if (syncInterval) { clearInterval(syncInterval); syncInterval = null; }
   await webviewManager.destroy(props.id);
   isWebviewReady.value = false;
 };
@@ -143,6 +155,10 @@ defineExpose({ reload: () => invoke('reload_cyber_webview', { label: props.id })
 
     <div class="webview-content" v-if="!isNative">
       <iframe :src="url" class="cyber-iframe" frameborder="0"></iframe>
+      <!-- v2.15.32: Iframe Policy Hint -->
+      <div class="iframe-policy-hint">
+        IFRAME_POLICY: If page is blank, switch to NATIVE engine.
+      </div>
     </div>
 
     <template v-else>
@@ -166,6 +182,21 @@ defineExpose({ reload: () => invoke('reload_cyber_webview', { label: props.id })
 </template>
 
 <style scoped>
+.iframe-policy-hint {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(0, 0, 0, 0.7);
+  color: #71717a;
+  font-size: 8px;
+  padding: 2px 8px;
+  pointer-events: none;
+  text-align: center;
+  z-index: 10;
+  font-family: 'JetBrains Mono', monospace;
+}
+
 .cyber-webview { display: flex; flex-direction: column; height: 100%; width: 100%; background: #000; position: relative; border: 1px solid #18181b; }
 .drag-handle { height: 24px; background: #050505; border-bottom: 1px solid #18181b; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; position: relative; overflow: hidden; flex-shrink: 0; }
 .drag-region { position: absolute; inset: 0; z-index: 1; }
