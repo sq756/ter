@@ -232,6 +232,15 @@ async fn close_auth_window(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn close_webview(label: String, app: AppHandle) -> Result<(), String> {
+    #[cfg(desktop)]
+    if let Some(wv) = app.get_webview_window(&label) {
+        let _ = wv.close();
+    }
+    Ok(())
+}
+
+#[tauri::command]
 async fn update_webview_bounds(label: String, x: f64, y: f64, width: f64, height: f64, app: AppHandle) -> Result<(), String> {
     #[cfg(desktop)]
     if let Some(wv) = app.get_webview_window(&label) {
@@ -888,7 +897,7 @@ pub fn run() {
             download_file, upload_file,
             delete_remote_file, read_remote_file, write_remote_file, dump_to_terminal,
             get_latest_ai_response, list_vault, read_local_file, get_connection_chain,
-            spawn_mihomo, open_auth_window, close_auth_window, update_webview_bounds, create_embedded_webview, set_window_always_on_top, open_reverse_tunnel,
+            spawn_mihomo, open_auth_window, close_auth_window, close_webview, update_webview_bounds, create_embedded_webview, set_window_always_on_top, open_reverse_tunnel,
             copy_latest_to_clipboard,
             list_remote_tmux_sessions, kill_remote_tmux_session,
             list_bookmarks, save_bookmark, delete_bookmark,

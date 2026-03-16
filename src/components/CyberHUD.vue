@@ -5,7 +5,7 @@ import { useCyber } from '../composables/useCyber';
 import CyberWebview from './CyberWebview.vue';
 
 const props = defineProps<{
-  // HUD specific props if any
+  zoneId: string;
 }>();
 
 const tacticalLogs = computed(() => backendLogs.value.slice(-50));
@@ -18,6 +18,17 @@ const getLogColor = (log: string) => {
   return '#a1a1aa';
 };
 
+// v2.15.3: Instance Ownership
+// Each HUD zone now owns a specific webview instance to prevent mirroring
+const ownedInstanceId = computed(() => `web-${props.zoneId.toLowerCase()}`);
+
+const currentInstance = computed(() => {
+  const inst = webviewInstances.value.find(w => w.id === ownedInstanceId.value);
+  if (inst) return inst;
+  // Fallback: Create it if it doesn't exist (v2.15.3 Auto-provisioning)
+  return null; 
+});
+
 const updateWebviewUrl = (id: string, url: string) => {
   const instance = webviewInstances.value.find(w => w.id === id);
   if (instance) instance.url = url;
@@ -25,7 +36,26 @@ const updateWebviewUrl = (id: string, url: string) => {
 
 const {
   previewUrl, isWebviewLoading, refreshWebview, handleScrapeData, onDomExtracted, disableTunnel, useNativeWebview
-} = useCyber(activeTabId, backendLogs, activeWebviewId, updateWebviewUrl);
+} = useCyber(activeTabId, backendLogs, ownedInstanceId, updateWebviewUrl);
+
+// Sync local previewUrl with instance url when instance changes
+watch(() => currentInstance.value?.url, (newUrl) => {
+  if (newUrl && newUrl !== previewUrl.value) {
+    previewUrl.value = newUrl;
+  }
+}, { immediate: true });
+
+onMounted(() => {
+  // Ensure the instance exists in the global store
+  if (!webviewInstances.value.find(w => w.id === ownedInstanceId.value)) {
+    webviewInstances.value.push({
+      id: ownedInstanceId.value,
+      title: `Web Deck [${props.zoneId}]`,
+      url: 'http://localhost:5173',
+      isActive: true
+    });
+  }
+});
 
 const getSlotStyle = (idx: number) => {
   if (!globalState.gridMode) return {};
@@ -68,17 +98,15 @@ const getSlotStyle = (idx: number) => {
       </nav>
 
       <div class="webview-container" 
-           :class="{ 'grid-layout': globalState.gridMode }"
            style="flex: 1; display: flex; flex-direction: column; height: 100%; background: #000;">
          <template v-if="useNativeWebview && !globalState.isSafeMode">
-           <div v-for="(inst, idx) in webviewInstances" :key="inst.id"
-                v-show="activeWebviewId === inst.id || globalState.gridMode"
-                :style="getSlotStyle(idx)" class="grid-slot">
+           <div v-if="currentInstance" class="grid-slot" style="width: 100%; height: 100%; position: relative;">
              <CyberWebview
-               :id="inst.id"
-               :url="inst.url"
-               :isActive="activeTabId === 'HUD' && (activeWebviewId === inst.id || globalState.gridMode)"
+               :id="currentInstance.id"
+               :url="currentInstance.url"
+               :isActive="activeTabId === 'HUD' || true"
                :isSafeMode="globalState.isSafeMode"
+               :zoneId="zoneId"
                @dom-extracted="onDomExtracted"
              />
            </div>
@@ -88,7 +116,7 @@ const getSlotStyle = (idx: number) => {
            <div class="msg">WEB_ENGINE_DISABLED_IN_SAFE_MODE</div>
            <button class="os-browser-btn" @click="storeActions.toggleSafeMode(false)">DISABLE_SAFE_MODE</button>
          </div>
-         <iframe v-else :src="previewUrl" class="cyber-iframe" frameborder="0" style="flex: 1; width: 100%; height: 100%; background: #ffffff;"></iframe>
+         <iframe v-else :src="previewUrl" class="cyber-iframe" frameborder="0" style="flex: 1; width: 100%; height: 100%; background: #ffffff; border: none;"></iframe>
       </div>
     </div>
   </div>

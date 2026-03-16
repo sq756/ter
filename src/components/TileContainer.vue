@@ -6,6 +6,7 @@ defineOptions({ inheritAttrs: false });
 
 const props = defineProps<{
   widgetId: string;
+  zoneId: string;
   // Pass all common props that components might need
   widgetProps?: any;
 }>();
@@ -25,12 +26,14 @@ const showHeader = computed(() => {
 const emit = defineEmits([
   'switch-tab', 'proc-context', 'terminal-context', 'run-skill', 
   'fast-access', 'explorer-context', 'resize-sftp-start',
-  'change-dir', 'switch-web', 'web-context', 'open-vault-entry', 'view-changed'
+  'change-dir', 'switch-web', 'web-context', 'open-vault-entry', 'view-changed',
+  'save-complete', 'cycle-health-mode', 'skill-context', 'header-context',
+  'resize-charts', 'open-trigger-settings'
 ]);
 </script>
 
 <template>
-  <div class="tile-container">
+  <div class="tile-container" :data-zone-id="zoneId">
     <header v-if="showHeader" class="tile-header">
       <span class="tile-title">{{ getTitle }}</span>
       <div class="tile-controls">
@@ -41,6 +44,8 @@ const emit = defineEmits([
     <div class="tile-content">
       <component :is="widgetComponent" 
                  v-bind="widgetProps" 
+                 v-on="$attrs"
+                 :zoneId="zoneId"
                  @switch-tab="$emit('switch-tab', $event)"
                  @proc-context="$emit('proc-context', $event)"
                  @terminal-context="$emit('terminal-context', $event)"
@@ -53,7 +58,12 @@ const emit = defineEmits([
                  @web-context="$emit('web-context', $event)"
                  @open-vault-entry="$emit('open-vault-entry', $event)"
                  @view-changed="$emit('view-changed', $event)"
-                 @save-complete="$emit('save-complete', $event)" />
+                 @save-complete="$emit('save-complete', $event)"
+                 @cycle-health-mode="$emit('cycle-health-mode', $event)"
+                 @skill-context="$emit('skill-context', $event)"
+                 @header-context="$emit('header-context', $event)"
+                 @resize-charts="$emit('resize-charts', $event)"
+                 @open-trigger-settings="$emit('open-trigger-settings', $event)" />
     </div>
   </div>
 </template>

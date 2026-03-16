@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue';
+import { ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue';
 import { open } from '@tauri-apps/plugin-shell';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { AGENT_SCRIPT } from '../constants';
+import { globalState } from '../store';
+import { webviewManager } from '../WebviewManager';
 
 const props = defineProps<{ 
   id: string;
   url: string; 
   isActive: boolean;
   isSafeMode?: boolean;
+  zoneId?: string; // v2.15.3: Used for coordinate isolation
 }>();
 const emit = defineEmits(['dom-extracted', 'web-context-menu']);
 
@@ -17,6 +20,8 @@ const containerRef = ref<HTMLElement | null>(null);
 const isWebviewReady = ref(false);
 const isWebviewError = ref(false);
 const isPinned = ref(true);
+
+const isNative = computed(() => globalState.useNativeWebview);
 
 let unlistenExtracted: any = null;
 let resizeObserver: ResizeObserver | null = null;
@@ -30,34 +35,33 @@ const WEB_CONTEXT_SCRIPT = `
 
 const togglePin = async () => {
   isPinned.value = !isPinned.value;
-  await invoke('set_window_always_on_top', { label: props.id, onTop: isPinned.value });
+  await webviewManager.setAlwaysOnTop(props.id, isPinned.value);
 };
 
 const updateWebviewBounds = async () => {
-  if (!containerRef.value || !isWebviewReady.value) return;
+  if (!containerRef.value || !isWebviewReady.value || !isNative.value) return;
   await nextTick();
   const rect = containerRef.value.getBoundingClientRect();
 
   if (props.isActive) {
-    await invoke('update_webview_bounds', { 
-      label: props.id,
+    await webviewManager.updateBounds(props.id, { 
       x: rect.x,
       y: rect.y + 24, // Drag handle offset
       width: rect.width,
       height: rect.height - 24
-    }).catch(() => {});
+    });
   } else {
-    await invoke('update_webview_bounds', { 
-      label: props.id,
+    await webviewManager.updateBounds(props.id, { 
       x: -10000,
       y: -10000,
       width: 100,
       height: 100
-    }).catch(() => {});
+    });
   }
 };
 
 const initWebview = async () => {
+  if (!isNative.value) return;
   if (!containerRef.value || props.isSafeMode) return;
   
   isWebviewError.value = false;
@@ -66,9 +70,7 @@ const initWebview = async () => {
   const rect = containerRef.value.getBoundingClientRect();
 
   try {
-    await invoke('create_embedded_webview', {
-      label: props.id,
-      url: props.url,
+    await webviewManager.create(props.id, props.url, {
       x: props.isActive ? rect.x : -10000,
       y: props.isActive ? rect.y + 24 : -10000,
       width: rect.width,
@@ -93,7 +95,7 @@ const initWebview = async () => {
 const destroyWebview = async () => {
   if (unlistenExtracted) { unlistenExtracted(); unlistenExtracted = null; }
   if (resizeObserver) { resizeObserver.disconnect(); resizeObserver = null; }
-  await invoke('close_auth_window').catch(() => {}); 
+  await webviewManager.destroy(props.id);
   isWebviewReady.value = false;
 };
 
@@ -104,40 +106,60 @@ const handleRetry = async () => {
 };
 
 watch(() => props.url, (newUrl) => {
-  if (isWebviewReady.value) { invoke('navigate_cyber_webview', { label: props.id, url: newUrl }); }
+  if (isNative.value && isWebviewReady.value) { 
+    webviewManager.navigate(props.id, newUrl);
+  }
 });
 
-watch(() => props.isActive, (active) => { updateWebviewBounds(); });
+watch(() => props.isActive, (active) => { 
+  if (isNative.value) updateWebviewBounds(); 
+});
+
+watch(isNative, (val) => {
+  if (val) {
+    initWebview();
+  } else {
+    destroyWebview();
+  }
+});
 
 onMounted(() => { initWebview(); });
-onUnmounted(() => { });
+onUnmounted(() => { destroyWebview(); });
 
 const openInBrowser = async () => { try { await open(props.url); } catch(e){} };
 defineExpose({ reload: () => invoke('reload_cyber_webview', { label: props.id }), destroy: destroyWebview });
 </script>
 
 <template>
-  <div class="cyber-webview" ref="containerRef">
-    <div class="drag-handle" data-tauri-drag-region>
-      <span class="drag-title">{{ url.substring(0, 40) }}...</span>
+  <div class="cyber-webview" ref="containerRef" :data-id="id">
+    <div class="drag-handle">
+      <div class="drag-region"></div>
+      <span class="drag-title">{{ url }}</span>
       <div class="drag-actions">
-        <button class="pin-btn" :class="{ 'active': isPinned }" @click="togglePin" title="Toggle Always on Top">📌</button>
+        <button v-if="isNative" class="pin-btn" :class="{ 'active': isPinned }" @click="togglePin" title="Toggle Always on Top">📌</button>
+        <span class="mode-tag">{{ isNative ? 'NATIVE' : 'IFRAME' }}</span>
       </div>
     </div>
 
-    <div class="native-placeholder" v-if="!isWebviewReady && !isWebviewError">
-      <div class="loader">INITIALIZING_TWM_ENGINE...</div>
+    <div class="webview-content" v-if="!isNative">
+      <iframe :src="url" class="cyber-iframe" frameborder="0"></iframe>
     </div>
-    <div class="native-error" v-if="isWebviewError">
-      <div class="error-box">
-        <span class="icon">⚠️</span>
-        <div class="msg">RENDERER_CRASHED</div>
-        <div class="hint">WSL/Linux graphics driver deadlock detected.</div>
-        <div class="actions">
-          <button class="retry-btn" @click="handleRetry">RETRY_INITIALIZATION</button>
+
+    <template v-else>
+      <div class="native-placeholder" v-if="!isWebviewReady && !isWebviewError">
+        <div class="loader">INITIALIZING_TWM_ENGINE...</div>
+      </div>
+      <div class="native-error" v-if="isWebviewError">
+        <div class="error-box">
+          <span class="icon">⚠️</span>
+          <div class="msg">RENDERER_CRASHED</div>
+          <div class="hint">WSL/Linux graphics driver deadlock detected.</div>
+          <div class="actions">
+            <button class="retry-btn" @click="handleRetry">RETRY_INITIALIZATION</button>
+          </div>
         </div>
       </div>
-    </div>
+    </template>
     <div class="tunnel-hint" v-if="url.includes('localhost')">⚡ Agent Injected</div>
     <button class="os-browser-btn" @click="openInBrowser">🌍</button>
   </div>
@@ -145,15 +167,20 @@ defineExpose({ reload: () => invoke('reload_cyber_webview', { label: props.id })
 
 <style scoped>
 .cyber-webview { display: flex; flex-direction: column; height: 100%; width: 100%; background: #000; position: relative; border: 1px solid #18181b; }
-.drag-handle { height: 24px; background: #050505; border-bottom: 1px solid #18181b; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; cursor: move; -webkit-app-region: drag; }
-.drag-title { font-size: 9px; color: #52525b; font-family: monospace; pointer-events: none; }
-.drag-actions { display: flex; gap: 8px; -webkit-app-region: no-drag; }
+.drag-handle { height: 24px; background: #050505; border-bottom: 1px solid #18181b; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; position: relative; overflow: hidden; flex-shrink: 0; }
+.drag-region { position: absolute; inset: 0; z-index: 1; }
+.drag-title { font-size: 9px; color: #52525b; font-family: monospace; pointer-events: none; z-index: 2; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 10px; }
+.drag-actions { display: flex; gap: 8px; z-index: 3; align-items: center; }
 .pin-btn { background: transparent; border: none; font-size: 10px; cursor: pointer; opacity: 0.5; transition: all 0.2s; }
 .pin-btn.active { opacity: 1; filter: drop-shadow(0 0 5px #22c55e); color: #22c55e; }
+.mode-tag { font-size: 8px; color: #166534; border: 1px solid #166534; padding: 1px 4px; border-radius: 2px; }
+
+.webview-content { flex: 1; min-height: 0; position: relative; }
+.cyber-iframe { width: 100%; height: 100%; background: #fff; border: none; }
 
 .native-placeholder { flex: 1; display: flex; align-items: center; justify-content: center; background: #09090b; color: #a855f7; font-family: 'JetBrains Mono', monospace; font-size: 12px; }
 .native-error { flex: 1; display: flex; align-items: center; justify-content: center; background: #09090b; color: #ef4444; font-family: 'JetBrains Mono', monospace; padding: 20px; text-align: center; }
-.error-box { border: 1px solid #ef4444; padding: 24px; border-radius: 8px; background: rgba(239, 68, 68, 0.05); max-width: 320px; }
+.error-box { border: 1px solid #ef4444; padding: 24px; border-radius: 8px; background: rgba(239, 68, 68, 0.05); max-width: 320px; z-index: 10; }
 .error-box .msg { font-weight: bold; margin: 10px 0; letter-spacing: 2px; font-size: 14px; }
 .error-box .hint { font-size: 10px; opacity: 0.7; margin-bottom: 20px; }
 .actions { display: flex; flex-direction: column; gap: 12px; }

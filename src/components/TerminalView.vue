@@ -33,9 +33,12 @@ const performFit = () => {
         
         // v2.14.13: Force scroll to bottom after fit to prevent "scrolling from top" lag
         instance.term.scrollToBottom();
+      } else {
+        // v2.15.4: Retry fit if element is not yet ready
+        performFit();
       }
     }
-  }, 50); // 50ms debounce
+  }, 100); // Increased debounce for stability
 };
 
 const jumpToBottom = () => {
@@ -65,7 +68,7 @@ const initTerminal = async (retries = 5) => {
       showJumpBtn.value = buffer.viewportY < buffer.baseY - 5;
     });
 
-    setTimeout(performFit, 100);
+    setTimeout(performFit, 150);
   } catch (e) {
     if (retries > 0) setTimeout(() => initTerminal(retries - 1), 200);
   }
@@ -77,7 +80,11 @@ const initTerminal = async (retries = 5) => {
   if (props.active) {
     // v2.14.15: Enhanced focus capture
     const instance = terminalManager.getOrCreate(props.id);
-    setTimeout(() => instance.term.focus(), 50);
+    setTimeout(() => {
+      instance.term.focus();
+      // Double focus for stubborn browsers/focus-thieves
+      setTimeout(() => instance.term.focus(), 100);
+    }, 50);
   }
 };
 

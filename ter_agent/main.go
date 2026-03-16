@@ -408,7 +408,7 @@ func main() {
 	http.HandleFunc("/gui/status", authMiddleware(guiStatusHandler))
 	http.HandleFunc("/gui/init", authMiddleware(guiInitHandler))
 
-	addr := fmt.Sprintf("127.0.0.1:%d", *port)
+	addr := fmt.Sprintf("0.0.0.0:%d", *port)
 	fmt.Printf("Ter Agent starting on %s (Auth: %v)\n", addr, *token != "")
 	server := &http.Server{
 		Addr:         addr,

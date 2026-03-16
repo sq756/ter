@@ -9,6 +9,7 @@ const writeQueues: Map<string, Uint8Array[]> = new Map();
 let rafActive = false;
 
 const processWriteQueues = () => {
+  let hasMore = false;
   writeQueues.forEach((queue, id) => {
     if (queue.length > 0) {
       const totalLength = queue.reduce((acc, curr) => acc + curr.length, 0);
@@ -20,11 +21,14 @@ const processWriteQueues = () => {
       }
       terminalManager.write(id, combined);
       queue.length = 0;
+      hasMore = true;
     }
   });
   
-  if (rafActive) {
+  if (hasMore) {
     requestAnimationFrame(processWriteQueues);
+  } else {
+    rafActive = false;
   }
 };
 

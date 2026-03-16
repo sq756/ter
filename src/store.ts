@@ -129,6 +129,7 @@ export const storeActions = {
 
   async createNewTab(title = "Shell", viewType: any = 'terminal', data: any = {}, skipPty = false, existingId?: string) {
     const id = existingId || 'tab-' + Math.random().toString(36).substr(2, 9);
+    console.log(`[TER_CORE] Creating tab: ${id} (${title}) type: ${viewType}`);
     
     if (viewType === 'terminal') {
       terminalManager.setOnDataCallback(id, (tid, d) => { 
@@ -161,6 +162,10 @@ export const storeActions = {
     } else {
       activeTabId.value = id;
     }
+
+    // Sync activity for the sidebar indicator
+    window.dispatchEvent(new CustomEvent('ter-tab-activity', { detail: { id, timestamp: Date.now() } }));
+
     return id;
   },
 

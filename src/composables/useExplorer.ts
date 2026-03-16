@@ -3,19 +3,27 @@ import { invoke } from '@tauri-apps/api/core';
 import { globalState, activeTabId } from '../store';
 
 export const sanitizeSftpPath = (p: string): string => {
-  if (!p) return '/';
-  if (p === '..') return p;
-  if (p === '.') return p;
+  if (!p || p === '/') return '/';
   
-  if (!p.startsWith('/')) {
-    const slashIdx = p.indexOf('/');
-    if (slashIdx === -1) {
-      return '/';
-    } else {
-      return p.substring(slashIdx);
+  // v2.15.6: Robust Normalization
+  let clean = p.trim();
+  
+  // Remove trailing slashes (unless it's just root)
+  if (clean.length > 1 && clean.endsWith('/')) {
+    clean = clean.substring(0, clean.length - 1);
+  }
+
+  if (!clean.startsWith('/')) {
+    // If it doesn't start with slash, but is not . or .., it might be a relative segment
+    if (clean !== '..' && clean !== '.') {
+       // Assume it's relative to current if not specified, but this helper is pure.
+       // The caller should handle relative joining. 
+       // For safety in this pure helper, if no leading slash, we return as is
+       // but ensure it's not empty
     }
   }
-  return p;
+  
+  return clean || '/';
 };
 
 /**

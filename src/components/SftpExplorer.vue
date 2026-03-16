@@ -39,7 +39,7 @@ const onItemClick = (f: any) => {
 
 const onContextMenu = (e: MouseEvent, file: any) => {
   if (terActions) {
-    terActions.openExplorerContext({ event: e, file });
+    terActions.openExplorerContext({ e, file });
   }
 };
 </script>
@@ -171,6 +171,8 @@ const onContextMenu = (e: MouseEvent, file: any) => {
   color: #d4d4d8;
   margin-bottom: calc(2px * var(--ter-ui-scale));
   border: 1px solid transparent;
+  position: relative;
+  z-index: 1;
 }
 
 .file-item.disabled {

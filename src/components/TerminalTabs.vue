@@ -298,6 +298,6 @@ const switchTabSecondary = (id: string) => {
 .tab-item.active { color: #fafafa; background: rgba(255, 255, 255, 0.02); }
 .active-bar { position: absolute; bottom: 0; left: 0; width: 100%; height: 2px; background: #3b82f6; }
 .active-bar-secondary { position: absolute; bottom: 0; left: 0; width: 100%; height: 2px; background: #a855f7; }
-.tab-item .btn-close { position: absolute; right: calc(8px * var(--ter-ui-scale)); background: transparent; border: none; color: #52525b; cursor: pointer; opacity: 0; }
-.tab-item:hover .btn-close { opacity: 1; }
+.tab-item .btn-close { position: absolute; right: calc(8px * var(--ter-ui-scale)); background: transparent; border: none; color: #52525b; cursor: pointer; opacity: 0; transition: all 0.2s; z-index: 5; }
+.tab-item .btn-close:hover { opacity: 1; color: #ef4444 !important; }
 </style>

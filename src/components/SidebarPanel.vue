@@ -239,7 +239,7 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
         <div class="v-line"></div>
       </div>
 
-      <div class="module scroller flex-scroller explorer-wrapper" :style="{ flex: '1', minHeight: '0' }">
+      <div class="module explorer-wrapper" :style="{ flex: '1', minHeight: '0' }">
         <SftpExplorer
           :hostName="hostName"
           @item-context="(p) => $emit('explorer-context', { e: p.event, file: p.file })"

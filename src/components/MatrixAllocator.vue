@@ -55,7 +55,9 @@ onUnmounted(() => {
 const emit = defineEmits([
   'switch-tab', 'proc-context', 'terminal-context', 'run-skill', 
   'fast-access', 'explorer-context', 'resize-sftp-start',
-  'change-dir', 'switch-web', 'web-context', 'open-vault-entry', 'view-changed'
+  'change-dir', 'switch-web', 'web-context', 'open-vault-entry', 'view-changed',
+  'save-complete', 'cycle-health-mode', 'skill-context', 'header-context',
+  'resize-charts', 'open-trigger-settings'
 ]);
 </script>
 
@@ -63,7 +65,26 @@ const emit = defineEmits([
   <div class="matrix-allocator">
     <!-- Zone Left -->
     <div v-if="showLeft" class="zone zone-left" :style="{ width: matrix.leftRatio + '%' }">
-      <TileContainer :widgetId="matrix.zoneLeft" :widgetProps="sharedProps" v-on="$attrs" />
+      <TileContainer zoneId="LEFT" :widgetId="matrix.zoneLeft" :widgetProps="sharedProps" 
+                     @switch-tab="$emit('switch-tab', $event)"
+                     @proc-context="$emit('proc-context', $event)"
+                     @terminal-context="$emit('terminal-context', $event)"
+                     @run-skill="$emit('run-skill', $event)"
+                     @fast-access="$emit('fast-access', $event)"
+                     @explorer-context="$emit('explorer-context', $event)"
+                     @resize-sftp-start="$emit('resize-sftp-start', $event)"
+                     @change-dir="$emit('change-dir', $event)"
+                     @switch-web="$emit('switch-web', $event)"
+                     @web-context="$emit('web-context', $event)"
+                     @open-vault-entry="$emit('open-vault-entry', $event)"
+                     @view-changed="$emit('view-changed', $event)"
+                     @save-complete="$emit('save-complete', $event)"
+                     @cycle-health-mode="$emit('cycle-health-mode', $event)"
+                     @skill-context="$emit('skill-context', $event)"
+                     @header-context="$emit('header-context', $event)"
+                     @resize-charts="$emit('resize-charts', $event)"
+                     @open-trigger-settings="$emit('open-trigger-settings', $event)"
+                     v-on="$attrs" />
     </div>
 
     <!-- Left Resizer -->
@@ -71,7 +92,26 @@ const emit = defineEmits([
 
     <!-- Zone Main -->
     <div class="zone zone-main">
-      <TileContainer :widgetId="matrix.zoneMain" :widgetProps="sharedProps" v-on="$attrs" />
+      <TileContainer zoneId="MAIN" :widgetId="matrix.zoneMain" :widgetProps="sharedProps" 
+                     @switch-tab="$emit('switch-tab', $event)"
+                     @proc-context="$emit('proc-context', $event)"
+                     @terminal-context="$emit('terminal-context', $event)"
+                     @run-skill="$emit('run-skill', $event)"
+                     @fast-access="$emit('fast-access', $event)"
+                     @explorer-context="$emit('explorer-context', $event)"
+                     @resize-sftp-start="$emit('resize-sftp-start', $event)"
+                     @change-dir="$emit('change-dir', $event)"
+                     @switch-web="$emit('switch-web', $event)"
+                     @web-context="$emit('web-context', $event)"
+                     @open-vault-entry="$emit('open-vault-entry', $event)"
+                     @view-changed="$emit('view-changed', $event)"
+                     @save-complete="$emit('save-complete', $event)"
+                     @cycle-health-mode="$emit('cycle-health-mode', $event)"
+                     @skill-context="$emit('skill-context', $event)"
+                     @header-context="$emit('header-context', $event)"
+                     @resize-charts="$emit('resize-charts', $event)"
+                     @open-trigger-settings="$emit('open-trigger-settings', $event)"
+                     v-on="$attrs" />
     </div>
 
     <!-- Right Resizer -->
@@ -79,7 +119,26 @@ const emit = defineEmits([
 
     <!-- Zone Right -->
     <div v-if="showRight" class="zone zone-right" :style="{ width: matrix.rightRatio + '%' }">
-      <TileContainer :widgetId="matrix.zoneRight" :widgetProps="sharedProps" v-on="$attrs" />
+      <TileContainer zoneId="RIGHT" :widgetId="matrix.zoneRight" :widgetProps="sharedProps" 
+                     @switch-tab="$emit('switch-tab', $event)"
+                     @proc-context="$emit('proc-context', $event)"
+                     @terminal-context="$emit('terminal-context', $event)"
+                     @run-skill="$emit('run-skill', $event)"
+                     @fast-access="$emit('fast-access', $event)"
+                     @explorer-context="$emit('explorer-context', $event)"
+                     @resize-sftp-start="$emit('resize-sftp-start', $event)"
+                     @change-dir="$emit('change-dir', $event)"
+                     @switch-web="$emit('switch-web', $event)"
+                     @web-context="$emit('web-context', $event)"
+                     @open-vault-entry="$emit('open-vault-entry', $event)"
+                     @view-changed="$emit('view-changed', $event)"
+                     @save-complete="$emit('save-complete', $event)"
+                     @cycle-health-mode="$emit('cycle-health-mode', $event)"
+                     @skill-context="$emit('skill-context', $event)"
+                     @header-context="$emit('header-context', $event)"
+                     @resize-charts="$emit('resize-charts', $event)"
+                     @open-trigger-settings="$emit('open-trigger-settings', $event)"
+                     v-on="$attrs" />
     </div>
   </div>
 </template>
