@@ -12,6 +12,7 @@ import MatrixScreen from './components/MatrixScreen.vue';
 import SidebarPanel from './components/SidebarPanel.vue';
 import TerminalTabs from './components/TerminalTabs.vue';
 import SettingsPanel from './components/SettingsPanel.vue';
+import QuantumInspector from './components/QuantumInspector.vue';
 import CyberGate from './components/CyberGate.vue';
 import NetworkMatrix from './components/NetworkMatrix.vue';
 import MatrixAllocator from './components/MatrixAllocator.vue';
@@ -713,6 +714,10 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
             <span class="status-sep">|</span>
             <button class="status-btn" @click="captureAndUpload(false)">AUDIT_UI</button>
             <span class="status-sep">|</span>
+            <button class="status-btn" @click="globalState.showQuantumAudit = true">
+              <span class="icon">🔍</span> [QUANTUM_SCAN]
+            </button>
+            <span class="status-sep">|</span>
             <button class="status-btn web-toggle" :class="{ 'active': globalState.cyberMode === 1 }" @click="globalState.cyberMode = globalState.cyberMode === 1 ? 0 : 1">
               WEB_ENGINE: {{ globalState.cyberMode === 1 ? 'ON' : 'OFF' }}
             </button>
@@ -730,6 +735,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
     </div>
     <MatrixScreen :isLocked="globalState.isLocked" :logs="backendLogs" :cpuUsage="currentCpuUsage ?? 0" @unlock="globalState.isLocked = false" />
     <NetworkMatrix v-if="globalState.showNetworkMatrix" :activeId="globalState.activeServerId" :activeTabId="activeTabId" @close="globalState.showNetworkMatrix = false" />
+    <QuantumInspector :isOpen="globalState.showQuantumAudit" @close="globalState.showQuantumAudit = false" />
     <CyberCursor />
   </div>
 </template>

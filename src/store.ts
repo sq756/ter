@@ -22,6 +22,7 @@ export const globalState = reactive({
   useNativeWebview: localStorage.getItem('ter_use_native_webview') !== 'false', // Default true
   showSettings: false,
   showNetworkMatrix: false,
+  showQuantumAudit: false,
   isSidebarOpen: true,
   cyberMode: 0,
   sftpHeight: Number(localStorage.getItem('ter_sftp_height')) || 200,

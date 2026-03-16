@@ -18,6 +18,7 @@
     "dialog:default",
     "log:default",
     "shell:default",
+    "fs:default",
     "core:webview:default"
   ]
 

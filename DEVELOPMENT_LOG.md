@@ -57,3 +57,4 @@ Ter has evolved into a **Local-First & AI-Native Visual SSH Workstation**. v2.15
 - Investigate Backend telemetry for Network data loss.
 - Fix XTerm.js Device Attributes (DA) request handling to stop the '1;2c' command injection.
 - Implement a true 'Virtual PTY' bridge to keep terminal buffers active regardless of UI attachment.
+5. **Cursor Occlusion in Settings**: The custom CyberCursor disappears when entering the SYSTEM_SETTINGS drawer. It is rendered underneath the settings panel due to z-index conflicts.
