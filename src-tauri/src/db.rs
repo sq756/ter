@@ -153,6 +153,7 @@ impl Db {
         Ok(rows)
     }
 
+    #[allow(dead_code)]
     pub async fn append_log(&self, tab_id: &str, content: &[u8]) -> Result<()> {
         sqlx::query("INSERT INTO terminal_logs (tab_id, content) VALUES (?, ?)")
             .bind(tab_id)

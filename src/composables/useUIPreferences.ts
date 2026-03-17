@@ -28,11 +28,18 @@ export function useUIPreferences() {
           uiPrefs.value.ui_scale = 1.0;
         }
       } else {
-        uiPrefs.value.ui_scale = parseFloat(prefs.ui_scale);
+        const parsedScale = parseFloat(prefs.ui_scale);
+        uiPrefs.value.ui_scale = (isNaN(parsedScale) || parsedScale <= 0) ? 1.0 : parsedScale;
       }
 
-      if (prefs.glow_intensity) uiPrefs.value.glow_intensity = parseInt(prefs.glow_intensity);
-      if (prefs.pulse_speed) uiPrefs.value.pulse_speed = parseInt(prefs.pulse_speed);
+      if (prefs.glow_intensity) {
+        const parsedGlow = parseInt(prefs.glow_intensity);
+        uiPrefs.value.glow_intensity = isNaN(parsedGlow) ? 50 : Math.max(0, Math.min(100, parsedGlow));
+      }
+      if (prefs.pulse_speed) {
+        const parsedPulse = parseInt(prefs.pulse_speed);
+        uiPrefs.value.pulse_speed = isNaN(parsedPulse) ? 50 : Math.max(0, Math.min(100, parsedPulse));
+      }
       
       applyUIPreferences();
     } catch (e) {
