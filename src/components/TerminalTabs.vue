@@ -2,7 +2,7 @@
 import { ref, nextTick, computed } from 'vue';
 import TerminalView from './TerminalView.vue';
 import TerEditor from './TerEditor.vue';
-import CyberPdfViewer from './CyberPdfViewer.vue';
+import CyberWebview from './CyberWebview.vue';
 import { terminalManager } from '../TerminalManager';
 
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -49,6 +49,31 @@ const switchTabSecondary = (id: string) => {
   });
 };
 
+const handleTabClick = (id: string) => {
+  if (!props.splitMode) {
+    switchTab(id);
+    return;
+  }
+
+  // v2.17.9: Intelligent Pane Switching
+  if (id === props.activeTabIdSecondary) {
+    globalState.focusedPane = 'secondary';
+    terminalManager.focus(id);
+    return;
+  }
+  if (id === props.activeTabId) {
+    globalState.focusedPane = 'primary';
+    terminalManager.focus(id);
+    return;
+  }
+
+  if (globalState.focusedPane === 'secondary') {
+    switchTabSecondary(id);
+  } else {
+    switchTab(id);
+  }
+};
+
 const toggleSplitDirection = () => {
   splitVertical.value = !splitVertical.value;
   localStorage.setItem('ter_split_vertical', splitVertical.value.toString());
@@ -63,26 +88,16 @@ const handleTabWheel = (e: WheelEvent) => {
     const visibleTabs = getVisibleTabs();
     if (visibleTabs.length <= 1) return;
     
-    // v2.17.7: Enhanced Tab Switching with Fallback
-    const isSecondary = props.splitMode && globalState.focusedPane === 'secondary';
-    const currentActiveId = isSecondary ? props.activeTabIdSecondary : props.activeTabId;
-    
-    // Fallback: If no specific ID is found for the pane, pick the most sensible one
-    const lookupId = currentActiveId || props.activeTabId || visibleTabs[0].id;
-
-    const currentIndex = visibleTabs.findIndex(t => t.id === lookupId);
+    // v2.17.8: Simple & Predictable Wheel Switch
+    const currentId = props.activeTabId || visibleTabs[0].id;
+    const currentIndex = visibleTabs.findIndex(t => t.id === currentId);
     if (currentIndex === -1) return;
     
     const nextIndex = e.deltaY > 0 
       ? (currentIndex + 1) % visibleTabs.length
       : (currentIndex - 1 + visibleTabs.length) % visibleTabs.length;
     
-    const nextId = visibleTabs[nextIndex].id;
-    if (isSecondary && props.splitMode) {
-      switchTabSecondary(nextId);
-    } else {
-      switchTab(nextId);
-    }
+    switchTab(visibleTabs[nextIndex].id);
   }
 };
 
@@ -113,7 +128,7 @@ const handleNewTabContext = (e: MouseEvent) => {
                :key="t.id" 
                class="tab-item" 
                :class="{ 'active': t.id === activeTabId || (splitMode && t.id === activeTabIdSecondary) }" 
-               @click.stop="splitMode && activeTabId ? switchTabSecondary(t.id) : switchTab(t.id)"
+               @click.stop="handleTabClick(t.id)"
                @contextmenu.prevent.stop="$emit('terminal-context', { e: $event, id: t.id, type: 'terminal' })">
             <span class="tab-icon">
               <svg v-if="t.viewType === 'terminal'" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
@@ -122,7 +137,7 @@ const handleNewTabContext = (e: MouseEvent) => {
             </span>
             <span class="title">{{ t.title }}</span>
             <button class="btn-close" @click.stop="$emit('close-tab', t.id)">
-              <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+              <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" cy="6" x2="6" y2="18"></line><line x1="6" cy="6" x2="18" y2="18"></line></svg>
             </button>
             <div class="active-bar" v-if="t.id === activeTabId"></div>
             <div class="active-bar-secondary" v-if="splitMode && t.id === activeTabIdSecondary"></div>
@@ -152,7 +167,6 @@ const handleNewTabContext = (e: MouseEvent) => {
                :class="{ 'active-pane': activeTabId && globalState.focusedPane === 'primary' }"
                @mousedown="globalState.focusedPane = 'primary'">
         <div v-if="activeTabId" class="tab-view-wrapper">
-          <!-- v2.15.61: SINGLE SLOT RENDERER - Never unmount TerminalView -->
           <TerminalView 
             v-show="primaryActiveTab?.viewType === 'terminal'"
             :id="activeTabId" 
@@ -168,10 +182,13 @@ const handleNewTabContext = (e: MouseEvent) => {
                      :initialContent="primaryActiveTab.data?.content"
                      @save-complete="$emit('save-complete')" />
           
-          <CyberPdfViewer v-if="primaryActiveTab?.viewType === 'webview'" 
-                          :key="'prim-web-' + activeTabId"
-                          :url="primaryActiveTab.data?.url" 
-                          :title="primaryActiveTab.title" />
+          <template v-for="t in getVisibleTabs()" :key="'pane-prim-web-' + t.id">
+            <CyberWebview v-if="t.viewType === 'webview'" 
+                            v-show="t.id === activeTabId"
+                            :id="t.id"
+                            :url="t.data?.url" 
+                            :isActive="t.id === activeTabId && globalState.focusedPane === 'primary'" />
+          </template>
         </div>
         <div v-else class="empty-pane-msg">SELECT_TAB_FOR_DECK_1</div>
       </section>
@@ -181,7 +198,6 @@ const handleNewTabContext = (e: MouseEvent) => {
                :class="{ 'active-pane-sec': activeTabIdSecondary && globalState.focusedPane === 'secondary' }"
                @mousedown="globalState.focusedPane = 'secondary'">
         <div v-if="activeTabIdSecondary" class="tab-view-wrapper">
-          <!-- v2.15.61: SINGLE SLOT RENDERER - Secondary Pane -->
           <TerminalView 
             v-show="secondaryActiveTab?.viewType === 'terminal'"
             :id="activeTabIdSecondary" 
@@ -197,10 +213,13 @@ const handleNewTabContext = (e: MouseEvent) => {
                      :initialContent="secondaryActiveTab.data?.content"
                      @save-complete="$emit('save-complete')" />
           
-          <CyberPdfViewer v-if="secondaryActiveTab?.viewType === 'webview'" 
-                          :key="'sec-web-' + activeTabIdSecondary"
-                          :url="secondaryActiveTab.data?.url" 
-                          :title="secondaryActiveTab.title" />
+          <template v-for="t in getVisibleTabs()" :key="'pane-sec-web-' + t.id">
+            <CyberWebview v-if="t.viewType === 'webview'" 
+                            v-show="t.id === activeTabIdSecondary"
+                            :id="t.id"
+                            :url="t.data?.url" 
+                            :isActive="t.id === activeTabIdSecondary && globalState.focusedPane === 'secondary'" />
+          </template>
         </div>
         <div v-else class="empty-pane-msg">SELECT_TAB_FOR_DECK_2</div>
       </section>
@@ -239,9 +258,15 @@ const handleNewTabContext = (e: MouseEvent) => {
 .workspace-body { flex: 1; display: flex; overflow: hidden; position: relative; }
 .workspace-body.split-mode { flex-direction: row; }
 .workspace-body.split-vertical { flex-direction: column; }
-.pane { flex: 1; position: relative; overflow: hidden; min-width: 0; min-height: 0; border: 1px solid transparent; }
-.active-pane { border-color: #3b82f644; }
-.active-pane-sec { border-color: #a855f744; }
+.pane { flex: 1; position: relative; overflow: hidden; min-width: 0; min-height: 0; border: 1px solid transparent; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+.active-pane { 
+  border-color: #3b82f688; 
+  box-shadow: inset 0 0 30px rgba(59, 130, 246, 0.25), 0 0 20px rgba(59, 130, 246, 0.2); 
+}
+.active-pane-sec { 
+  border-color: #a855f788; 
+  box-shadow: inset 0 0 30px rgba(168, 85, 247, 0.25), 0 0 20px rgba(168, 85, 247, 0.2); 
+}
 .tab-view-wrapper { position: absolute; inset: 0; width: 100%; height: 100%; display: flex; flex-direction: column; }
 .empty-pane-msg { height: 100%; display: flex; align-items: center; justify-content: center; color: #27272a; font-size: 10px; letter-spacing: 2px; }
 .status-indicator-zone { padding: 0 10px; display: flex; align-items: center; gap: 8px; border-right: 1px solid #18181b; cursor: pointer; }

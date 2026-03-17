@@ -22,6 +22,19 @@ const isWebviewReady = ref(false);
 const isWebviewError = ref(false);
 const isPinned = ref(true);
 
+const inputUrl = ref(props.url);
+const handleNavigate = () => {
+  let url = inputUrl.value.trim();
+  if (!url) return;
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = 'https://' + url;
+  }
+  inputUrl.value = url;
+  if (isNative.value && isWebviewReady.value) {
+    webviewManager.navigate(props.id, url);
+  }
+};
+
 const isNative = computed(() => globalState.useNativeWebview);
 
 let unlistenExtracted: any = null;
@@ -42,18 +55,15 @@ const togglePin = async () => {
 const updateWebviewBounds = async () => {
   if (!containerRef.value || !isWebviewReady.value || !isNative.value) return;
   
-  // v2.15.42: Absolute Coordinate Anchoring
   const rect = containerRef.value.getBoundingClientRect();
   const windowPos = await getCurrentWindow().innerPosition();
   
-  // v2.15.50: Height Safety Guard
-  // rect.height could be small during layout transitions, causing GDK crashes
-  const safeHeight = Math.max(100, rect.height - 24);
+  const safeHeight = Math.max(100, rect.height - 32);
   const safeWidth = Math.max(100, rect.width);
 
   const bounds = { 
     x: Math.round(windowPos.x + rect.x),
-    y: Math.round(windowPos.y + rect.y + 24), 
+    y: Math.round(windowPos.y + rect.y + 32), 
     width: Math.round(safeWidth),
     height: Math.round(safeHeight)
   };
@@ -74,7 +84,6 @@ const initWebview = async () => {
   isWebviewError.value = false;
   isWebviewReady.value = false;
 
-  // v2.15.51: Layout Stabilization Delay
   await nextTick();
   await new Promise(r => setTimeout(r, 150));
   
@@ -84,9 +93,9 @@ const initWebview = async () => {
   try {
     await webviewManager.create(props.id, props.url, {
       x: props.isActive ? Math.round(windowPos.x + rect.x) : -10000,
-      y: props.isActive ? Math.round(windowPos.y + rect.y + 24) : -10000,
+      y: props.isActive ? Math.round(windowPos.y + rect.y + 32) : -10000,
       width: Math.max(100, Math.round(rect.width)),
-      height: Math.max(100, Math.round(rect.height - 24))
+      height: Math.max(100, Math.round(rect.height - 32))
     });
 
     unlistenExtracted = await listen<string>(`dom-extracted-${props.id}`, (ev) => { emit('dom-extracted', ev.payload); });
@@ -99,7 +108,6 @@ const initWebview = async () => {
     resizeObserver = new ResizeObserver(() => { updateWebviewBounds(); });
     resizeObserver.observe(containerRef.value);
     
-    // v2.15.30: Heartbeat Sync (Every 1s) to prevent window drift
     if (syncInterval) clearInterval(syncInterval);
     syncInterval = setInterval(() => {
       if (props.isActive) updateWebviewBounds();
@@ -126,6 +134,7 @@ const handleRetry = async () => {
 };
 
 watch(() => props.url, (newUrl) => {
+  inputUrl.value = newUrl;
   if (isNative.value && isWebviewReady.value) { 
     webviewManager.navigate(props.id, newUrl);
   }
@@ -146,7 +155,7 @@ watch(isNative, (val) => {
 onMounted(() => { initWebview(); });
 onUnmounted(() => { destroyWebview(); });
 
-const openInBrowser = async () => { try { await open(props.url); } catch(e){} };
+const openInBrowser = async () => { try { await open(inputUrl.value); } catch(e){} };
 defineExpose({ reload: () => invoke('reload_cyber_webview', { label: props.id }), destroy: destroyWebview });
 </script>
 
@@ -154,7 +163,9 @@ defineExpose({ reload: () => invoke('reload_cyber_webview', { label: props.id })
   <div class="cyber-webview" ref="containerRef" :data-id="id">
     <div class="drag-handle">
       <div class="drag-region"></div>
-      <span class="drag-title">{{ url }}</span>
+      <div class="url-bar">
+        <input v-model="inputUrl" @keydown.enter="handleNavigate" class="url-input" placeholder="Enter URL and press ENTER..." />
+      </div>
       <div class="drag-actions">
         <button v-if="isNative" class="pin-btn" :class="{ 'active': isPinned }" @click="togglePin" title="Toggle Always on Top">📌</button>
         <span class="mode-tag">{{ isNative ? 'NATIVE' : 'IFRAME' }}</span>
@@ -162,8 +173,7 @@ defineExpose({ reload: () => invoke('reload_cyber_webview', { label: props.id })
     </div>
 
     <div class="webview-content" v-if="!isNative">
-      <iframe :src="url" class="cyber-iframe" frameborder="0"></iframe>
-      <!-- v2.15.32: Iframe Policy Hint -->
+      <iframe :src="inputUrl" class="cyber-iframe" frameborder="0"></iframe>
       <div class="iframe-policy-hint">
         IFRAME_POLICY: If page is blank, switch to NATIVE engine.
       </div>
@@ -184,7 +194,7 @@ defineExpose({ reload: () => invoke('reload_cyber_webview', { label: props.id })
         </div>
       </div>
     </template>
-    <div class="tunnel-hint" v-if="url.includes('localhost')">⚡ Agent Injected</div>
+    <div class="tunnel-hint" v-if="inputUrl.includes('localhost')">⚡ Agent Injected</div>
     <button class="os-browser-btn" @click="openInBrowser">🌍</button>
   </div>
 </template>
@@ -206,9 +216,13 @@ defineExpose({ reload: () => invoke('reload_cyber_webview', { label: props.id })
 }
 
 .cyber-webview { display: flex; flex-direction: column; height: 100%; width: 100%; background: #000; position: relative; border: 1px solid #18181b; }
-.drag-handle { height: 24px; background: #050505; border-bottom: 1px solid #18181b; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; position: relative; overflow: hidden; flex-shrink: 0; }
+.drag-handle { height: 32px; background: #050505; border-bottom: 1px solid #18181b; display: flex; align-items: center; justify-content: space-between; padding: 0 10px; position: relative; overflow: hidden; flex-shrink: 0; }
 .drag-region { position: absolute; inset: 0; z-index: 1; }
-.drag-title { font-size: 9px; color: #52525b; font-family: monospace; pointer-events: none; z-index: 2; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 10px; }
+
+.url-bar { flex: 1; margin: 0 10px; z-index: 5; position: relative; display: flex; align-items: center; }
+.url-input { width: 100%; background: #111; border: 1px solid #222; color: #a1a1aa; font-size: 11px; padding: 4px 12px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; outline: none; transition: all 0.2s; }
+.url-input:focus { border-color: #a855f7; color: #fff; background: #000; box-shadow: 0 0 10px rgba(168, 85, 247, 0.2); }
+
 .drag-actions { display: flex; gap: 8px; z-index: 3; align-items: center; }
 .pin-btn { background: transparent; border: none; font-size: 10px; cursor: pointer; opacity: 0.5; transition: all 0.2s; }
 .pin-btn.active { opacity: 1; filter: drop-shadow(0 0 5px #22c55e); color: #22c55e; }
@@ -228,6 +242,6 @@ defineExpose({ reload: () => invoke('reload_cyber_webview', { label: props.id })
 .loader { animation: blink 1s infinite; }
 @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 .tunnel-hint { position: absolute; bottom: 10px; right: 10px; background: rgba(0, 0, 0, 0.8); color: #a855f7; font-size: 9px; padding: 4px 8px; border-radius: 4px; border: 1px solid rgba(168, 85, 247, 0.3); pointer-events: none; font-family: monospace; z-index: 5; }
-.os-browser-btn { position: absolute; top: 34px; right: 10px; background: rgba(0, 0, 0, 0.6); border: 1px solid #27272a; color: #a1a1aa; width: 28px; height: 28px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 10; }
+.os-browser-btn { position: absolute; top: 42px; right: 10px; background: rgba(0, 0, 0, 0.6); border: 1px solid #27272a; color: #a1a1aa; width: 28px; height: 28px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 10; }
 .os-browser-btn:hover { background: #18181b; color: #fff; border-color: #a855f7; }
 </style>
