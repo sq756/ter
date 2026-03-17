@@ -8,7 +8,7 @@ const props = defineProps<{
   initialContent: string;
 }>();
 
-const emit = defineEmits(['save-complete']);
+const emit = defineEmits(['save-complete', 'path-updated']);
 
 const content = ref(props.initialContent);
 const isDirty = ref(false);
@@ -22,18 +22,30 @@ watch(content, (newVal) => {
   }
 });
 
-const handleSave = async () => {
+const handleSave = async (targetPath = props.path) => {
   if (isSaving.value) return;
   isSaving.value = true;
   try {
-    await invoke('write_remote_file', { remotePath: props.path, content: content.value });
+    await invoke('write_remote_file', { remotePath: targetPath, content: content.value });
     isDirty.value = false;
+    
+    if (targetPath !== props.path) {
+      emit('path-updated', { id: props.id, path: targetPath });
+    }
+    
     emit('save-complete');
-    console.log("[TerEditor] File saved successfully");
+    console.log("[TerEditor] File saved successfully to:", targetPath);
   } catch (e) {
     alert("Save failed: " + e);
   } finally {
     isSaving.value = false;
+  }
+};
+
+const handleSaveAs = () => {
+  const newPath = prompt("Enter new remote path:", props.path);
+  if (newPath && newPath !== props.path) {
+    handleSave(newPath);
   }
 };
 
@@ -56,10 +68,15 @@ onUnmounted(() => {
 <template>
   <div class="ter-editor">
     <header class="editor-toolbar">
-      <span class="file-path">{{ path }}</span>
+      <div class="path-group">
+        <span class="file-path" :title="path">{{ path }}</span>
+      </div>
       <div class="toolbar-actions">
         <span v-if="isDirty" class="dirty-indicator">MODIFIED</span>
-        <button class="save-btn" :disabled="!isDirty || isSaving" @click="handleSave">
+        <button class="save-btn" :disabled="isSaving" @click="handleSaveAs">
+          SAVE AS
+        </button>
+        <button class="save-btn primary" :disabled="!isDirty || isSaving" @click="handleSave()">
           {{ isSaving ? 'SAVING...' : 'SAVE [CTRL+S]' }}
         </button>
       </div>
@@ -78,9 +95,9 @@ onUnmounted(() => {
 }
 
 .editor-toolbar {
-  height: 28px;
-  background: #18181b;
-  border-bottom: 1px solid #27272a;
+  height: 32px;
+  background: #09090b;
+  border-bottom: 1px solid #18181b;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -88,14 +105,20 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
+.path-group {
+  flex: 1;
+  min-width: 0;
+  margin-right: 20px;
+}
+
 .file-path {
   font-size: 10px;
-  color: #71717a;
+  color: #52525b;
   font-family: 'JetBrains Mono', monospace;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 70%;
+  display: block;
 }
 
 .toolbar-actions {
@@ -111,24 +134,36 @@ onUnmounted(() => {
 }
 
 .save-btn {
-  background: #27272a;
-  border: 1px solid #3f3f46;
-  color: #fff;
+  background: #18181b;
+  border: 1px solid #27272a;
+  color: #71717a;
   font-size: 9px;
-  padding: 2px 8px;
+  padding: 3px 10px;
   border-radius: 2px;
   cursor: pointer;
   transition: all 0.1s;
+  font-family: 'JetBrains Mono', monospace;
 }
 
 .save-btn:hover:not(:disabled) {
+  background: #27272a;
+  color: #fff;
+  border-color: #3f3f46;
+}
+
+.save-btn.primary {
+  background: rgba(34, 197, 94, 0.1);
+  border-color: #22c55e44;
+  color: #22c55e;
+}
+
+.save-btn.primary:hover:not(:disabled) {
   background: #22c55e;
   color: #000;
-  border-color: #22c55e;
 }
 
 .save-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.3;
   cursor: default;
 }
 

@@ -19,7 +19,7 @@ const props = defineProps<{
   uiScale: number;
 }>();
 
-const emit = defineEmits(['switch-tab', 'switch-tab-secondary', 'close-tab', 'new-tab', 'terminal-context', 'rename-tab', 'pin-tab', 'copy-tab-id', 'toggle-split', 'save-complete']);
+const emit = defineEmits(['switch-tab', 'switch-tab-secondary', 'close-tab', 'new-tab', 'terminal-context', 'rename-tab', 'pin-tab', 'copy-tab-id', 'toggle-split', 'save-complete', 'path-updated']);
 
 const splitVertical = ref(localStorage.getItem('ter_split_vertical') === 'true');
 
@@ -114,7 +114,7 @@ const handleNewTabContext = (e: MouseEvent) => {
 <template>
   <div class="terminal-workspace">
     <!-- Multi-Terminal Tab Bar -->
-    <nav class="tab-bar" @wheel="handleTabWheel" @mousedown="globalState.focusedPane = 'primary'">
+    <nav class="tab-bar" @wheel="handleTabWheel">
       <div class="tab-bar-content">
         <div class="status-indicator-zone" @click="$emit('new-tab')">
           <div class="status-dot" :class="connectionStatus"></div>
@@ -137,11 +137,11 @@ const handleNewTabContext = (e: MouseEvent) => {
             </span>
             <span class="title">{{ t.title }}</span>
             <button class="btn-close" @click.stop="$emit('close-tab', t.id)">
-              <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" cy="6" x2="6" y2="18"></line><line x1="6" cy="6" x2="18" y2="18"></line></svg>
+              <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="3"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
             </button>
             <div class="active-bar" v-if="t.id === activeTabId"></div>
             <div class="active-bar-secondary" v-if="splitMode && t.id === activeTabIdSecondary"></div>
-          </div>
+            </div>
         </div>
 
         <button class="btn-new-tab" @click.stop="$emit('new-tab')" @contextmenu.prevent.stop="handleNewTabContext" title="New Tab">
@@ -180,6 +180,7 @@ const handleNewTabContext = (e: MouseEvent) => {
                      :id="activeTabId" 
                      :path="primaryActiveTab.data?.path" 
                      :initialContent="primaryActiveTab.data?.content"
+                     @path-updated="$emit('path-updated', $event)"
                      @save-complete="$emit('save-complete')" />
           
           <template v-for="t in getVisibleTabs()" :key="'pane-prim-web-' + t.id">
@@ -211,6 +212,7 @@ const handleNewTabContext = (e: MouseEvent) => {
                      :id="activeTabIdSecondary" 
                      :path="secondaryActiveTab.data?.path" 
                      :initialContent="secondaryActiveTab.data?.content"
+                     @path-updated="$emit('path-updated', $event)"
                      @save-complete="$emit('save-complete')" />
           
           <template v-for="t in getVisibleTabs()" :key="'pane-sec-web-' + t.id">

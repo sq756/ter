@@ -327,6 +327,17 @@ const handleQuickEdit = async () => {
   showExplorerMenu.value = false;
 };
 
+const handleEditorPathUpdate = (p: { id: string, path: string }) => {
+  const tab = terminalTabs.value.find(t => t.id === p.id);
+  if (tab) {
+    tab.data.path = p.path;
+    // Extract filename for title
+    const filename = p.path.split('/').pop() || p.path;
+    tab.title = filename;
+    storeActions.pushLog(`[SYSTEM] Editor path updated to: ${p.path}`);
+  }
+};
+
 const onSaveComplete = () => updateStatus("[FILE_SYNC_COMPLETE] Remote instance updated.");
 
 const handleOpenInWebview = async () => {
@@ -664,10 +675,10 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
 
         <!-- Matrix Allocator Entry Point -->
         <div class="workspace-body">
-          <MatrixAllocator :sharedProps="sharedProps" 
+          <MatrixAllocator :sharedProps="sharedProps"
                            @switch-tab="bringToForeground($event)"
-                           @proc-context="onTerminalContextMenu($event)"
-                           @terminal-context="onTerminalContextMenu($event)"
+                           @switch-tab-secondary="activeTabIdSecondary = $event"
+                           @proc-context="onTerminalContextMenu($event)"                           @terminal-context="onTerminalContextMenu($event)"
                            @run-skill="runSkill($event)"
                            @fast-access="onFastAccess($event)"
                            @explorer-context="onExplorerContextMenu($event)"
@@ -677,6 +688,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
                            @web-context="onWebContextMenu($event)"
                            @skill-context="onSkillContextMenu($event)"
                            @header-context="onHeaderContextMenu($event)"
+                           @path-updated="handleEditorPathUpdate($event)"
                            @open-trigger-settings="globalState.showSettings = true"
                            @cycle-health-mode="cycleHealthMode()"
                            @resize-charts="resizeCharts()"
