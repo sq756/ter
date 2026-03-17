@@ -168,7 +168,7 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
 </script>
 
 <template>
-  <aside class="side-bar" ref="sidebarRef" @wheel="handleWheel">
+  <aside class="side-bar" ref="sidebarRef" @wheel="handleWheel" @contextmenu.prevent>
     <div class="sidebar-branding" @click="globalState.showSettings = true">
       <div class="branding-text">TER // CYBER_DECK</div>
       <div class="scanline"></div>

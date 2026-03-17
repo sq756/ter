@@ -27,6 +27,8 @@ export const globalState = reactive({
   cyberMode: 0,
   sftpHeight: Number(localStorage.getItem('ter_sftp_height')) || 200,
   gridMode: localStorage.getItem('ter_grid_mode') === 'true',
+  activeClipMode: (localStorage.getItem('ter_clip_mode') || 'terminal') as 'terminal' | 'editor' | 'webview' | 'bundle',
+  terminalFontSize: Number(localStorage.getItem('ter_terminal_font_size')) || 14,
 
   // Explorer State
   currentPath: '/',

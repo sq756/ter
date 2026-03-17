@@ -14,21 +14,43 @@ export function useContextMenu(
   const menuX = ref(0);
   const menuY = ref(0);
   const contextMenuTabId = ref<string | null>(null);
-  const contextMenuType = ref<'terminal' | 'new-tab-menu'>('terminal');
+  const contextMenuType = ref<'terminal' | 'new-tab-menu' | 'node-group' | 'clip-menu' | 'render-menu' | 'sync-menu' | 'audit-menu' | 'sidebar-menu' | 'quantum-menu' | 'settings-menu' | 'lock-menu' | 'key-menu'>('terminal');
   const hasErrorSelection = ref(false);
 
-  const calculateMenuPosition = (e: MouseEvent, estimatedHeight = 350, estimatedWidth = 160) => {
-    let x = e.clientX + 5, y = e.clientY + 5; // v2.13.3: Offset slightly
-    if (y + estimatedHeight > window.innerHeight) y = window.innerHeight - estimatedHeight - 10;
-    if (x + estimatedWidth > window.innerWidth) x = window.innerWidth - estimatedWidth - 10;
+  const calculateMenuPosition = (e: MouseEvent, estimatedHeight = 250, estimatedWidth = 180, forceUp = false) => {
+    let x = e.clientX, y = e.clientY;
+
+    // v2.17.19: Aggressive Footer Spacing
+    // We add an extra 40px offset to ensure the menu floats above the footer with a gap
+    if (forceUp || y + estimatedHeight > window.innerHeight) {
+      y = e.clientY - estimatedHeight - 45; // Lifted higher
+    } else {
+      y = e.clientY + 5;
+    }
+
+    if (x + estimatedWidth > window.innerWidth) {
+      x = window.innerWidth - estimatedWidth - 15;
+    } else {
+      x = e.clientX + 5;
+    }
+
     menuX.value = x; menuY.value = y;
   };
 
-  const onTerminalContextMenu = (p: { e: MouseEvent, id: string, type?: 'terminal' | 'new-tab-menu' }) => { 
+  const onTerminalContextMenu = (p: { e: MouseEvent, id: string, type?: any }) => { 
     contextMenuTabId.value = p.id; 
     contextMenuType.value = p.type || 'terminal';
-    calculateMenuPosition(p.e); 
-    
+
+    const isFooter = contextMenuType.value.includes('menu') || contextMenuType.value === 'node-group';
+
+    // v2.17.21: Precise height mapping for footer menus
+    let h = 280;
+    if (contextMenuType.value === 'node-group' || contextMenuType.value === 'settings-menu') h = 220;
+    if (contextMenuType.value === 'audit-menu' || contextMenuType.value === 'quantum-menu' || contextMenuType.value === 'sidebar-menu') h = 160;
+    if (contextMenuType.value === 'key-menu' || contextMenuType.value === 'lock-menu') h = 120;
+
+    calculateMenuPosition(p.e, h, 180, isFooter); 
+
     if (contextMenuType.value === 'terminal') {
       const s = terminalManager.getSelection(p.id); 
       hasErrorSelection.value = s.toLowerCase().includes('error') || s.toLowerCase().includes('exception') || s.includes('\x1b[31m'); 

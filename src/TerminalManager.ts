@@ -3,6 +3,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebglAddon } from '@xterm/addon-webgl';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { globalState } from './store';
 
 export interface TerminalInstance {
   id: string;
@@ -52,7 +53,7 @@ class TerminalManager {
     console.log(`[TerminalManager] Creating terminal instance: ${id}`);
     const term = new Terminal({
       cursorBlink: true,
-      fontSize: 14,
+      fontSize: globalState.terminalFontSize,
       fontFamily: "'JetBrains Mono', 'Ubuntu Mono', 'Fira Code', monospace",
       theme: { background: '#000000', foreground: '#d4d4d8' },
       allowTransparency: false,
@@ -174,6 +175,16 @@ class TerminalManager {
     } catch (e) {
       console.error(`[TerminalManager] Mount Fail ${id}:`, e);
     }
+  }
+
+  public setFontSize(size: number) {
+    globalState.terminalFontSize = size;
+    localStorage.setItem('ter_terminal_font_size', size.toString());
+    this.instances.forEach((instance) => {
+      instance.term.options.fontSize = size;
+      // v2.17.20: Immediate fit after resize
+      setTimeout(() => instance.fit.fit(), 20);
+    });
   }
 
   public fitAll() {

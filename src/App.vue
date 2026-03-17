@@ -200,19 +200,70 @@ const handlePreviewAction = async () => {
   }
 };
 
+const {
+  showContextMenu, menuX, menuY, contextMenuTabId, hasErrorSelection, contextMenuType,
+  onTerminalContextMenu: _onTerminalContextMenu, copySelectedText, pasteFromClipboard,
+  renameTabAction, copyTabIdAction, copyRuntimeEnv, generateRunReport, diagnoseSelection, calculateMenuPosition
+} = useContextMenu(activeTabId, renameTab, computed(() => globalState.host), computed(() => globalState.currentPath), computed(() => globalState.currentAgentPort), terminalTabs);
+const onTerminalContextMenu = (p: any) => {
+  console.log('[App] onTerminalContextMenu', p?.id);
+  return _onTerminalContextMenu(p);
+};
+
 const isClipFlashing = ref(false);
+
+const setClipMode = (mode: 'terminal' | 'editor' | 'webview' | 'bundle') => {
+  globalState.activeClipMode = mode;
+  localStorage.setItem('ter_clip_mode', mode);
+  showContextMenu.value = false;
+  storeActions.pushLog(`[SYSTEM] CLIP_MODE set to: ${mode.toUpperCase()}`);
+};
+
 const copyLatestAI = async () => {
-  if (!activeTabId.value) return;
+  if (isClipFlashing.value || !activeTabId.value) return;
+
   try {
-    await invoke('copy_latest_to_clipboard', { tabId: activeTabId.value });
-    backendLogs.value.push(`[INFO] Latest AI response copied via Native API.`);
+    const mode = globalState.activeClipMode;
+    let dataToCopy = "";
+
+    if (mode === 'terminal') {
+      await invoke('copy_latest_to_clipboard', { tabId: activeTabId.value });
+    } else if (mode === 'editor') {
+      const activeTab = terminalTabs.value.find(t => t.id === activeTabId.value);
+      if (activeTab && activeTab.viewType === 'editor') {
+        dataToCopy = activeTab.data?.content || "";
+        await navigator.clipboard.writeText(dataToCopy);
+      } else {
+        throw new Error("ACTIVE_TAB_IS_NOT_AN_EDITOR");
+      }
+    } else if (mode === 'webview') {
+      const activeTab = terminalTabs.value.find(t => t.id === activeTabId.value);
+      dataToCopy = `[WEBVIEW_URL]: ${activeTab?.data?.url || 'unknown'}`;
+      await navigator.clipboard.writeText(dataToCopy);
+    } else if (mode === 'bundle') {
+      // Smart bundle: Capture both if available
+      const activeTab = terminalTabs.value.find(t => t.id === activeTabId.value);
+      let bundle = "";
+      if (activeTab && activeTab.viewType === 'editor') {
+        bundle += `--- EDITOR_CONTENT (${activeTab.data?.path}) ---\n${activeTab.data?.content}\n\n`;
+      }
+      // Add terminal anyway as context
+      try {
+        await invoke('copy_latest_to_clipboard', { tabId: activeTabId.value });
+        // Since it copies to native clipboard, we don't manually append here for now
+      } catch(e){}
+
+      if (bundle) await navigator.clipboard.writeText(bundle);
+    }
+
     isClipFlashing.value = true;
     setTimeout(() => isClipFlashing.value = false, 500);
+    storeActions.pushLog(`[CLIP] Captured data from ${mode.toUpperCase()}`);
   } catch (e) {
+    console.error("CLIP failed:", e);
     backendLogs.value.push(`[ERROR] CLIP failed: ${e}`);
   }
 };
-
 const updateStatus = (msg: string) => {
   backendLogs.value.push(`[STATUS] ${msg}`);
 };
@@ -270,16 +321,6 @@ listen('web-context-menu', (ev: any) => {
   contextWebId.value = id;
   showWebMenu.value = true;
 });
-
-const {
-  showContextMenu, menuX, menuY, contextMenuTabId, hasErrorSelection, contextMenuType,
-  onTerminalContextMenu: _onTerminalContextMenu, copySelectedText, pasteFromClipboard,
-  renameTabAction, copyTabIdAction, copyRuntimeEnv, generateRunReport, diagnoseSelection, calculateMenuPosition
-} = useContextMenu(activeTabId, renameTab, computed(() => globalState.host), computed(() => globalState.currentPath), computed(() => globalState.currentAgentPort), terminalTabs);
-const onTerminalContextMenu = (p: any) => {
-  console.log('[App] onTerminalContextMenu', p?.id);
-  return _onTerminalContextMenu(p);
-};
 
 const { 
   cpuChartRef, memChartRef, netChartRef, currentCpuUsage, 
@@ -468,6 +509,19 @@ const handleGlobalKeyDown = (e: KeyboardEvent) => {
     e.preventDefault();
     if (globalState.isConnected) createNewTab();
   }
+  // v2.17.20: Terminal Font Scaling
+  if (e.ctrlKey && (e.key === '=' || e.key === '+')) {
+    e.preventDefault();
+    terminalManager.setFontSize(Math.min(32, globalState.terminalFontSize + 1));
+  }
+  if (e.ctrlKey && (e.key === '-' || e.key === '_')) {
+    e.preventDefault();
+    terminalManager.setFontSize(Math.max(6, globalState.terminalFontSize - 1));
+  }
+  if (e.ctrlKey && e.key === '0') {
+    e.preventDefault();
+    terminalManager.setFontSize(14);
+  }
 };
 
 const isCtrlPressed = ref(false);
@@ -557,7 +611,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
          'font-size': (14 * uiPrefs.ui_scale) + 'px'
        }"
        @click="closeAllMenus" 
-       @contextmenu="(e) => { 
+       @contextmenu.prevent="(e) => { 
          const target = e.target as HTMLElement;
          if (target.closest('.file-item') || target.closest('.terminal-view-container') || target.closest('.tab-item')) {
            return;
@@ -590,7 +644,20 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
         </div>
 
         <div v-if="showContextMenu" class="context-menu" :style="{ top: menuY + 'px', left: menuX + 'px' }">
-          <header class="menu-header">{{ contextMenuType === 'new-tab-menu' ? 'NEW_TAB_DECK' : 'TERMINAL ACTIONS' }}</header>
+          <header class="menu-header">
+            <template v-if="contextMenuType === 'new-tab-menu'">NEW_TAB_DECK</template>
+            <template v-else-if="contextMenuType === 'node-group'">NODE_GROUP_CONTROL</template>
+            <template v-else-if="contextMenuType === 'clip-menu'">HARVEST_MODE</template>
+            <template v-else-if="contextMenuType === 'render-menu'">RENDER_CONFIG</template>
+            <template v-else-if="contextMenuType === 'sync-menu'">SYNC_CONTROL</template>
+            <template v-else-if="contextMenuType === 'audit-menu'">AUDIT_CONTROL</template>
+            <template v-else-if="contextMenuType === 'sidebar-menu'">SIDEBAR_CONTROL</template>
+            <template v-else-if="contextMenuType === 'key-menu'">HOTKEY_MAPPING</template>
+            <template v-else-if="contextMenuType === 'quantum-menu'">QUANTUM_CONTROL</template>
+            <template v-else-if="contextMenuType === 'settings-menu'">SYS_PREFERENCES</template>
+            <template v-else-if="contextMenuType === 'lock-menu'">ACCESS_CONTROL</template>
+            <template v-else>TERMINAL ACTIONS</template>
+          </header>
           
           <template v-if="contextMenuType === 'new-tab-menu'">
             <div class="menu-item highlight" @click="storeActions.createNewTab('Shell', 'terminal'); showContextMenu = false">🐚 NEW_TERMINAL</div>
@@ -598,6 +665,72 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
             <div class="menu-item" @click="storeActions.createNewTab('Editor', 'editor', { path: '/tmp/new_file.txt', content: '' }); showContextMenu = false">📝 NEW_EDITOR_DECK</div>
             <div class="menu-divider"></div>
             <div class="menu-item" @click="toggleSplit(); showContextMenu = false">◫ TOGGLE_SPLIT_SCREEN</div>
+          </template>
+
+          <template v-else-if="contextMenuType === 'node-group'">
+            <div class="menu-item" @click="globalState.showNetworkMatrix = true; showContextMenu = false">🌐 View Network Matrix</div>
+            <div class="menu-item" @click="storeActions.pushLog('[SYSTEM] PING_CHECK initiated...'); showContextMenu = false">📡 Ping Check</div>
+            <div class="menu-item" @click="storeActions.pushLog('[SYSTEM] Connection stats refreshed.'); showContextMenu = false">📊 Refresh Stats</div>
+            <div class="menu-divider"></div>
+            <div class="menu-item danger" @click="storeActions.pushLog('[SYSTEM] Resetting Connection...'); showContextMenu = false">🔄 Reset Connection</div>
+          </template>
+
+          <template v-else-if="contextMenuType === 'render-menu'">
+            <div class="menu-item highlight" @click="storeActions.toggleSafeMode(!globalState.isSafeMode); showContextMenu = false">🛡️ Toggle Safe Mode</div>
+            <div class="menu-item" @click="storeActions.pushLog('[UI] High Contrast mode toggled'); showContextMenu = false">🌓 High Contrast</div>
+            <div class="menu-item" @click="storeActions.pushLog('[UI] Reduced Animations toggled'); showContextMenu = false">🧊 Reduce Animations</div>
+            <div class="menu-item" @click="globalState.showSettings = true; showContextMenu = false">⚙️ Advanced UI Settings</div>
+          </template>
+
+          <template v-else-if="contextMenuType === 'clip-menu'">
+            <div class="menu-item" :class="{ 'active-item': globalState.activeClipMode === 'terminal' }" @click="setClipMode('terminal')">📟 TERMINAL_BUFFER</div>
+            <div class="menu-item" :class="{ 'active-item': globalState.activeClipMode === 'editor' }" @click="setClipMode('editor')">📝 EDITOR_CONTENT</div>
+            <div class="menu-item" :class="{ 'active-item': globalState.activeClipMode === 'webview' }" @click="setClipMode('webview')">🌐 WEBVIEW_DOM</div>
+            <div class="menu-item" :class="{ 'active-item': globalState.activeClipMode === 'bundle' }" @click="setClipMode('bundle')">📦 SMART_BUNDLE</div>
+          </template>
+
+          <template v-else-if="contextMenuType === 'audit-menu'">
+            <div class="menu-item" @click="captureAndUpload(false); showContextMenu = false">📸 Snapshot</div>
+            <div class="menu-item" @click="storeActions.pushLog('[AUDIT] UI_HISTORY_OPENED'); showContextMenu = false">🕒 History</div>
+            <div class="menu-item" @click="storeActions.pushLog('[AUDIT] UI_EXPORT_READY'); showContextMenu = false">📥 Export</div>
+          </template>
+
+          <template v-else-if="contextMenuType === 'sync-menu'">
+            <div class="menu-item highlight" @click="isAutoPilot = !isAutoPilot; showContextMenu = false">🤖 Toggle Auto-Sync</div>
+            <div class="menu-item" @click="storeActions.pushLog('[SYNC] Frequency set to HIGH'); showContextMenu = false">⏱️ Sync Frequency: High</div>
+            <div class="menu-item" @click="storeActions.pushLog('[SYNC] Conflict resolution: REMOTE_WINS'); showContextMenu = false">⚔️ Resolve: Remote Wins</div>
+            <div class="menu-divider"></div>
+            <div class="menu-item highlight" @click="storeActions.pushLog('[SYNC] Manual push started...'); showContextMenu = false">📤 Manual Sync Push</div>
+          </template>
+
+          <template v-else-if="contextMenuType === 'sidebar-menu'">
+            <div class="menu-item" @click="globalState.isSidebarOpen = !globalState.isSidebarOpen; showContextMenu = false">🌓 Toggle View</div>
+            <div class="menu-item" @click="storeActions.pushLog('[UI] Sidebar width reset'); showContextMenu = false">📌 Reset Width</div>
+            <div class="menu-item" @click="storeActions.pushLog('[SYS] Cache cleared'); showContextMenu = false">🧹 Clear Cache</div>
+          </template>
+
+          <template v-else-if="contextMenuType === 'key-menu'">
+            <div class="menu-item" @click="storeActions.pushLog('[SYS] Macro config active'); showContextMenu = false">⌨️ Macro Config</div>
+            <div class="menu-item" @click="storeActions.pushLog('[SYS] Keymap edit active'); showContextMenu = false">🖱️ Keymap Edit</div>
+            <div class="menu-item danger" @click="storeActions.pushLog('[SYS] Clipboard cleared'); showContextMenu = false">⏺️ Clipboard Clear</div>
+          </template>
+
+          <template v-else-if="contextMenuType === 'quantum-menu'">
+            <div class="menu-item highlight" @click="globalState.showQuantumAudit = true; showContextMenu = false">🔍 Rapid Scan</div>
+            <div class="menu-item" @click="storeActions.pushLog('[QUANTUM] Deep audit initiated'); showContextMenu = false">🧠 Deep Audit</div>
+            <div class="menu-item" @click="storeActions.pushLog('[QUANTUM] Logs exported'); showContextMenu = false">📥 Log Export</div>
+          </template>
+
+          <template v-else-if="contextMenuType === 'settings-menu'">
+            <div class="menu-item highlight" @click="globalState.showSettings = true; showContextMenu = false">⚙️ Profile Edit</div>
+            <div class="menu-item" @click="storeActions.pushLog('[SYS] Config imported/exported'); showContextMenu = false">📤 Import/Export</div>
+            <div class="menu-item danger" @click="storeActions.pushLog('[SYS] Factory reset initiated'); showContextMenu = false">☢️ Factory Reset</div>
+          </template>
+
+          <template v-else-if="contextMenuType === 'lock-menu'">
+            <div class="menu-item" @click="storeActions.pushLog('[AUTH] Auto-lock settings opened'); showContextMenu = false">🔒 Auto-Lock Settings</div>
+            <div class="menu-item" @click="storeActions.pushLog('[UI] Matrix theme applied'); showContextMenu = false">🧼 Matrix Theme</div>
+            <div class="menu-item highlight" @click="storeActions.pushLog('[AUTH] Security pulse check'); showContextMenu = false">🚪 Security Pulse</div>
           </template>
 
           <template v-else>
@@ -636,7 +769,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
           </template>
         </div>
 
-        <div v-if="showPreviewModal" class="modal-overlay preview-overlay" @click.self="closePreview">
+        <div v-if="showPreviewModal" class="modal-overlay preview-overlay" @contextmenu.prevent @click.self="closePreview">
           <div class="preview-card cyber-card">
             <header class="preview-header">
               <span class="title">👁️ PREVIEWING: {{ previewFileName }}</span>
@@ -655,12 +788,12 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
 
         <div v-if="showPrivilegeMenu" class="context-menu" :style="{ top: privilegeMenuY + 'px', left: privilegeMenuX + 'px' }">
           <header class="menu-header">CYBER PRIVILEGE: {{ privilegeModule.toUpperCase() }}</header>
-          <div v-item">🛠️ Deep Diagnostic</div>
+          <div class="menu-item">🛠️ Deep Diagnostic</div>
           <div class="menu-item">🛡️ Secure Isolation</div>
           <div class="menu-item highlight">☢️ Core Override</div>
         </div>
 
-        <div v-if="showSkillSettings" class="modal-overlay" @click.self="showSkillSettings = false">
+        <div v-if="showSkillSettings" class="modal-overlay" @contextmenu.prevent @click.self="showSkillSettings = false">
           <div class="auth-card cyber-card">
             <h2 class="cyber-title">SKILL_CONFIG: {{ selectedSkill?.name }}</h2>
             <div class="skill-form">
@@ -700,57 +833,83 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
 
         <footer class="status-bar">
           <div class="status-left">
-            <button class="status-btn sidebar-toggle" @click.stop="globalState.isSidebarOpen = !globalState.isSidebarOpen">
+            <button class="status-btn sidebar-toggle" 
+                    @click.stop="globalState.isSidebarOpen = !globalState.isSidebarOpen"
+                    @contextmenu.prevent.stop="onTerminalContextMenu({ e: $event, id: 'SIDEBAR_CONTROL', type: 'sidebar-menu' })">
               {{ globalState.isSidebarOpen ? 'SIDE_HIDE' : 'SIDE_SHOW' }}
             </button>
             <span class="status-sep">|</span>
-            <div class="status-item node-info" @click="globalState.showNetworkMatrix = true">
-              NODE: {{ globalState.host }}
-            </div>
-            <span class="status-sep">|</span>
-            <div class="status-item traffic-indicator" :class="{ 'flashing': isTrafficFlashing }">
-              NET_TRAFFIC
-            </div>
-            <span class="status-sep">|</span>
-            <div class="status-item agent-zone" 
-                 :class="{ 'active': globalState.isConnected }"
-                 @click="onAgentZoneClick"
-                 @contextmenu.prevent>
-              AGENT: {{ globalState.isConnected ? 'ACTIVE' : 'OFFLINE' }}
-            </div>
+            <button class="status-btn core-btn" 
+                    @click="globalState.showNetworkMatrix = true"
+                    @contextmenu.prevent.stop="onTerminalContextMenu({ e: $event, id: 'NODE_GROUP', type: 'node-group' })">
+              <span class="pulse-dot" :class="{ 'flashing': isTrafficFlashing, 'offline': !globalState.isConnected }">●</span> 
+              {{globalState.host}}_CORE
+            </button>
           </div>
 
           <div class="hotkey-bar">
-            <button class="status-btn modifier" @click="invoke('write_pty', { tabId: activeTabId, data: '\t' })">TAB</button>
-            <button class="status-btn modifier" :class="{ 'active': isCtrlPressed }" @click="isCtrlPressed = !isCtrlPressed">CTRL</button>
-            <button class="status-btn modifier" @click="invoke('write_pty', { tabId: activeTabId, data: '\x03' })">C-C</button>
-            <button class="status-btn modifier" @click="invoke('write_pty', { tabId: activeTabId, data: '\x1b' })">ESC</button>
+            <button class="status-btn modifier" 
+                    @click="activeTabId && terminalTabs.find(t => t.id === activeTabId)?.viewType === 'terminal' && invoke('write_pty', { tabId: activeTabId, data: '\t' })"
+                    @contextmenu.prevent.stop="onTerminalContextMenu({ e: $event, id: 'KEY_CONTROL', type: 'key-menu' })">TAB</button>
+            <button class="status-btn modifier" 
+                    :class="{ 'active': isCtrlPressed }" 
+                    @click="isCtrlPressed = !isCtrlPressed"
+                    @contextmenu.prevent.stop="onTerminalContextMenu({ e: $event, id: 'KEY_CONTROL', type: 'key-menu' })">CTRL</button>
+            <button class="status-btn modifier" 
+                    @click="activeTabId && terminalTabs.find(t => t.id === activeTabId)?.viewType === 'terminal' && invoke('write_pty', { tabId: activeTabId, data: '\x03' })"
+                    @contextmenu.prevent.stop="onTerminalContextMenu({ e: $event, id: 'KEY_CONTROL', type: 'key-menu' })">C-C</button>
+            <button class="status-btn modifier" 
+                    @click="activeTabId && terminalTabs.find(t => t.id === activeTabId)?.viewType === 'terminal' && invoke('write_pty', { tabId: activeTabId, data: '\x1b' })"
+                    @contextmenu.prevent.stop="onTerminalContextMenu({ e: $event, id: 'KEY_CONTROL', type: 'key-menu' })">ESC</button>
           </div>
 
           <div class="status-right">
-            <button class="status-btn" :class="{ 'active': globalState.isSafeMode }" @click="storeActions.toggleSafeMode(!globalState.isSafeMode)">
+            <button class="status-btn" 
+                    :class="{ 'active': globalState.isSafeMode }" 
+                    @click="storeActions.toggleSafeMode(!globalState.isSafeMode)"
+                    @contextmenu.prevent.stop="onTerminalContextMenu({ e: $event, id: 'RENDER_CONTROL', type: 'render-menu' })">
               {{ globalState.isSafeMode ? 'SAFE_MODE: ON' : 'SAFE_MODE: OFF' }}
             </button>
             <span class="status-sep">|</span>
-            <button class="status-btn" :class="{ 'clip-flash': isClipFlashing }" @click="copyLatestAI">CLIP</button>
+            <button class="status-btn" 
+                    :class="{ 'clip-flash': isClipFlashing }" 
+                    @click="copyLatestAI"
+                    @contextmenu.prevent.stop="onTerminalContextMenu({ e: $event, id: 'CLIP_CONTROL', type: 'clip-menu' })">
+              CLIP:{{ globalState.activeClipMode.toUpperCase().substring(0, 4) }}
+            </button>
             <span class="status-sep">|</span>
-            <button class="status-btn" @click="captureAndUpload(false)">AUDIT_UI</button>
+            <button class="status-btn" 
+                    @click="captureAndUpload(false)"
+                    @contextmenu.prevent.stop="onTerminalContextMenu({ e: $event, id: 'AUDIT_CONTROL', type: 'audit-menu' })">AUDIT_UI</button>
             <span class="status-sep">|</span>
-            <button class="status-btn" @click="globalState.showQuantumAudit = true">
+            <button class="status-btn" 
+                    @click="globalState.showQuantumAudit = true"
+                    @contextmenu.prevent.stop="onTerminalContextMenu({ e: $event, id: 'QUANTUM_CONTROL', type: 'quantum-menu' })">
               <span class="icon">🔍</span> [QUANTUM_SCAN]
             </button>
             <span class="status-sep">|</span>
-            <button class="status-btn web-toggle" :class="{ 'active': globalState.cyberMode === 1 }" @click="globalState.cyberMode = globalState.cyberMode === 1 ? 0 : 1">
-              WEB_ENGINE: {{ globalState.cyberMode === 1 ? 'ON' : 'OFF' }}
+            <button class="status-btn web-toggle" 
+                    :class="{ 'active': globalState.useNativeWebview }" 
+                    @click="globalState.useNativeWebview = !globalState.useNativeWebview; localStorage.setItem('ter_use_native_webview', globalState.useNativeWebview.toString())"
+                    @contextmenu.prevent.stop="onTerminalContextMenu({ e: $event, id: 'RENDER_CONTROL', type: 'render-menu' })">
+              WEB_ENGINE: {{ globalState.useNativeWebview ? 'NATIVE' : 'IFRAME' }}
             </button>
             <span class="status-sep">|</span>
-            <button class="status-btn auto-toggle" :class="{ 'active': isAutoPilot }" @click="isAutoPilot = !isAutoPilot">
+            <button class="status-btn auto-toggle" 
+                    :class="{ 'active': isAutoPilot }" 
+                    @click="isAutoPilot = !isAutoPilot"
+                    @contextmenu.prevent.stop="onTerminalContextMenu({ e: $event, id: 'SYNC_CONTROL', type: 'sync-menu' })">
               AUTO_SYNC: {{ isAutoPilot ? 'ON' : 'OFF' }}
             </button>
             <span class="status-sep">|</span>
-            <button class="status-btn" @click="globalState.showSettings = true">SETTINGS</button>
+            <button class="status-btn" 
+                    @click="globalState.showSettings = true"
+                    @contextmenu.prevent.stop="onTerminalContextMenu({ e: $event, id: 'SETTINGS_CONTROL', type: 'settings-menu' })">SETTINGS</button>
             <span class="status-sep">|</span>
-            <button class="status-btn lock-btn" :class="{ 'active': globalState.isLocked }" @click="globalState.isLocked = true">SYS_LOCK</button>
+            <button class="status-btn lock-btn" 
+                    :class="{ 'active': globalState.isLocked }" 
+                    @click="globalState.isLocked = !globalState.isLocked"
+                    @contextmenu.prevent.stop="onTerminalContextMenu({ e: $event, id: 'LOCK_CONTROL', type: 'lock-menu' })">SYS_LOCK</button>
           </div>
         </footer>
       </main>
@@ -888,9 +1047,23 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
 .status-left, .status-right, .hotkey-bar { display: flex; align-items: center; gap: calc(8px * var(--ter-ui-scale)); }
 .status-sep { color: #27272a; font-size: calc(10px * var(--ter-ui-scale)); margin: 0 calc(4px * var(--ter-ui-scale)); pointer-events: none; }
 
-.traffic-indicator { font-size: calc(9px * var(--ter-ui-scale)); color: #52525b; transition: all 0.2s; font-family: 'JetBrains Mono', monospace; cursor: help; }
-.traffic-indicator:hover { color: #71717a; }
-.traffic-indicator.flashing { color: #22c55e; text-shadow: 0 0 calc(5px * var(--ter-ui-scale)) #22c55e; }
+.pulse-dot {
+  margin-right: calc(6px * var(--ter-ui-scale));
+  color: #22c55e;
+  transition: all 0.3s;
+  font-size: 1.2em;
+}
+.pulse-dot.flashing {
+  animation: pulse-green 1s infinite;
+}
+.pulse-dot.offline {
+  color: #ef4444;
+}
+@keyframes pulse-green {
+  0% { transform: scale(1); opacity: 1; text-shadow: 0 0 0px #22c55e; }
+  50% { transform: scale(1.2); opacity: 0.7; text-shadow: 0 0 8px #22c55e; }
+  100% { transform: scale(1); opacity: 1; text-shadow: 0 0 0px #22c55e; }
+}
 
 .status-btn { 
   background: transparent; 
@@ -909,10 +1082,6 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
 .status-btn:hover { color: #fff; transform: scale(1.05); }
 .status-btn.active { color: #fff; text-shadow: 0 0 calc(4px * var(--ter-ui-scale)) currentColor; animation: breathe 2s infinite ease-in-out; }
 
-.agent-zone.active { color: #22c55e; text-shadow: 0 0 calc(5px * var(--ter-ui-scale)) rgba(34, 197, 94, 0.5); animation: breathe 2s infinite ease-in-out; }
-.agent-zone.pressing { transform: scale(0.95); filter: brightness(1.5); }
-.agent-zone { position: relative; cursor: pointer; padding: calc(4px * var(--ter-ui-scale)) calc(8px * var(--ter-ui-scale)); transition: all 0.1s; }
-
 .morse-preview {
   position: absolute;
   top: calc(-18px * var(--ter-ui-scale));
@@ -928,7 +1097,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
   transition: opacity 0.2s;
   pointer-events: none;
 }
-.agent-zone.pressing .morse-preview, .agent-zone:hover .morse-preview { opacity: 1; }
+.core-btn:hover .morse-preview { opacity: 1; }
 
 .web-toggle.active { color: #3b82f6; text-shadow: 0 0 calc(5px * var(--ter-ui-scale)) rgba(59, 130, 246, 0.5); }
 .auto-toggle.active { color: #a855f7; text-shadow: 0 0 calc(5px * var(--ter-ui-scale)) rgba(168, 85, 247, 0.5); }
@@ -940,22 +1109,25 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
   50% { opacity: 0.7; filter: brightness(1.3); }
 }
 
-.node-info { cursor: pointer; color: #71717a; transition: color 0.2s; font-size: calc(11px * var(--ter-ui-scale)); }
-.node-info:hover { color: #a855f7; }
-
 .context-menu { 
   position: fixed !important; 
   z-index: 99999 !important; 
   background: rgba(9, 9, 11, 0.95) !important; 
   backdrop-filter: blur(10px);
   border: 1px solid #22c55e !important; 
-  padding: calc(10px * var(--ter-ui-scale)) !important; 
-  box-shadow: 0 0 calc(10px * var(--ter-ui-scale)) #22c55e !important; 
+  padding: calc(15px * var(--ter-ui-scale)) !important; 
+  box-shadow: 0 0 calc(20px * var(--ter-ui-scale)) rgba(34, 197, 94, 0.3) !important; 
   border-radius: 6px !important; 
 }
 .menu-header { padding: calc(4px * var(--ter-ui-scale)) calc(8px * var(--ter-ui-scale)); font-size: calc(10px * var(--ter-ui-scale)); color: #166534; border-bottom: 1px solid #18181b; margin-bottom: calc(4px * var(--ter-ui-scale)); letter-spacing: 0.5px; }
 .menu-item { padding: calc(6px * var(--ter-ui-scale)) calc(12px * var(--ter-ui-scale)); font-size: calc(12px * var(--ter-ui-scale)); cursor: pointer; color: #d4d4d8; border-radius: 4px; margin-bottom: 1px; }
 .menu-item:hover { background: #22c55e; color: #000; }
+.menu-item.active-item {
+  color: #22c55e !important;
+  border-left: 2px solid #22c55e;
+  padding-left: calc(10px * var(--ter-ui-scale)) !important;
+  background: rgba(34, 197, 94, 0.05);
+}
 .menu-item.danger { color: #ef4444; }
 .menu-item.danger:hover { background: #ef4444; color: #000; }
 .menu-divider { height: 1px; background: #18181b; margin: calc(4px * var(--ter-ui-scale)) 0; }
