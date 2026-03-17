@@ -11,7 +11,7 @@ import { webviewManager } from './WebviewManager';
 export const globalState = reactive({
   // Connection State
   isConnected: false,
-  host: 'Remote Server',
+  host: 'REMOTE_NODE',
   activeServerId: null as string | null,
   connectionStatus: 'disconnected' as 'connected' | 'busy' | 'disconnected',
   
@@ -148,7 +148,7 @@ export const storeActions = {
     }
   },
 
-  async createNewTab(title = "Shell", viewType: any = 'terminal', data: any = {}, skipPty = false, existingId?: string) {
+  async createNewTab(title = "SHELL", viewType: any = 'terminal', data: any = {}, skipPty = false, existingId?: string) {
     const id = existingId || 'tab-' + Math.random().toString(36).substr(2, 9);
     console.log(`[TER_CORE] Creating tab: ${id} (${title}) type: ${viewType}`);
     

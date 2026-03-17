@@ -439,7 +439,7 @@ const onConnected = async (data: { label: string, id: string }) => {
   
   if (webviewInstances.value.length === 0) {
     // v2.15.27: Using production-safe URL for initial load
-    createWebview('https://cstimer.net', 'Main Deck');
+    createWebview('https://cstimer.net', `${globalState.host}_DECK`);
   }
   
   const saved = localStorage.getItem(storageKey(globalState.host));
@@ -455,14 +455,14 @@ const onConnected = async (data: { label: string, id: string }) => {
         }
         activeTabId.value = restoreList.find((t: any) => !t.isBackground)?.id || restoreList[0]?.id;
       } else {
-        await createNewTab("Main Shell", 'terminal', {}, false, "tab-1");
+        await createNewTab(`${globalState.host}_CORE`, 'terminal', {}, false, "tab-1");
       }
     } catch (e) { 
       console.error("Restore failed:", e);
-      await createNewTab("Main Shell", 'terminal', {}, false, "tab-1"); 
+      await createNewTab(`${globalState.host}_CORE`, 'terminal', {}, false, "tab-1"); 
     }
   } else {
-    await createNewTab("Main Shell", 'terminal', {}, false, "tab-1");
+    await createNewTab(`${globalState.host}_CORE`, 'terminal', {}, false, "tab-1");
   }
 
   setTimeout(() => {
@@ -842,7 +842,6 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
             <button class="status-btn core-btn" 
                     @click="globalState.showNetworkMatrix = true"
                     @contextmenu.prevent.stop="onTerminalContextMenu({ e: $event, id: 'NODE_GROUP', type: 'node-group' })">
-              <span class="pulse-dot" :class="{ 'flashing': isTrafficFlashing, 'offline': !globalState.isConnected }">●</span> 
               {{globalState.host}}_CORE
             </button>
           </div>
@@ -880,12 +879,12 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
             <span class="status-sep">|</span>
             <button class="status-btn" 
                     @click="captureAndUpload(false)"
-                    @contextmenu.prevent.stop="onTerminalContextMenu({ e: $event, id: 'AUDIT_CONTROL', type: 'audit-menu' })">AUDIT_UI</button>
+                    @contextmenu.prevent.stop="onTerminalContextMenu({ e: $event, id: 'AUDIT_CONTROL', type: 'audit-menu' })">AUDIT</button>
             <span class="status-sep">|</span>
             <button class="status-btn" 
                     @click="globalState.showQuantumAudit = true"
                     @contextmenu.prevent.stop="onTerminalContextMenu({ e: $event, id: 'QUANTUM_CONTROL', type: 'quantum-menu' })">
-              <span class="icon">🔍</span> [QUANTUM_SCAN]
+              SCAN
             </button>
             <span class="status-sep">|</span>
             <button class="status-btn web-toggle" 
@@ -1039,7 +1038,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
   padding: 0 calc(12px * var(--ter-ui-scale)); 
   font-size: calc(11px * var(--ter-ui-scale)); 
   flex-shrink: 0; 
-  z-index: 2000; /* v2.14.22: Increased to ensure clickability above all matrices */
+  z-index: 10000; /* v2.17.24: Standardized */
   text-transform: uppercase;
   letter-spacing: 1px;
 }
@@ -1111,7 +1110,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
 
 .context-menu { 
   position: fixed !important; 
-  z-index: 99999 !important; 
+  z-index: 200000 !important; /* v2.17.24: Standardized */
   background: rgba(9, 9, 11, 0.95) !important; 
   backdrop-filter: blur(10px);
   border: 1px solid #22c55e !important; 
@@ -1132,7 +1131,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
 .menu-item.danger:hover { background: #ef4444; color: #000; }
 .menu-divider { height: 1px; background: #18181b; margin: calc(4px * var(--ter-ui-scale)) 0; }
 
-.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(5px); display: flex; align-items: center; justify-content: center; z-index: 20000; }
+.modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(5px); display: flex; align-items: center; justify-content: center; z-index: 100000; }
 .cyber-card { background: #09090b; border: 1px solid #22c55e; padding: calc(30px * var(--ter-ui-scale)); min-width: calc(400px * var(--ter-ui-scale)); box-shadow: 0 0 calc(30px * var(--ter-ui-scale)) rgba(34, 197, 94, 0.2); border-radius: 8px; }
 .cyber-title { color: #22c55e; font-size: calc(18px * var(--ter-ui-scale)); letter-spacing: 2px; margin-bottom: calc(15px * var(--ter-ui-scale)); }
 .skill-form { display: flex; flex-direction: column; gap: calc(10px * var(--ter-ui-scale)); }
@@ -1140,7 +1139,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
 .cyber-input { background: #000; border: 1px solid #27272a; color: #22c55e; padding: calc(8px * var(--ter-ui-scale)); font-size: calc(12px * var(--ter-ui-scale)); outline: none; width: 100%; border-radius: 4px; }
 .btn-primary { background: #22c55e; color: #000; border: none; padding: calc(10px * var(--ter-ui-scale)); font-weight: bold; cursor: pointer; margin-top: calc(15px * var(--ter-ui-scale)); border-radius: 4px; font-size: calc(12px * var(--ter-ui-scale)); }
 
-.preview-overlay { z-index: 30000; background: rgba(0, 0, 0, 0.9); backdrop-filter: blur(15px); }
+.preview-overlay { z-index: 100001; background: rgba(0, 0, 0, 0.9); backdrop-filter: blur(15px); }
 .preview-card { width: 80vw; height: 80vh; max-width: 1000px; display: flex; flex-direction: column; padding: 0; overflow: hidden; border-color: #3b82f6; box-shadow: 0 0 calc(40px * var(--ter-ui-scale)) rgba(59, 130, 246, 0.2); }
 .preview-header { display: flex; justify-content: space-between; align-items: center; padding: calc(15px * var(--ter-ui-scale)) calc(20px * var(--ter-ui-scale)); background: rgba(59, 130, 246, 0.1); border-bottom: 1px solid rgba(59, 130, 246, 0.2); }
 .preview-header .title { font-size: calc(12px * var(--ter-ui-scale)); font-family: 'JetBrains Mono', monospace; color: #3b82f6; letter-spacing: 1px; }

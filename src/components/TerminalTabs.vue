@@ -109,16 +109,35 @@ const handleNewTabContext = (e: MouseEvent) => {
     type: 'new-tab-menu' 
   });
 };
+
+const handleStatusClick = () => {
+  storeActions.pushLog(`[INFO] HOST: ${globalState.host} | STATUS: ${props.connectionStatus.toUpperCase()} | NODES: ${props.tabs.length}`);
+};
+
+const handleStatusDoubleClick = () => {
+  globalState.showNetworkMatrix = true;
+};
+
+const handleStatusContextMenu = (e: MouseEvent) => {
+  emit('terminal-context', { e, id: 'STATUS_DOT', type: 'new-tab-menu' });
+};
+
+const handleSearchClick = () => {
+  globalState.showSettings = true;
+};
 </script>
 
 <template>
   <div class="terminal-workspace">
     <!-- Multi-Terminal Tab Bar -->
-    <nav class="tab-bar" @wheel="handleTabWheel">
+    <nav class="tab-bar" @wheel="handleTabWheel" style="z-index: 5000; position: relative;">
       <div class="tab-bar-content">
-        <div class="status-indicator-zone" @click="$emit('new-tab')">
-          <div class="status-dot" :class="connectionStatus"></div>
-          <div class="quick-switcher-icon">
+        <div class="status-indicator-zone" 
+             @click="handleStatusClick" 
+             @dblclick="handleStatusDoubleClick"
+             @contextmenu.prevent.stop="handleStatusContextMenu">
+          <div class="status-dot large" :class="connectionStatus"></div>
+          <div class="quick-switcher-icon" @click.stop="handleSearchClick">
             <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
           </div>
         </div>
@@ -248,7 +267,7 @@ const handleNewTabContext = (e: MouseEvent) => {
   cursor: pointer; 
   height: 100%; 
   position: relative;
-  z-index: 1000; /* Ensure high priority for clicks */
+  z-index: 6000 !important; /* Absolute top priority for buttons */
 }
 .btn-new-tab:hover, .btn-split:hover { color: #fff; background: rgba(255,255,255,0.05); }
 
@@ -272,8 +291,18 @@ const handleNewTabContext = (e: MouseEvent) => {
 .tab-view-wrapper { position: absolute; inset: 0; width: 100%; height: 100%; display: flex; flex-direction: column; }
 .empty-pane-msg { height: 100%; display: flex; align-items: center; justify-content: center; color: #27272a; font-size: 10px; letter-spacing: 2px; }
 .status-indicator-zone { padding: 0 10px; display: flex; align-items: center; gap: 8px; border-right: 1px solid #18181b; cursor: pointer; }
-.status-dot { width: 6px; height: 6px; border-radius: 50%; background: #52525b; }
-.status-dot.connected { background: #22c55e; }
+.status-dot { width: 6px; height: 6px; border-radius: 50%; background: #52525b; transition: all 0.3s; }
+.status-dot.large { width: 10px; height: 10px; box-shadow: 0 0 8px rgba(34, 197, 94, 0.2); }
+.status-dot.connected { 
+  background: #22c55e; 
+  box-shadow: 0 0 12px rgba(34, 197, 94, 0.5);
+  animation: pulse-green 2s infinite ease-in-out;
+}
+@keyframes pulse-green {
+  0% { transform: scale(1); filter: brightness(1); }
+  50% { transform: scale(1.15); filter: brightness(1.4); box-shadow: 0 0 18px rgba(34, 197, 94, 0.7); }
+  100% { transform: scale(1); filter: brightness(1); }
+}
 .tab-icon { margin-right: 6px; opacity: 0.6; }
 .btn-close { margin-left: 8px; background: transparent; border: none; color: #3f3f46; cursor: pointer; padding: 2px; border-radius: 2px; }
 .btn-close:hover { color: #ef4444; background: #27272a; }
