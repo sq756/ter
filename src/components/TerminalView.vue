@@ -58,9 +58,9 @@ const initTerminal = async (retries = 5) => {
   }
   
   try {
-    // v2.15.16: Clear existing content to prevent ghosting
-    terminalRef.value.innerHTML = '';
-    terminalManager.mount(props.id, terminalRef.value);
+    // v2.17.3: Removed manual innerHTML clearing here
+    // as it's now handled atomically by TerminalManager.mount
+    await terminalManager.mount(props.id, terminalRef.value);
     const instance = await terminalManager.getOrCreate(props.id);
     
     // Setup scroll listener for jump button
@@ -120,24 +120,23 @@ onUnmounted(() => {
 
 watch(() => props.active, async (isActive) => {
   if (isActive && terminalRef.value) {
+    // v2.17.2: Strategic Wait for UI stability
     await nextTick(); 
     
-    // v2.15.23: Aggressive UI Refresh
-    // Multiple stages of fitting to account for split transitions
-    await terminalManager.mount(props.id, terminalRef.value);
-    
-    // Global resize trigger to force layout recalcs
-    window.dispatchEvent(new Event('resize'));
-    
-    requestAnimationFrame(() => {
-      setTimeout(() => {
-        performFit();
-        const instance = terminalManager.instances.get(props.id);
-        if (instance) {
-          instance.term.refresh(0, instance.term.rows - 1);
-          instance.term.focus();
-        }
-      }, 50);
+    requestAnimationFrame(async () => {
+      if (terminalRef.value && terminalRef.value.offsetWidth > 0) {
+        await terminalManager.mount(props.id, terminalRef.value);
+        
+        // Final re-fit after a short burst to ensure stable dimensions
+        setTimeout(() => {
+          performFit();
+          const instance = terminalManager.instances.get(props.id);
+          if (instance) {
+            instance.term.refresh(0, instance.term.rows - 1);
+            instance.term.focus();
+          }
+        }, 30);
+      }
     });
   }
 });

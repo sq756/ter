@@ -18,6 +18,9 @@ export interface TerminalInstance {
 class TerminalManager {
   public instances: Map<string, TerminalInstance> = new Map();
   private callbacks: Map<string, (id: string, data: string) => void> = new Map();
+  
+  // v2.17.0: Global Data Hook for RPC/Interceptors
+  private dataHook: ((id: string, text: string, bytes: Uint8Array) => boolean) | null = null;
   private static instance: TerminalManager;
 
   constructor() {
@@ -34,6 +37,14 @@ class TerminalManager {
     this.callbacks.set(id, cb);
   }
 
+  /**
+   * Register a global hook to process data before writing to terminals.
+   * If hook returns true, processing stops (data is 'consumed').
+   */
+  public setDataHook(hook: (id: string, text: string, bytes: Uint8Array) => boolean) {
+    this.dataHook = hook;
+  }
+
   public async getOrCreate(id: string, options: any = {}): Promise<TerminalInstance> {
     const existing = this.instances.get(id);
     if (existing) return existing;
@@ -47,8 +58,14 @@ class TerminalManager {
       allowTransparency: false,
       scrollback: 2000, 
       wheelScrollSensitivity: 1,
+      // v2.17.0: FIXED DA Leak (^[[?1;2c)
+      // Disabling device attributes response prevents the terminal from 
+      // automatically replying to \x1b[c which can pollute the PTY buffer.
       ...options
     });
+
+    // Hard-set to avoid any leakage to the PTY stdin
+    (term as any).options.deviceAttributes = '';
 
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -76,60 +93,82 @@ class TerminalManager {
   private async setupGlobalPtyListener() {
     this.isGlobalListenerActive = true;
     console.log("[TerminalManager] Activating Global PTY Dispatcher");
+    const decoder = new TextDecoder('utf-8');
+    
     await listen('pty-data', (event: any) => {
       const payload = event.payload as any;
       const id = payload.id;
-      const data = payload.data;
+      const rawData = payload.data;
       
+      const bytes = Array.isArray(rawData) ? new Uint8Array(rawData) : rawData;
+      const text = typeof bytes === 'string' ? bytes : decoder.decode(bytes);
+
+      // Execute hook if registered
+      if (this.dataHook && this.dataHook(id, text, bytes)) {
+        return; // Hook consumed the data (e.g. it was an RPC command)
+      }
+
       const instance = this.instances.get(id);
       if (instance) {
-        if (Array.isArray(data)) {
-          instance.term.write(new Uint8Array(data));
-        } else {
-          instance.term.write(data);
-        }
+        instance.term.write(bytes);
       }
     });
   }
 
   /**
    * Explicitly mount terminal to a DOM element.
+   * v2.17.3: Robust Re-attachment Logic
    */
   public async mount(id: string, element: HTMLElement) {
     const instance = await this.getOrCreate(id);
-    
-    // v2.15.41: Intelligent Mount Guard
-    if (instance.term.element) {
-      if (instance.term.element === element) {
-        console.log(`[TerminalManager] Terminal ${id} already mounted. Refreshing.`);
-        instance.term.refresh(0, instance.term.rows - 1);
-        instance.fit.fit();
-        return;
-      }
-      // Only clear parent if it's NOT the target element
-      try {
-        const oldParent = instance.term.element.parentElement;
-        if (oldParent && oldParent !== element) {
-          oldParent.innerHTML = '';
-        }
-      } catch (e) {}
+    const term = instance.term;
+
+    // v2.17.3: Check if it's already in the target element
+    if (term.element && term.element.parentElement === element) {
+      console.log(`[TerminalManager] ${id} already in place. Force refresh.`);
+      term.refresh(0, term.rows - 1);
+      setTimeout(() => instance.fit.fit(), 20);
+      return;
     }
-    
+
+    // If it's attached elsewhere, detach it first safely
+    if (term.element && term.element.parentElement) {
+      console.log(`[TerminalManager] Moving terminal ${id} to new container.`);
+      try {
+        term.element.parentElement.removeChild(term.element);
+      } catch (e) {
+        // Fallback: clear the old parent if removeChild fails
+        term.element.parentElement.innerHTML = '';
+      }
+    }
+
+    // Clear the NEW container before mounting
     element.innerHTML = '';
+
     try {
-      instance.term.open(element);
+      if (term.element) {
+        // If xterm already has its DOM node, just append it!
+        // This is much safer than calling .open() again.
+        element.appendChild(term.element);
+      } else {
+        // First time initialization
+        term.open(element);
+      }
       
-      if (instance.term.element) {
-        instance.term.element.onmousedown = () => {
+      if (term.element) {
+        term.element.onmousedown = () => {
           window.dispatchEvent(new CustomEvent('close-all-menus'));
         };
       }
 
+      // v2.17.3: Aggressive Wake-up
       setTimeout(() => {
         if (element.offsetWidth > 0) {
           instance.fit.fit();
-          instance.term.refresh(0, instance.term.rows - 1);
-          instance.term.focus();
+          term.refresh(0, term.rows - 1);
+          term.focus();
+          // Force a second refresh to ensure canvas layers are active
+          requestAnimationFrame(() => term.refresh(0, term.rows - 1));
         }
       }, 50);
     } catch (e) {
