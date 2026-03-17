@@ -34,16 +34,16 @@ const primaryActiveTab = computed(() => props.tabs.find(t => t.id === props.acti
 const secondaryActiveTab = computed(() => props.tabs.find(t => t.id === props.activeTabIdSecondary));
 
 const switchTab = (id: string) => {
-  emit('switch-tab', id);
   globalState.focusedPane = 'primary';
+  emit('switch-tab', id);
   nextTick(() => {
     terminalManager.focus(id);
   });
 };
 
 const switchTabSecondary = (id: string) => {
-  emit('switch-tab-secondary', id);
   globalState.focusedPane = 'secondary';
+  emit('switch-tab-secondary', id);
   nextTick(() => {
     terminalManager.focus(id);
   });
@@ -63,22 +63,43 @@ const handleTabWheel = (e: WheelEvent) => {
     const visibleTabs = getVisibleTabs();
     if (visibleTabs.length <= 1) return;
     
-    const currentIndex = visibleTabs.findIndex(t => t.id === props.activeTabId);
+    // v2.17.7: Enhanced Tab Switching with Fallback
+    const isSecondary = props.splitMode && globalState.focusedPane === 'secondary';
+    const currentActiveId = isSecondary ? props.activeTabIdSecondary : props.activeTabId;
+    
+    // Fallback: If no specific ID is found for the pane, pick the most sensible one
+    const lookupId = currentActiveId || props.activeTabId || visibleTabs[0].id;
+
+    const currentIndex = visibleTabs.findIndex(t => t.id === lookupId);
     if (currentIndex === -1) return;
     
     const nextIndex = e.deltaY > 0 
       ? (currentIndex + 1) % visibleTabs.length
       : (currentIndex - 1 + visibleTabs.length) % visibleTabs.length;
     
-    switchTab(visibleTabs[nextIndex].id);
+    const nextId = visibleTabs[nextIndex].id;
+    if (isSecondary && props.splitMode) {
+      switchTabSecondary(nextId);
+    } else {
+      switchTab(nextId);
+    }
   }
+};
+
+const handleNewTabContext = (e: MouseEvent) => {
+  console.log('[TerminalTabs] handleNewTabContext triggered');
+  emit('terminal-context', { 
+    e, 
+    id: 'NEW_TAB_BUTTON', 
+    type: 'new-tab-menu' 
+  });
 };
 </script>
 
 <template>
   <div class="terminal-workspace">
     <!-- Multi-Terminal Tab Bar -->
-    <nav class="tab-bar" @wheel="handleTabWheel">
+    <nav class="tab-bar" @wheel="handleTabWheel" @mousedown="globalState.focusedPane = 'primary'">
       <div class="tab-bar-content">
         <div class="status-indicator-zone" @click="$emit('new-tab')">
           <div class="status-dot" :class="connectionStatus"></div>
@@ -93,7 +114,7 @@ const handleTabWheel = (e: WheelEvent) => {
                class="tab-item" 
                :class="{ 'active': t.id === activeTabId || (splitMode && t.id === activeTabIdSecondary) }" 
                @click.stop="splitMode && activeTabId ? switchTabSecondary(t.id) : switchTab(t.id)"
-               @contextmenu.prevent.stop="$emit('terminal-context', { e: $event, id: t.id })">
+               @contextmenu.prevent.stop="$emit('terminal-context', { e: $event, id: t.id, type: 'terminal' })">
             <span class="tab-icon">
               <svg v-if="t.viewType === 'terminal'" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
               <svg v-else-if="t.viewType === 'webview'" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><line x1="2" y1="12" x2="22" y2="12"></line><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10z"></path></svg>
@@ -108,7 +129,7 @@ const handleTabWheel = (e: WheelEvent) => {
           </div>
         </div>
 
-        <button class="btn-new-tab" @click.stop="$emit('new-tab')" title="New Tab">
+        <button class="btn-new-tab" @click.stop="$emit('new-tab')" @contextmenu.prevent.stop="handleNewTabContext" title="New Tab">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
         </button>
         <button class="btn-split" :class="{ 'active': splitMode }" @click.stop="$emit('toggle-split')" @contextmenu.prevent="toggleSplitDirection">
@@ -127,7 +148,9 @@ const handleTabWheel = (e: WheelEvent) => {
 
     <div class="workspace-body" :class="{ 'split-mode': splitMode, 'split-vertical': splitVertical }">
       <!-- Primary Pane -->
-      <section class="pane primary-pane" :class="{ 'active-pane': activeTabId && globalState.focusedPane === 'primary' }">
+      <section class="pane primary-pane" 
+               :class="{ 'active-pane': activeTabId && globalState.focusedPane === 'primary' }"
+               @mousedown="globalState.focusedPane = 'primary'">
         <div v-if="activeTabId" class="tab-view-wrapper">
           <!-- v2.15.61: SINGLE SLOT RENDERER - Never unmount TerminalView -->
           <TerminalView 
@@ -154,7 +177,9 @@ const handleTabWheel = (e: WheelEvent) => {
       </section>
 
       <!-- Secondary Pane -->
-      <section v-if="splitMode" class="pane secondary-pane" :class="{ 'active-pane-sec': activeTabIdSecondary && globalState.focusedPane === 'secondary' }">
+      <section v-if="splitMode" class="pane secondary-pane" 
+               :class="{ 'active-pane-sec': activeTabIdSecondary && globalState.focusedPane === 'secondary' }"
+               @mousedown="globalState.focusedPane = 'secondary'">
         <div v-if="activeTabIdSecondary" class="tab-view-wrapper">
           <!-- v2.15.61: SINGLE SLOT RENDERER - Secondary Pane -->
           <TerminalView 
@@ -193,8 +218,19 @@ const handleTabWheel = (e: WheelEvent) => {
 .tab-item.active { background: #18181b; color: #fff; }
 .active-bar { position: absolute; bottom: 0; left: 0; width: 100%; height: 2px; background: #3b82f6; }
 .active-bar-secondary { position: absolute; bottom: 0; left: 0; width: 100%; height: 2px; background: #a855f7; }
-.btn-new-tab, .btn-split { background: transparent; border: none; color: #71717a; padding: 0 10px; cursor: pointer; height: 100%; }
-.btn-new-tab:hover, .btn-split:hover { color: #fff; }
+
+.btn-new-tab, .btn-split { 
+  background: transparent; 
+  border: none; 
+  color: #71717a; 
+  padding: 0 10px; 
+  cursor: pointer; 
+  height: 100%; 
+  position: relative;
+  z-index: 1000; /* Ensure high priority for clicks */
+}
+.btn-new-tab:hover, .btn-split:hover { color: #fff; background: rgba(255,255,255,0.05); }
+
 .drag-spacer { flex: 1; height: 100%; }
 .window-controls { display: flex; height: 100%; }
 .win-btn { width: 32px; height: 100%; border: none; background: transparent; color: #71717a; cursor: pointer; }

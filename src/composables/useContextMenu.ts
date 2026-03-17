@@ -14,9 +14,8 @@ export function useContextMenu(
   const menuX = ref(0);
   const menuY = ref(0);
   const contextMenuTabId = ref<string | null>(null);
+  const contextMenuType = ref<'terminal' | 'new-tab-menu'>('terminal');
   const hasErrorSelection = ref(false);
-
-  // ... (calculateMenuPosition, onTerminalContextMenu, copySelectedText, pasteFromClipboard, renameTabAction remains similar)
 
   const calculateMenuPosition = (e: MouseEvent, estimatedHeight = 350, estimatedWidth = 160) => {
     let x = e.clientX + 5, y = e.clientY + 5; // v2.13.3: Offset slightly
@@ -25,11 +24,16 @@ export function useContextMenu(
     menuX.value = x; menuY.value = y;
   };
 
-  const onTerminalContextMenu = (p: { e: MouseEvent, id: string }) => { 
+  const onTerminalContextMenu = (p: { e: MouseEvent, id: string, type?: 'terminal' | 'new-tab-menu' }) => { 
     contextMenuTabId.value = p.id; 
+    contextMenuType.value = p.type || 'terminal';
     calculateMenuPosition(p.e); 
-    const s = terminalManager.getSelection(p.id); 
-    hasErrorSelection.value = s.toLowerCase().includes('error') || s.toLowerCase().includes('exception') || s.includes('\x1b[31m'); 
+    
+    if (contextMenuType.value === 'terminal') {
+      const s = terminalManager.getSelection(p.id); 
+      hasErrorSelection.value = s.toLowerCase().includes('error') || s.toLowerCase().includes('exception') || s.includes('\x1b[31m'); 
+    }
+    
     showContextMenu.value = true; 
   };
 
@@ -109,6 +113,7 @@ export function useContextMenu(
     menuY,
     contextMenuTabId,
     hasErrorSelection,
+    contextMenuType,
     onTerminalContextMenu,
     copySelectedText,
     pasteFromClipboard,

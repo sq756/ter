@@ -272,11 +272,10 @@ listen('web-context-menu', (ev: any) => {
 });
 
 const {
-  showContextMenu, menuX, menuY, contextMenuTabId, hasErrorSelection,
-  onTerminalContextMenu: _onTerminalContextMenu, copySelectedText, pasteFromClipboard, 
+  showContextMenu, menuX, menuY, contextMenuTabId, hasErrorSelection, contextMenuType,
+  onTerminalContextMenu: _onTerminalContextMenu, copySelectedText, pasteFromClipboard,
   renameTabAction, copyTabIdAction, copyRuntimeEnv, generateRunReport, diagnoseSelection, calculateMenuPosition
 } = useContextMenu(activeTabId, renameTab, computed(() => globalState.host), computed(() => globalState.currentPath), computed(() => globalState.currentAgentPort), terminalTabs);
-
 const onTerminalContextMenu = (p: any) => {
   console.log('[App] onTerminalContextMenu', p?.id);
   return _onTerminalContextMenu(p);
@@ -580,21 +579,32 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
         </div>
 
         <div v-if="showContextMenu" class="context-menu" :style="{ top: menuY + 'px', left: menuX + 'px' }">
-          <header class="menu-header">TERMINAL ACTIONS</header>
-          <div v-if="hasErrorSelection" class="menu-item highlight" @click="diagnoseSelection">🤖 Diagnose Error</div>
-          <div class="menu-item" @click="renameTabAction">✏️ Rename</div>
-          <div class="menu-item" @click="sendToBackground(contextMenuTabId!)">🚀 Background</div>
-          <div class="menu-divider"></div>
-          <div class="menu-item" @click="copySelectedText">📋 Copy</div>
-          <div class="menu-item" @click="pasteFromClipboard">📥 Paste</div>
-          <div class="menu-divider"></div>
-          <header class="menu-header">TMUX CONTROL</header>
-          <div class="menu-item" @click="invoke('write_pty', { tabId: activeTabId, data: '\x02%' }); activeMenu = null">◫ Split Horizontal</div>
-          <div class="menu-item" @click="invoke('write_pty', { tabId: activeTabId, data: '\x02\&quot;' }); activeMenu = null">⬒ Split Vertical</div>
-          <div class="menu-item" @click="invoke('write_pty', { tabId: activeTabId, data: '\x02z' }); activeMenu = null">⤢ Toggle Zoom</div>
-          <div class="menu-item danger" @click="invoke('write_pty', { tabId: activeTabId, data: '\x02x' }); activeMenu = null">✕ Kill Pane</div>
-          <div class="menu-divider"></div>
-          <div class="menu-item danger" @click="closeTab(contextMenuTabId!)">❌ Close</div>
+          <header class="menu-header">{{ contextMenuType === 'new-tab-menu' ? 'NEW_TAB_DECK' : 'TERMINAL ACTIONS' }}</header>
+          
+          <template v-if="contextMenuType === 'new-tab-menu'">
+            <div class="menu-item highlight" @click="storeActions.createNewTab('Shell', 'terminal'); showContextMenu = false">🐚 NEW_TERMINAL</div>
+            <div class="menu-item" @click="storeActions.createNewTab('Browser', 'webview', { url: 'https://www.google.com' }); showContextMenu = false">🌐 NEW_BROWSER_DECK</div>
+            <div class="menu-item" @click="storeActions.createNewTab('Editor', 'editor', { path: '/tmp/new_file.txt', content: '' }); showContextMenu = false">📝 NEW_EDITOR_DECK</div>
+            <div class="menu-divider"></div>
+            <div class="menu-item" @click="toggleSplit(); showContextMenu = false">◫ TOGGLE_SPLIT_SCREEN</div>
+          </template>
+
+          <template v-else>
+            <div v-if="hasErrorSelection" class="menu-item highlight" @click="diagnoseSelection">🤖 Diagnose Error</div>
+            <div class="menu-item" @click="renameTabAction">✏️ Rename</div>
+            <div class="menu-item" @click="sendToBackground(contextMenuTabId!)">🚀 Background</div>
+            <div class="menu-divider"></div>
+            <div class="menu-item" @click="copySelectedText">📋 Copy</div>
+            <div class="menu-item" @click="pasteFromClipboard">📥 Paste</div>
+            <div class="menu-divider"></div>
+            <header class="menu-header">TMUX CONTROL</header>
+            <div class="menu-item" @click="invoke('write_pty', { tabId: activeTabId, data: '\x02%' }); showContextMenu = false">◫ Split Horizontal</div>
+            <div class="menu-item" @click="invoke('write_pty', { tabId: activeTabId, data: '\x02\&quot;' }); showContextMenu = false">⬒ Split Vertical</div>
+            <div class="menu-item" @click="invoke('write_pty', { tabId: activeTabId, data: '\x02z' }); showContextMenu = false">⤢ Toggle Zoom</div>
+            <div class="menu-item danger" @click="invoke('write_pty', { tabId: activeTabId, data: '\x02x' }); showContextMenu = false">✕ Kill Pane</div>
+            <div class="menu-divider"></div>
+            <div class="menu-item danger" @click="closeTab(contextMenuTabId!)">❌ Close</div>
+          </template>
         </div>
 
         <div v-if="showExplorerMenu" class="context-menu" :style="{ top: explorerMenuY + 'px', left: explorerMenuX + 'px' }">
