@@ -884,7 +884,47 @@ pub fn run() {
             let db_url = format!("sqlite:///{}?mode=rwc", app_dir.join("ter.db").to_string_lossy());
             let state = app.state::<AppState>();
             let ah_telemetry = ah.clone();
-            tauri::async_runtime::spawn(async move { loop { tokio::time::sleep(std::time::Duration::from_secs(3)).await; let _ = ah_telemetry.emit("system-stats", serde_json::json!({ "cpu_usage": 0.0, "mem_used": 0, "mem_total": 1, "net_sent": 0, "net_recv": 0, "uptime": 0, "is_heartbeat": true })); } });
+            tauri::async_runtime::spawn(async move { 
+                use sysinfo::{System, Networks};
+                let mut sys = System::new_all();
+                let mut networks = Networks::new_with_refreshed_list();
+                let mut prev_net_recv = 0;
+                let mut prev_net_sent = 0;
+
+                loop { 
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await; 
+                    sys.refresh_cpu_all();
+                    sys.refresh_memory();
+                    networks.refresh(false);
+
+                    let cpu_usage = sys.global_cpu_usage();
+                    let mem_used = sys.used_memory();
+                    let mem_total = sys.total_memory();
+                    
+                    let mut total_recv = 0;
+                    let mut total_sent = 0;
+                    for (_, data) in &networks {
+                        total_recv += data.received();
+                        total_sent += data.transmitted();
+                    }
+
+                    // Calculate speed per second (3s interval)
+                    let net_recv_speed = if prev_net_recv > 0 { (total_recv.saturating_sub(prev_net_recv)) / 3 } else { 0 };
+                    let net_sent_speed = if prev_net_sent > 0 { (total_sent.saturating_sub(prev_net_sent)) / 3 } else { 0 };
+                    prev_net_recv = total_recv;
+                    prev_net_sent = total_sent;
+
+                    let _ = ah_telemetry.emit("system-stats", serde_json::json!({ 
+                        "cpu_usage": cpu_usage, 
+                        "mem_used": mem_used, 
+                        "mem_total": mem_total, 
+                        "net_sent": net_sent_speed, 
+                        "net_recv": net_recv_speed, 
+                        "uptime": sysinfo::System::uptime(),
+                        "is_heartbeat": true 
+                    })); 
+                } 
+            });
             tauri::async_runtime::block_on(async move { 
                 let db_init = tokio::time::timeout(std::time::Duration::from_secs(5), Db::new(&db_url)).await;
                 match db_init {

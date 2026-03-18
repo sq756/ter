@@ -41,24 +41,27 @@ export function useContextMenu(
     contextMenuTabId.value = p.id; 
     contextMenuType.value = p.type || 'terminal';
 
-    const isFooter = contextMenuType.value.includes('menu') || contextMenuType.value === 'node-group';
+    // v2.17.25: Explicit direction mapping
+    // new-tab-menu and standard terminal menus should pop DOWN
+    // Only footer-specific menus should force UP
+    const isFooterMenu = ['node-group', 'clip-menu', 'render-menu', 'sync-menu', 'audit-menu', 'sidebar-menu', 'quantum-menu', 'settings-menu', 'lock-menu', 'key-menu'].includes(contextMenuType.value);
 
-    // v2.17.21: Precise height mapping for footer menus
+    // Adjust height estimation based on type
     let h = 280;
     if (contextMenuType.value === 'node-group' || contextMenuType.value === 'settings-menu') h = 220;
     if (contextMenuType.value === 'audit-menu' || contextMenuType.value === 'quantum-menu' || contextMenuType.value === 'sidebar-menu') h = 160;
     if (contextMenuType.value === 'key-menu' || contextMenuType.value === 'lock-menu') h = 120;
+    if (contextMenuType.value === 'new-tab-menu') h = 180;
 
-    calculateMenuPosition(p.e, h, 180, isFooter); 
+    calculateMenuPosition(p.e, h, 180, isFooterMenu); 
 
     if (contextMenuType.value === 'terminal') {
       const s = terminalManager.getSelection(p.id); 
       hasErrorSelection.value = s.toLowerCase().includes('error') || s.toLowerCase().includes('exception') || s.includes('\x1b[31m'); 
     }
-    
+
     showContextMenu.value = true; 
   };
-
   const copySelectedText = async () => { 
     const id = contextMenuTabId.value || activeTabId.value; 
     if (id) { 

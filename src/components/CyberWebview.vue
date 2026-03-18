@@ -26,8 +26,13 @@ const inputUrl = ref(props.url);
 const handleNavigate = () => {
   let url = inputUrl.value.trim();
   if (!url) return;
+  // v2.17.27: Default to http for internal/local services to prevent ERR_SSL_PROTOCOL_ERROR
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
-    url = 'https://' + url;
+    if (url.includes('localhost') || url.includes(':') || !url.includes('.')) {
+      url = 'http://' + url;
+    } else {
+      url = 'https://' + url;
+    }
   }
   inputUrl.value = url;
   if (isNative.value && isWebviewReady.value) {

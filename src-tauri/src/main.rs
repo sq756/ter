@@ -15,7 +15,11 @@ fn main() {
     // v2.12.8: Extra stability for Mesa/Gallium and TLS bypass
     std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
     std::env::set_var("GALLIUM_DRIVER", "llvmpipe");
+    // v2.17.27: Comprehensive Fix for ERR_SSL_PROTOCOL_ERROR on Local Domains
     std::env::set_var("WEBKIT_TLS_ERRORS_POLICY", "ignore");
+    std::env::set_var("WEBKIT_DISABLE_HSTS", "1");
+    // Allow mixed content and insecure local requests
+    std::env::set_var("WEBKIT_RELAXED_MIXED_CONTENT_POLICY", "1");
     
     ter_lib::run();
 }
