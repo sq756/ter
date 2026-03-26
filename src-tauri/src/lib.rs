@@ -600,7 +600,11 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
                         Some(russh::ChannelMsg::ExtendedData { data, .. }) => {
                             aggregation_buffer.extend_from_slice(&data);
                         }
-                        Some(russh::ChannelMsg::Eof) | Some(russh::ChannelMsg::Close) => break,
+                        Some(russh::ChannelMsg::Eof) | Some(russh::ChannelMsg::Close) | None => {
+                            log::warn!("[PTY:{}] Channel closed, emitting disconnect", tab_id_cap);
+                            let _ = app_handle.emit("conn-status", "DISCONNECTED");
+                            break;
+                        }
                         _ => {}
                     }
                 }
@@ -862,12 +866,14 @@ struct RemoteDirContent { files: Vec<RemoteFile>, current_path: String }
 
 #[derive(serde::Deserialize, Debug)]
 struct TailscalePeer {
-    #[serde(rename = "IPs")]
+    #[serde(rename = "TailscaleIPs", alias = "IPs")]
     ips: Vec<String>,
-    #[serde(rename = "Relay")]
+    #[serde(rename = "Relay", alias = "PeerRelay")]
     relay: Option<String>,
     #[serde(rename = "HostName")]
     host_name: Option<String>,
+    #[serde(rename = "DNSName")]
+    dns_name: Option<String>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -900,7 +906,7 @@ pub fn run() {
             let db_url = format!("sqlite:///{}?mode=rwc", app_dir.join("ter.db").to_string_lossy());
             let state = app.state::<AppState>();
             
-            // Connection & Network Monitoring Loop (v2.18.0)
+            // Connection & Network Monitoring Loop (v2.18.0) - Optimized & Non-Blocking
             let ah_conn = ah.clone();
             let host_mutex = state.current_host.clone();
             tauri::async_runtime::spawn(async move {
@@ -914,8 +920,8 @@ pub fn run() {
                         let mut is_direct = false;
                         let mut latency = 0;
                         
-                        // Try Tailscale Detection
-                        if let Ok(output) = std::process::Command::new("tailscale").arg("status").arg("--json").output() {
+                        // Try Tailscale Detection (Async)
+                        if let Ok(output) = TokioCommand::new("tailscale").arg("status").arg("--json").output().await {
                             if output.status.success() {
                                 if let Ok(status) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
                                     if let Some(peers) = status.get("Peer").and_then(|p| p.as_object()) {
@@ -925,8 +931,10 @@ pub fn run() {
                                                 Err(_) => continue,
                                             };
 
-                                            let matches_host = peer.ips.iter().any(|ip| ip == &host) || 
-                                                             peer.host_name.as_ref().map(|h| h == &host).unwrap_or(false);
+                                            let host_l = host.to_lowercase();
+                                            let matches_host = peer.ips.iter().any(|ip| ip.to_lowercase() == host_l) || 
+                                                             peer.host_name.as_ref().map(|h| h.to_lowercase() == host_l).unwrap_or(false) ||
+                                                             peer.dns_name.as_ref().map(|d| d.to_lowercase().contains(&host_l)).unwrap_or(false);
 
                                             if matches_host {
                                                 if let Some(r) = peer.relay {
@@ -942,19 +950,17 @@ pub fn run() {
                                                     is_direct = true;
                                                 }
 
-                                                // Try to get latency from tailscale ping if active
-                                                // (Alternative: Parse it from some field if available)
-                                                // For now, we use a simple heuristic: if direct, it's "fast"
-                                                // Actually, let's try a quick 'tailscale ping' for RTT
-                                                if let Ok(ping_out) = std::process::Command::new("tailscale")
+                                                // Get real-time latency via tailscale ping
+                                                if let Ok(ping_out) = TokioCommand::new("tailscale")
                                                     .arg("ping")
                                                     .arg("--c=1")
                                                     .arg(&host)
-                                                    .output() {
+                                                    .output()
+                                                    .await {
                                                         let s = String::from_utf8_lossy(&ping_out.stdout);
-                                                        // Parse "latency: 45.2ms"
-                                                        if let Some(pos) = s.find("latency: ") {
-                                                            let rest = &s[pos + 9..];
+                                                        // Parse "in 45ms" or "in 45.2ms"
+                                                        if let Some(pos) = s.find(" in ") {
+                                                            let rest = &s[pos + 4..];
                                                             if let Some(end) = rest.find("ms") {
                                                                 if let Ok(l) = rest[..end].trim().parse::<f64>() {
                                                                     latency = l as u64;

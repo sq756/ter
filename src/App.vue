@@ -545,7 +545,12 @@ onMounted(async () => {
   window.addEventListener('close-all-menus', () => closeAllMenus());
   
   listen('conn-status', (e: any) => {
-    storeActions.pushLog(e.payload);
+    if (e.payload === 'DISCONNECTED') {
+      storeActions.setConnected(false);
+      storeActions.pushLog('[SYSTEM] Connection lost or closed.');
+    } else {
+      storeActions.pushLog(e.payload);
+    }
   });
 
   listen('connection-metrics', (e: any) => {

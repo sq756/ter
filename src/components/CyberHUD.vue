@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, watchEffect } from 'vue';
+import { invoke } from '@tauri-apps/api/core';
 import { globalState, backendLogs, webviewInstances, activeWebviewId, activeTabId, storeActions } from '../store';
 import { useCyber } from '../composables/useCyber';
 import CyberWebview from './CyberWebview.vue';
@@ -7,6 +8,19 @@ import CyberWebview from './CyberWebview.vue';
 const props = defineProps<{
   zoneId: string;
 }>();
+
+const handleReconnect = async () => {
+  if (globalState.activeServerId) {
+    storeActions.pushLog('[SYSTEM] Manual reconnection initiated...');
+    try {
+      await invoke('connect_with_id', { id: globalState.activeServerId });
+    } catch (e) {
+      storeActions.pushLog(`[ERROR] Reconnect failed: ${e}`);
+    }
+  } else {
+    storeActions.pushLog('[WARN] No active server ID to reconnect to.');
+  }
+};
 
 const tacticalLogs = computed(() => backendLogs.value.slice(-50));
 
@@ -130,9 +144,11 @@ const getSlotStyle = (idx: number) => {
           {{ globalState.useNativeWebview ? '⚡ Native' : '🐢 Iframe' }}
         </div>
 
-        <!-- v2.18.0: Kernel Diagnostic Light -->
+        <!-- v2.18.0: Kernel Diagnostic Light (Interactive Button) -->
         <div class="kernel-diagnostic-light" 
-             :title="`PROTOCOL: ${globalState.connectionMetrics.protocol}\nLATENCY: ${globalState.connectionMetrics.latency}ms\nRELAY: ${globalState.connectionMetrics.relay || 'NONE'}`">
+             style="cursor: pointer;"
+             @click="handleReconnect"
+             :title="`PROTOCOL: ${globalState.connectionMetrics.protocol}\nLATENCY: ${globalState.connectionMetrics.latency}ms\nRELAY: ${globalState.connectionMetrics.relay || 'NONE'}\n\nClick to Reconnect`">
           <div class="status-dot" :class="{ 
             'direct': globalState.connectionMetrics.isDirect,
             'relay': globalState.connectionMetrics.relay,
@@ -334,6 +350,12 @@ const getSlotStyle = (idx: number) => {
   padding: 0 8px;
   border-radius: 4px;
   font-family: 'JetBrains Mono', monospace;
+  transition: all 0.2s ease;
+}
+
+.kernel-diagnostic-light:hover {
+  border-color: #3b82f6;
+  background: #18181b;
 }
 
 .status-dot {
