@@ -131,6 +131,7 @@ struct AppState {
     #[allow(dead_code)]
     dynamic_abort: Arc<TokioMutex<Option<tokio::task::AbortHandle>>>,
     mihomo_child: Arc<TokioMutex<Option<tokio::process::Child>>>,
+    current_host: Arc<TokioMutex<Option<String>>>,
 }
 
 use tokio::process::{Command as TokioCommand};
@@ -826,6 +827,10 @@ async fn connect_with_id(id: String, app_handle: AppHandle, state: State<'_, App
     *stack_guard = stack;
     let final_session = stack_guard.last().unwrap().clone();
     *state.session.lock().await = Some(final_session.clone());
+    
+    // v2.18.0: Update current host for monitoring
+    *state.current_host.lock().await = Some(config.host.clone());
+
     if config.auto_tunnel.unwrap_or(false) {
         let _ = app_handle.emit("conn-status", "[TUNNEL] Opening Dynamic Forwarding (SOCKS5)...");
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.map_err(|e| e.to_string())?;
@@ -855,6 +860,16 @@ struct RemoteFile { name: String, is_dir: bool, size: u64, path: String }
 #[derive(serde::Serialize, serde::Deserialize)]
 struct RemoteDirContent { files: Vec<RemoteFile>, current_path: String }
 
+#[derive(serde::Deserialize, Debug)]
+struct TailscalePeer {
+    #[serde(rename = "IPs")]
+    ips: Vec<String>,
+    #[serde(rename = "Relay")]
+    relay: Option<String>,
+    #[serde(rename = "HostName")]
+    host_name: Option<String>,
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let _ = log::set_logger(&LOGGER); log::set_max_level(log::LevelFilter::Debug);
@@ -874,6 +889,7 @@ pub fn run() {
             dynamic_port: Arc::new(TokioMutex::new(None)), agent_abort: Arc::new(TokioMutex::new(None)),
             vnc_abort: Arc::new(TokioMutex::new(None)), dynamic_abort: Arc::new(TokioMutex::new(None)),
             mihomo_child: Arc::new(TokioMutex::new(None)),
+            current_host: Arc::new(TokioMutex::new(None)),
         })
         .setup(|app| {
             let ah = app.handle().clone(); let _ = APP_HANDLE.set(ah.clone());
@@ -883,6 +899,90 @@ pub fn run() {
             if !archives_dir.exists() { let _ = std::fs::create_dir_all(&archives_dir); }
             let db_url = format!("sqlite:///{}?mode=rwc", app_dir.join("ter.db").to_string_lossy());
             let state = app.state::<AppState>();
+            
+            // Connection & Network Monitoring Loop (v2.18.0)
+            let ah_conn = ah.clone();
+            let host_mutex = state.current_host.clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    let current_host = host_mutex.lock().await.clone();
+                    
+                    if let Some(host) = current_host {
+                        let mut protocol = "SSH/TCP".to_string();
+                        let mut relay_node = None;
+                        let mut is_direct = false;
+                        let mut latency = 0;
+                        
+                        // Try Tailscale Detection
+                        if let Ok(output) = std::process::Command::new("tailscale").arg("status").arg("--json").output() {
+                            if output.status.success() {
+                                if let Ok(status) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
+                                    if let Some(peers) = status.get("Peer").and_then(|p| p.as_object()) {
+                                        for (_, peer_val) in peers {
+                                            let peer: TailscalePeer = match serde_json::from_value(peer_val.clone()) {
+                                                Ok(p) => p,
+                                                Err(_) => continue,
+                                            };
+
+                                            let matches_host = peer.ips.iter().any(|ip| ip == &host) || 
+                                                             peer.host_name.as_ref().map(|h| h == &host).unwrap_or(false);
+
+                                            if matches_host {
+                                                if let Some(r) = peer.relay {
+                                                    if !r.is_empty() {
+                                                        protocol = "TCP/Relay".to_string();
+                                                        relay_node = Some(r);
+                                                    } else {
+                                                        protocol = "UDP/Direct".to_string();
+                                                        is_direct = true;
+                                                    }
+                                                } else {
+                                                    protocol = "UDP/Direct".to_string();
+                                                    is_direct = true;
+                                                }
+
+                                                // Try to get latency from tailscale ping if active
+                                                // (Alternative: Parse it from some field if available)
+                                                // For now, we use a simple heuristic: if direct, it's "fast"
+                                                // Actually, let's try a quick 'tailscale ping' for RTT
+                                                if let Ok(ping_out) = std::process::Command::new("tailscale")
+                                                    .arg("ping")
+                                                    .arg("--c=1")
+                                                    .arg(&host)
+                                                    .output() {
+                                                        let s = String::from_utf8_lossy(&ping_out.stdout);
+                                                        // Parse "latency: 45.2ms"
+                                                        if let Some(pos) = s.find("latency: ") {
+                                                            let rest = &s[pos + 9..];
+                                                            if let Some(end) = rest.find("ms") {
+                                                                if let Ok(l) = rest[..end].trim().parse::<f64>() {
+                                                                    latency = l as u64;
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Emit metrics
+                        let _ = ah_conn.emit("connection-metrics", serde_json::json!({
+                            "host": host,
+                            "protocol": protocol,
+                            "relay": relay_node,
+                            "is_direct": is_direct,
+                            "latency": latency,
+                            "timestamp": chrono::Utc::now().to_rfc3339()
+                        }));
+                    }
+                }
+            });
+
             let ah_telemetry = ah.clone();
             tauri::async_runtime::spawn(async move { 
                 use sysinfo::{System, Networks};

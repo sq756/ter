@@ -35,6 +35,15 @@ export const globalState = reactive({
 
   currentAgentPort: null as number | null,
 
+  // v2.18.0: Connection Metrics
+  connectionMetrics: {
+    protocol: 'SSH/TCP',
+    relay: null as string | null,
+    isDirect: false,
+    latency: 0,
+    timestamp: ''
+  },
+
   // Layout State (v2.14.7: Matrix Allocator)
   workspaceMatrix: (() => {
     try {
@@ -118,6 +127,14 @@ export const storeActions = {
   
   updatePath(path: string) {
     globalState.currentPath = path;
+  },
+
+  updateMetrics(m: any) {
+    globalState.connectionMetrics.protocol = m.protocol;
+    globalState.connectionMetrics.relay = m.relay;
+    globalState.connectionMetrics.isDirect = m.is_direct;
+    globalState.connectionMetrics.latency = m.latency || 0;
+    globalState.connectionMetrics.timestamp = m.timestamp;
   },
   
   toggleSafeMode(val: boolean) {

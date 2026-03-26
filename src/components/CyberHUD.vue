@@ -129,6 +129,23 @@ const getSlotStyle = (idx: number) => {
              title="Click to Switch Engine (Native/Iframe)">
           {{ globalState.useNativeWebview ? '⚡ Native' : '🐢 Iframe' }}
         </div>
+
+        <!-- v2.18.0: Kernel Diagnostic Light -->
+        <div class="kernel-diagnostic-light" 
+             :title="`PROTOCOL: ${globalState.connectionMetrics.protocol}\nLATENCY: ${globalState.connectionMetrics.latency}ms\nRELAY: ${globalState.connectionMetrics.relay || 'NONE'}`">
+          <div class="status-dot" :class="{ 
+            'direct': globalState.connectionMetrics.isDirect,
+            'relay': globalState.connectionMetrics.relay,
+            'ssh': globalState.connectionMetrics.protocol === 'SSH/TCP'
+          }"></div>
+          <span class="metrics-label">
+            {{ globalState.connectionMetrics.protocol }} 
+            <span class="latency" v-if="globalState.connectionMetrics.latency > 0">
+              {{ globalState.connectionMetrics.latency }}ms
+            </span>
+          </span>
+        </div>
+
         <input v-model="previewUrl" @keyup.enter="refreshWebview(previewUrl)" class="address-bar-input" />
         <button @click="refreshWebview(previewUrl)" class="refresh-btn">⚡</button>
         <button @click="handleScrapeData()" class="refresh-btn" title="Scrape Page Content (h3)">📊</button>
@@ -306,4 +323,56 @@ const getSlotStyle = (idx: number) => {
   align-items: center;
 }
 .engine-indicator.native { color: #a855f7; border-color: rgba(168, 85, 247, 0.4); }
+
+/* v2.18.0: Kernel Diagnostic Light Styles */
+.kernel-diagnostic-light {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #000;
+  border: 1px solid #27272a;
+  padding: 0 8px;
+  border-radius: 4px;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #71717a;
+}
+
+.status-dot.direct {
+  background: #22c55e;
+  box-shadow: 0 0 8px #22c55e;
+  animation: pulse-light 2s infinite ease-in-out;
+}
+
+.status-dot.relay {
+  background: #eab308;
+  box-shadow: 0 0 8px #eab308;
+  animation: pulse-light 1.5s infinite ease-in-out;
+}
+
+.status-dot.ssh {
+  background: #3b82f6;
+  opacity: 0.8;
+}
+
+@keyframes pulse-light {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.3); opacity: 0.6; }
+}
+
+.metrics-label {
+  font-size: 9px;
+  color: #a1a1aa;
+  white-space: nowrap;
+}
+
+.metrics-label .latency {
+  color: #22c55e;
+  margin-left: 4px;
+}
 </style>

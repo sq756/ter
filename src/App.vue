@@ -548,6 +548,10 @@ onMounted(async () => {
     storeActions.pushLog(e.payload);
   });
 
+  listen('connection-metrics', (e: any) => {
+    storeActions.updateMetrics(e.payload);
+  });
+
   listen('backend-log', (e: any) => {
     if (!isLogsPaused.value) {
       storeActions.pushLog(e.payload);
