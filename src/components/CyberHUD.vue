@@ -148,6 +148,7 @@ const getSlotStyle = (idx: number) => {
         <div class="kernel-diagnostic-light" 
              style="cursor: pointer;"
              @click="handleReconnect"
+             :class="{ 'is-direct': globalState.connectionMetrics.isDirect }"
              :title="`PROTOCOL: ${globalState.connectionMetrics.protocol}\nLATENCY: ${globalState.connectionMetrics.latency}ms\nRELAY: ${globalState.connectionMetrics.relay || 'NONE'}\n\nClick to Reconnect`">
           <div class="status-dot" :class="{ 
             'direct': globalState.connectionMetrics.isDirect,
@@ -155,6 +156,8 @@ const getSlotStyle = (idx: number) => {
             'ssh': globalState.connectionMetrics.protocol === 'SSH/TCP'
           }"></div>
           <span class="metrics-label">
+            <span v-if="globalState.connectionMetrics.isDirect" class="direct-tag">● DIRECT</span>
+            <span v-else-if="globalState.connectionMetrics.relay" class="relay-tag">▲ RELAY</span>
             {{ globalState.connectionMetrics.protocol }} 
             <span class="latency" v-if="globalState.connectionMetrics.latency > 0">
               {{ globalState.connectionMetrics.latency }}ms
@@ -356,6 +359,24 @@ const getSlotStyle = (idx: number) => {
 .kernel-diagnostic-light:hover {
   border-color: #3b82f6;
   background: #18181b;
+}
+
+.kernel-diagnostic-light.is-direct {
+  border-color: rgba(34, 197, 94, 0.5);
+  background: rgba(34, 197, 94, 0.05);
+}
+
+.direct-tag {
+  color: #22c55e;
+  font-weight: bold;
+  margin-right: 6px;
+  text-shadow: 0 0 5px rgba(34, 197, 94, 0.4);
+}
+
+.relay-tag {
+  color: #eab308;
+  font-weight: bold;
+  margin-right: 6px;
 }
 
 .status-dot {

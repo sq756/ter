@@ -550,6 +550,10 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
     state.ctrl_channels.insert(tab_id.clone(), ctrl_tx);
     
     let tab_id_cap = tab_id.clone();
+    let pty_channels = state.pty_channels.clone();
+    let ctrl_channels = state.ctrl_channels.clone();
+    let host_mutex = state.current_host.clone();
+    
     tauri::async_runtime::spawn(async move {
         log::info!("[PTY:{}] Starting PTY read loop", tab_id_cap);
         let mut capture_active = false;
@@ -601,8 +605,15 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
                             aggregation_buffer.extend_from_slice(&data);
                         }
                         Some(russh::ChannelMsg::Eof) | Some(russh::ChannelMsg::Close) | None => {
-                            log::warn!("[PTY:{}] Channel closed, emitting disconnect", tab_id_cap);
-                            let _ = app_handle.emit("conn-status", "DISCONNECTED");
+                            log::warn!("[PTY:{}] Channel closed", tab_id_cap);
+                            pty_channels.remove(&tab_id_cap);
+                            ctrl_channels.remove(&tab_id_cap);
+                            
+                            if pty_channels.is_empty() {
+                                log::warn!("[PTY] All channels closed, emitting disconnect");
+                                *host_mutex.lock().await = None;
+                                let _ = app_handle.emit("conn-status", "DISCONNECTED");
+                            }
                             break;
                         }
                         _ => {}
