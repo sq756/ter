@@ -1091,6 +1091,13 @@ pub fn run() {
             state.pty_channels.clear();
             state.ctrl_channels.clear();
         }
+        tauri::RunEvent::WindowEvent { label, event, .. } => {
+            if label == "main" && matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                // Bug 13 Fix: Force application exit when main window closes
+                // Prevents hidden windows (like auth-gateway) from turning ter into a zombie process
+                std::process::exit(0);
+            }
+        }
         _ => {}
     });
 }
