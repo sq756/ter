@@ -105,11 +105,12 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install NDK
+      - name: Install NDK and Build Tools
         run: |
-          sdkmanager "ndk;25.2.9519653"
+          sdkmanager "ndk;25.2.9519653" "build-tools;34.0.0"
           echo "ANDROID_NDK_HOME=${ANDROID_SDK_ROOT}/ndk/25.2.9519653" >> $GITHUB_ENV
           echo "${ANDROID_SDK_ROOT}/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin" >> $GITHUB_PATH
+          echo "ANDROID_BUILD_TOOLS=${ANDROID_SDK_ROOT}/build-tools/34.0.0" >> $GITHUB_ENV
 
       - name: Rust setup
         uses: dtolnay/rust-toolchain@stable
@@ -151,7 +152,6 @@ jobs:
           alias: ${{ secrets.ALIAS }}
           keyStorePassword: ${{ secrets.KEYSTORE_PASSWORD }}
           keyPassword: ${{ secrets.KEY_PASSWORD }}
-          buildToolsVersion: 34.0.0
 
       - name: Upload APK to Release
         uses: softprops/action-gh-release@v2
