@@ -828,12 +828,7 @@ async fn connect_to_server(config: &ServerConfig, servers: &[ServerConfig], cryp
                 }
             }
             let channel = proxy_handle.channel_open_direct_tcpip(&config.host, config.port as u32, "127.0.0.1", 0).await.map_err(|e| e.to_string())?;
-            // Fix 2: SSH keepalive — prevent silent disconnects on idle sessions
-            let russh_config = Arc::new(client::Config {
-                keepalive_interval: Some(std::time::Duration::from_secs(30)),
-                keepalive_max: 3,
-                ..(client::Config::default())
-            });
+            let russh_config = Arc::new(client::Config::default());
             let mut sess = client::connect_stream(russh_config, channel.into_stream(), Client {}).await.map_err(|e| e.to_string())?;
             let auth = sess.authenticate_password(&config.user, pass).await.map_err(|e| e.to_string())?;
             if !matches!(auth, russh::client::AuthResult::Success) { return Err("Auth fail on target".to_string()); }
@@ -841,12 +836,7 @@ async fn connect_to_server(config: &ServerConfig, servers: &[ServerConfig], cryp
             return Ok(stack);
         }
     }
-    // Fix 2: SSH keepalive — prevent silent disconnects on idle sessions
-    let russh_config = Arc::new(client::Config {
-        keepalive_interval: Some(std::time::Duration::from_secs(30)),
-        keepalive_max: 3,
-        ..(client::Config::default())
-    });
+    let russh_config = Arc::new(client::Config::default());
     let _ = app.emit("conn-status", format!("[STEP] Connecting to {}...", config.host));
     // Fix 5: Separate TCP connect timeout (5s) from SSH handshake timeout (15s)
     // TCP SYN/ACK is fast; SSH key exchange can take longer on high-latency links
