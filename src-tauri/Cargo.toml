@@ -45,6 +45,11 @@ dashmap = "6.1.0"
 lazy_static = "1.4"
 regex = "1.10"
 chrono = "0.4"
-portable-pty = "0.8"
+# portable-pty moved to target-specific section below (not Android)
 sysinfo = "0.33"
 tauri-plugin-fs = "2.4.5"
+
+# portable-pty uses termios which has no Android support.
+# Gate it to desktop platforms only.
+[target.'cfg(not(target_os = "android"))'.dependencies]
+portable-pty = "0.8"

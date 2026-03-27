@@ -15,6 +15,8 @@ use tauri::Emitter;
 use uuid::Uuid;
 use std::sync::OnceLock;
 use tauri_plugin_clipboard_manager::ClipboardExt;
+// portable-pty uses termios which is unsupported on Android
+#[cfg(not(target_os = "android"))]
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::io::{Read, Write};
 
@@ -465,6 +467,14 @@ async fn list_vault() -> Result<Vec<serde_json::Value>, String> {
     ARCHIVER.list_vault()
 }
 
+// Android: local PTY (termios-backed portable-pty) not available — stub returns error
+#[cfg(target_os = "android")]
+#[tauri::command]
+async fn spawn_local_pty(_tab_id: String, _app_handle: AppHandle, _state: State<'_, AppState>) -> Result<(), String> {
+    Err("Local PTY not supported on Android. Use SSH remote connection.".to_string())
+}
+
+#[cfg(not(target_os = "android"))]
 #[tauri::command]
 async fn spawn_local_pty(tab_id: String, app_handle: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let pty_system = native_pty_system();
@@ -495,7 +505,6 @@ async fn spawn_local_pty(tab_id: String, app_handle: AppHandle, state: State<'_,
     let app_handle_cap = app_handle.clone();
     let master = pair.master;
 
-    // Read loop
     std::thread::spawn(move || {
         let mut reader = reader;
         let mut buffer = [0u8; 8192];
@@ -514,18 +523,12 @@ async fn spawn_local_pty(tab_id: String, app_handle: AppHandle, state: State<'_,
         }
     });
 
-    // Write & Control loop
     tauri::async_runtime::spawn(async move {
         loop {
             tokio::select! {
                 Some(ctrl) = ctrl_rx.recv() => {
                     let PtyControl::Resize(c, r) = ctrl;
-                    let _ = master.resize(PtySize {
-                        rows: r as u16,
-                        cols: c as u16,
-                        pixel_width: 0,
-                        pixel_height: 0,
-                    });
+                    let _ = master.resize(PtySize { rows: r as u16, cols: c as u16, pixel_width: 0, pixel_height: 0 });
                 }
                 Some(data) = rx.recv() => {
                     let _ = writer.write_all(data.as_bytes());
