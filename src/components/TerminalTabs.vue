@@ -3,6 +3,7 @@ import { ref, nextTick, computed } from 'vue';
 import TerminalView from './TerminalView.vue';
 import TerEditor from './TerEditor.vue';
 import CyberWebview from './CyberWebview.vue';
+import SftpExplorer from './SftpExplorer.vue';
 import { terminalManager } from '../TerminalManager';
 
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -19,7 +20,7 @@ const props = defineProps<{
   uiScale: number;
 }>();
 
-const emit = defineEmits(['switch-tab', 'switch-tab-secondary', 'close-tab', 'new-tab', 'terminal-context', 'rename-tab', 'pin-tab', 'copy-tab-id', 'toggle-split', 'save-complete', 'path-updated']);
+const emit = defineEmits(['switch-tab', 'switch-tab-secondary', 'close-tab', 'new-tab', 'terminal-context', 'rename-tab', 'pin-tab', 'copy-tab-id', 'toggle-split', 'save-complete', 'path-updated', 'explorer-context']);
 
 const splitVertical = ref(localStorage.getItem('ter_split_vertical') === 'true');
 
@@ -209,6 +210,15 @@ const handleSearchClick = () => {
                             :url="t.data?.url" 
                             :isActive="t.id === activeTabId && globalState.focusedPane === 'primary'" />
           </template>
+          
+          <template v-for="t in getVisibleTabs()" :key="'pane-prim-expl-' + t.id">
+            <div v-if="t.viewType === 'explorer'" v-show="t.id === activeTabId" style="flex:1; display:flex; flex-direction:column; overflow:hidden;">
+              <SftpExplorer
+                :hostName="globalState.host"
+                @explorer-context="(e: any) => $emit('explorer-context', e)"
+              />
+            </div>
+          </template>
         </div>
         <div v-else class="empty-pane-msg">SELECT_TAB_FOR_DECK_1</div>
       </section>
@@ -240,6 +250,15 @@ const handleSearchClick = () => {
                             :id="t.id"
                             :url="t.data?.url" 
                             :isActive="t.id === activeTabIdSecondary && globalState.focusedPane === 'secondary'" />
+          </template>
+          
+          <template v-for="t in getVisibleTabs()" :key="'pane-sec-expl-' + t.id">
+            <div v-if="t.viewType === 'explorer'" v-show="t.id === activeTabIdSecondary" style="flex:1; display:flex; flex-direction:column; overflow:hidden;">
+              <SftpExplorer
+                :hostName="globalState.host"
+                @explorer-context="(e: any) => $emit('explorer-context', e)"
+              />
+            </div>
           </template>
         </div>
         <div v-else class="empty-pane-msg">SELECT_TAB_FOR_DECK_2</div>

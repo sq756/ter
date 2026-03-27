@@ -24,6 +24,7 @@ const props = defineProps<{
   slots: string[]; // Fixed: Changed from Record to string array
   isLogsOverlay: boolean;
   hostName?: string;
+  remoteTmuxSessions?: string[];
 }>();
 
 const emit = defineEmits([
@@ -31,7 +32,7 @@ const emit = defineEmits([
   'run-skill', 'change-dir', 'view-history', 'open-trigger-settings', 'fast-access', 
   'morse-down', 'morse-up', 'morse-context', 'explorer-context', 'cycle-health-mode', 
   'skill-context', 'header-context', 'resize-sftp-start', 'resize-charts', 
-  'view-changed', 'switch-web', 'web-context', 'open-vault-entry'
+  'view-changed', 'switch-web', 'switch-tmux', 'web-context', 'open-vault-entry'
 ]);
 
 const activeView = ref<string>('OPS');
@@ -81,15 +82,20 @@ const startResizingSFTP = (e: MouseEvent) => {
 };
 const explorerWrapperRef = ref<HTMLElement | null>(null);
 
+let sftpResizeFrame = 0;
 const handleSFTPResize = (e: MouseEvent) => {
   if (!isResizingSFTP.value || !explorerWrapperRef.value) return;
-  const rect = explorerWrapperRef.value.getBoundingClientRect();
-  const newHeight = rect.bottom - e.clientY;
-  globalState.sftpHeight = Math.max(100, Math.min(600, newHeight));
-  localStorage.setItem('ter_sftp_height', globalState.sftpHeight.toString());
+  if (sftpResizeFrame) cancelAnimationFrame(sftpResizeFrame);
+  sftpResizeFrame = requestAnimationFrame(() => {
+    const rect = explorerWrapperRef.value!.getBoundingClientRect();
+    const newHeight = rect.bottom - e.clientY;
+    globalState.sftpHeight = Math.max(100, Math.min(600, newHeight));
+  });
 };
 const stopSFTPResize = () => {
   isResizingSFTP.value = false;
+  if (sftpResizeFrame) cancelAnimationFrame(sftpResizeFrame);
+  localStorage.setItem('ter_sftp_height', globalState.sftpHeight.toString());
   document.removeEventListener('mousemove', handleSFTPResize);
   document.removeEventListener('mouseup', stopSFTPResize);
 };
@@ -115,16 +121,21 @@ const startResizingVertical = (e: MouseEvent) => {
   document.addEventListener('mouseup', stopVerticalResize);
 };
 
+let vertResizeFrame = 0;
 const handleVerticalResize = (e: MouseEvent) => {
   if (!isResizingVertical.value || !sidebarRef.value) return;
-  const rect = sidebarRef.value.getBoundingClientRect();
-  const relativeY = e.clientY - rect.top;
-  const percent = Math.max(10, Math.min(90, (relativeY / rect.height) * 100));
-  processesHeightPercent.value = percent;
+  if (vertResizeFrame) cancelAnimationFrame(vertResizeFrame);
+  vertResizeFrame = requestAnimationFrame(() => {
+    const rect = sidebarRef.value!.getBoundingClientRect();
+    const relativeY = e.clientY - rect.top;
+    const percent = Math.max(10, Math.min(90, (relativeY / rect.height) * 100));
+    processesHeightPercent.value = percent;
+  });
 };
 
 const stopVerticalResize = () => {
   isResizingVertical.value = false;
+  if (vertResizeFrame) cancelAnimationFrame(vertResizeFrame);
   localStorage.setItem('ter_sidebar_split', processesHeightPercent.value.toString());
   document.removeEventListener('mousemove', handleVerticalResize);
   document.removeEventListener('mouseup', stopVerticalResize);
@@ -236,6 +247,19 @@ const safeVal = (v: any) => (v === null || v === undefined || (typeof v === 'num
             </span>
             <span class="name">{{ w.title || 'Web Task' }}</span>
             <span class="val active" :class="{ 'highlight': activeWebviewId === w.id }">WEB</span>
+          </li>
+          <!-- Remote Tmux Sessions (v2.18.x Pillar 3) -->
+          <li v-for="s in remoteTmuxSessions" :key="'ts-'+s" @click="$emit('switch-tmux', s)">
+            <span class="icon">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect><line x1="8" y1="21" x2="16" y2="21"></line><line x1="12" y1="17" x2="12" y2="21"></line></svg>
+            </span>
+            <span class="name">tmux-{{ s }}</span>
+            <template v-if="bgTabs.find(t => t.id === s || t.title === s)">
+               <span class="val active">LINKED</span>
+            </template>
+            <template v-else>
+               <span class="val" style="color: #f59e0b">DETACHED</span>
+            </template>
           </li>
         </ul>
       </div>

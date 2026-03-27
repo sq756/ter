@@ -66,12 +66,6 @@ const handleResizeSFTP = (newHeight: number) => {
   globalState.sftpHeight = Math.max(100, Math.min(600, newHeight));
 };
 
-const handleGlobalMouseMove = (e: MouseEvent) => {
-  if (isResizingSFTP.value) {
-    globalState.sftpHeight = Math.max(100, Math.min(600, globalState.sftpHeight + e.movementY));
-  }
-};
-
 const showPrivilegeMenu = ref(false);
 const privilegeModule = ref('');
 const privilegeMenuX = ref(0);
@@ -108,6 +102,7 @@ const sharedProps = computed(() => ({
   isLogsOverlay: !!previousSlot3.value,
   
   // Terminal Props
+  remoteTmuxSessions: remoteTmuxSessions.value,
   tabs: terminalTabs.value,
   activeTabId: activeTabId.value,
   connectionStatus: globalState.connectionStatus,
@@ -164,6 +159,35 @@ const toggleSplit = () => {
 const {
   realFiles, refreshExplorer, changeDir, onFastAccess
 } = useExplorer();
+
+// v2.18.x Pillar 3: Remote Tmux Sessions & Web Clicks
+const remoteTmuxSessions = ref<string[]>([]);
+const syncRemoteTmuxSessions = async () => {
+  if (globalState.isConnected && globalState.host !== 'LOCAL') {
+    try {
+      const sessions = await invoke<string[]>('list_remote_tmux_sessions');
+      remoteTmuxSessions.value = sessions;
+    } catch(e) {}
+  }
+};
+
+const handleSwitchTmux = async (sessionName: string) => {
+  const existing = terminalTabs.value.find(t => t.id === sessionName || t.title === sessionName);
+  if (existing) {
+    bringToForeground(existing.id);
+  } else {
+    // Attach to remote tmux session by using sessionName as tab ID mapping
+    await createNewTab(sessionName, 'terminal', {}, false, sessionName);
+  }
+};
+
+const handleSwitchWeb = (id: string) => {
+  activeWebviewId.value = id;
+  // Make sure the dashboard view is visible so the user can see the webview
+  if (sidebarSlots.value.includes('LOGS')) {
+    window.dispatchEvent(new CustomEvent('switch-sidebar-view', { detail: 'LOGS' }));
+  }
+};
 
 // v2.14.21: Global Action Provider
 const globalActions = {
@@ -325,8 +349,13 @@ listen('web-context-menu', (ev: any) => {
 const { 
   cpuChartRef, memChartRef, netChartRef, currentCpuUsage, 
   healthMode, currentNetSpeed, extraStats,
-  initCharts, resizeCharts: _resizeCharts, fetchStats, setHealthMode
+  initCharts, resizeCharts: _resizeCharts, fetchStats: _fetchStats, setHealthMode
 } = useStats(computed(() => globalState.currentAgentPort), computed(() => globalState.agentToken));
+
+const fetchStats = async () => {
+  _fetchStats();
+  syncRemoteTmuxSessions();
+};
 
 const resizeCharts = () => {
   console.log('[App] resizeCharts');
@@ -401,6 +430,11 @@ const handleExplorerDownload = async () => {
     }
   });
   await explorerActionDownload(updateStatus);
+};
+
+const handleOpenFullExplorer = async () => {
+  await createNewTab(`Files: ${globalState.host}`, 'explorer', {});
+  showExplorerMenu.value = false;
 };
 
 const cycleHealthMode = () => {
@@ -540,7 +574,6 @@ onMounted(async () => {
   window.addEventListener('keydown', handleGlobalKeyDown);
   window.addEventListener('keydown', (e) => { if (e.ctrlKey) isCtrlPressed.value = true; });
   window.addEventListener('keyup', (e) => { if (!e.ctrlKey) isCtrlPressed.value = false; });
-  document.addEventListener('mousemove', handleGlobalMouseMove);
   document.addEventListener('mouseup', () => { isResizingSFTP.value = false; document.body.style.cursor = ''; });
   window.addEventListener('close-all-menus', () => closeAllMenus());
   
@@ -576,7 +609,6 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleGlobalKeyDown);
-  document.removeEventListener('mousemove', handleGlobalMouseMove);
   if (statsIntervalId) clearInterval(statsIntervalId);
 });
 
@@ -762,6 +794,7 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
 
         <div v-if="showExplorerMenu" class="context-menu" :style="{ top: explorerMenuY + 'px', left: explorerMenuX + 'px' }">
           <header class="menu-header">FILE ACTIONS</header>
+          <div class="menu-item highlight" style="justify-content: center; font-weight: bold; margin-bottom: 4px;" @click="handleOpenFullExplorer">🌌 OPEN FULLSCREEN VIEW</div>
           <template v-if="selectedFile?.is_dir">
             <div class="menu-item" @click="explorerActionCd">📂 Open Folder</div>
             <div class="menu-item" @click="explorerActionUpload">📤 Upload</div>
@@ -826,7 +859,8 @@ watch(() => showWebMenu.value, (val) => { if (val) activeMenu.value = 'web'; });
                            @explorer-context="onExplorerContextMenu($event)"
                            @resize-sftp-start="handleResizeSFTP($event)"
                            @view-changed="handleSidebarViewRevert($event)"
-                           @switch-web="activeWebviewId = $event"
+                           @switch-web="handleSwitchWeb($event)"
+                           @switch-tmux="handleSwitchTmux($event)"
                            @web-context="onWebContextMenu($event)"
                            @skill-context="onSkillContextMenu($event)"
                            @header-context="onHeaderContextMenu($event)"

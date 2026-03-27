@@ -37,6 +37,8 @@ export function usePtyListener(
             captureAndUpload(true);
           } else if (rpc.action === 'navigate' && rpc.url) {
             refreshWebview(rpc.url);
+          } else if (rpc.action === 'split_webview' && rpc.url) {
+            window.dispatchEvent(new CustomEvent('ter-split-webview', { detail: { url: rpc.url } }));
           } else if (rpc.action === 'extract_dom') {
             handleExtractDOM();
           } else if (rpc.action === 'notify') {
