@@ -81,15 +81,20 @@ const startResizingSFTP = (e: MouseEvent) => {
 };
 const explorerWrapperRef = ref<HTMLElement | null>(null);
 
+let sftpResizeFrame = 0;
 const handleSFTPResize = (e: MouseEvent) => {
   if (!isResizingSFTP.value || !explorerWrapperRef.value) return;
-  const rect = explorerWrapperRef.value.getBoundingClientRect();
-  const newHeight = rect.bottom - e.clientY;
-  globalState.sftpHeight = Math.max(100, Math.min(600, newHeight));
-  localStorage.setItem('ter_sftp_height', globalState.sftpHeight.toString());
+  if (sftpResizeFrame) cancelAnimationFrame(sftpResizeFrame);
+  sftpResizeFrame = requestAnimationFrame(() => {
+    const rect = explorerWrapperRef.value!.getBoundingClientRect();
+    const newHeight = rect.bottom - e.clientY;
+    globalState.sftpHeight = Math.max(100, Math.min(600, newHeight));
+  });
 };
 const stopSFTPResize = () => {
   isResizingSFTP.value = false;
+  if (sftpResizeFrame) cancelAnimationFrame(sftpResizeFrame);
+  localStorage.setItem('ter_sftp_height', globalState.sftpHeight.toString());
   document.removeEventListener('mousemove', handleSFTPResize);
   document.removeEventListener('mouseup', stopSFTPResize);
 };
@@ -115,16 +120,21 @@ const startResizingVertical = (e: MouseEvent) => {
   document.addEventListener('mouseup', stopVerticalResize);
 };
 
+let vertResizeFrame = 0;
 const handleVerticalResize = (e: MouseEvent) => {
   if (!isResizingVertical.value || !sidebarRef.value) return;
-  const rect = sidebarRef.value.getBoundingClientRect();
-  const relativeY = e.clientY - rect.top;
-  const percent = Math.max(10, Math.min(90, (relativeY / rect.height) * 100));
-  processesHeightPercent.value = percent;
+  if (vertResizeFrame) cancelAnimationFrame(vertResizeFrame);
+  vertResizeFrame = requestAnimationFrame(() => {
+    const rect = sidebarRef.value!.getBoundingClientRect();
+    const relativeY = e.clientY - rect.top;
+    const percent = Math.max(10, Math.min(90, (relativeY / rect.height) * 100));
+    processesHeightPercent.value = percent;
+  });
 };
 
 const stopVerticalResize = () => {
   isResizingVertical.value = false;
+  if (vertResizeFrame) cancelAnimationFrame(vertResizeFrame);
   localStorage.setItem('ter_sidebar_split', processesHeightPercent.value.toString());
   document.removeEventListener('mousemove', handleVerticalResize);
   document.removeEventListener('mouseup', stopVerticalResize);

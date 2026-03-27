@@ -64,6 +64,13 @@ const saveNewServer = async () => {
   loadServers();
 };
 
+// Bug 4/10 Fix: Delete server node
+const deleteServer = async (id: string) => {
+  if (!confirm('Delete this node? This cannot be undone.')) return;
+  await invoke('delete_server_config', { id });
+  await loadServers();
+};
+
 onMounted(async () => {
   const isSet = await invoke<boolean>('check_master_password_set').catch(() => false);
   if (isSet) {
@@ -139,6 +146,7 @@ onMounted(async () => {
               <small>{{ s.user }}@{{ s.host }}</small>
               <div v-if="s.proxy_id" class="chain-tag">🔗 PROXY_ACTIVE</div>
             </div>
+            <button class="delete-node-btn" @click.stop="deleteServer(s.id)" title="Delete Node">✕</button>
           </div>
           <div v-if="savedServers.length === 0" class="empty-nodes">NO AUTHORIZED NODES FOUND</div>
         </div>
@@ -208,6 +216,10 @@ onMounted(async () => {
 .server-card.local-card:hover { border-color: #3b82f6; box-shadow: 0 5px 15px rgba(59, 130, 246, 0.1); }
 .server-card small { color: #52525b; font-size: 11px; }
 .empty-nodes { grid-column: span 2; text-align: center; color: #3f3f46; font-size: 12px; padding: 40px; border: 1px dashed #18181b; }
+
+/* Bug 4/10 Fix: Delete button */
+.delete-node-btn { margin-left: auto; align-self: flex-start; background: transparent; border: none; color: #3f3f46; cursor: pointer; font-size: 14px; padding: 2px 6px; border-radius: 2px; transition: all 0.2s; line-height: 1; }
+.delete-node-btn:hover { color: #ef4444; background: rgba(239, 68, 68, 0.15); }
 
 .modal-overlay { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.9); display: flex; align-items: center; justify-content: center; z-index: 10000; backdrop-filter: blur(8px); }
 .auth-card { width: 360px; padding: 40px; }

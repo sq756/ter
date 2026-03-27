@@ -1,7 +1,7 @@
 import { computed, ref, onMounted, onUnmounted } from 'vue';
-import { 
-  terminalTabs, activeTabId, activeTabIdSecondary, splitMode, 
-  globalState, storeActions 
+import {
+  terminalTabs, activeTabId, activeTabIdSecondary, splitMode,
+  storeActions
 } from '../store';
 import { terminalManager } from '../TerminalManager';
 
@@ -71,8 +71,13 @@ export function useTabs() {
       if (tab) {
         const s = terminalManager.getSelection(tab.id).trim();
         const currentTitle = tab.title;
-        const isCustomName = currentTitle !== 'Shell' && currentTitle !== 'Main Shell' && !currentTitle.startsWith('Proc:') && !currentTitle.startsWith('tab-');
-        if (!isCustomName) {
+        // Bug 5 Fix: Only auto-rename if title is a generic default — preserve user-set names
+        const isDefaultTitle = currentTitle === 'Shell' || currentTitle === 'Main Shell'
+          || currentTitle.startsWith('Proc:')
+          || currentTitle.startsWith('tab-')
+          || /^[A-Z0-9_]+_CORE$/.test(currentTitle)  // e.g. REMOTE_NODE_CORE
+          || currentTitle === 'Deck-2';
+        if (isDefaultTitle) {
           tab.title = s ? `Proc: ${s.substring(0, 10)}...` : `Proc: ${tid.substring(0, 5)}`;
         }
         tab.isBackground = true;

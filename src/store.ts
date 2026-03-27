@@ -1,4 +1,4 @@
-import { reactive, computed, shallowRef, ref, nextTick } from 'vue';
+import { reactive, computed, shallowRef, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { terminalManager } from './TerminalManager';
 import { webviewManager } from './WebviewManager';
@@ -14,9 +14,8 @@ export const globalState = reactive({
   host: 'REMOTE_NODE',
   activeServerId: null as string | null,
   connectionStatus: 'disconnected' as 'connected' | 'busy' | 'disconnected',
-  
+
   // UI State
-  gridMode: false,
   gridLayout: { rows: 2, cols: 3 }, // v2.15.45: Default 2x3 grid
   isSafeMode: localStorage.getItem('ter_safe_mode') === 'true',
   useNativeWebview: localStorage.getItem('ter_use_native_webview') !== 'false', // Default true
@@ -120,11 +119,11 @@ export const storeActions = {
     if (id) globalState.activeServerId = id;
     globalState.connectionStatus = status ? 'connected' : 'disconnected';
   },
-  
+
   syncLogs(logs: string[]) {
     backendLogs.value = logs;
   },
-  
+
   updatePath(path: string) {
     globalState.currentPath = path;
   },
@@ -136,7 +135,7 @@ export const storeActions = {
     globalState.connectionMetrics.latency = m.latency || 0;
     globalState.connectionMetrics.timestamp = m.timestamp;
   },
-  
+
   toggleSafeMode(val: boolean) {
     globalState.isSafeMode = val;
     localStorage.setItem('ter_safe_mode', val.toString());
@@ -145,7 +144,7 @@ export const storeActions = {
   async setNativeWebview(val: boolean) {
     globalState.useNativeWebview = val;
     localStorage.setItem('ter_use_native_webview', val.toString());
-    
+
     // v2.15.36: Stable Dynamic Engine Switch
     if (!val) {
       try {
@@ -168,33 +167,48 @@ export const storeActions = {
   async createNewTab(title = "SHELL", viewType: any = 'terminal', data: any = {}, skipPty = false, existingId?: string) {
     const id = existingId || 'tab-' + Math.random().toString(36).substr(2, 9);
     console.log(`[TER_CORE] Creating tab: ${id} (${title}) type: ${viewType}`);
-    
+
+    // Bug 1 Fix: If tab already exists, just activate it — do NOT re-spawn PTY
+    const alreadyExists = terminalTabs.value.find(t => t.id === id);
+    if (alreadyExists) {
+      alreadyExists.isBackground = false;
+      if (splitMode.value && activeTabId.value) {
+        activeTabIdSecondary.value = id;
+      } else {
+        activeTabId.value = id;
+      }
+      window.dispatchEvent(new CustomEvent('ter-tab-activity', { detail: { id, timestamp: Date.now() } }));
+      return id;
+    }
+
     if (viewType === 'terminal') {
-      terminalManager.setOnDataCallback(id, (tid, d) => { 
+      terminalManager.setOnDataCallback(id, (tid, d) => {
         if (!skipPty && globalState.isConnected) {
-          invoke('write_pty', { tabId: tid, data: d }).catch(() => {}); 
+          invoke('write_pty', { tabId: tid, data: d }).catch(() => { });
         }
       });
       await terminalManager.getOrCreate(id);
       if (!skipPty && globalState.isConnected) {
-        try {
-          if (globalState.host === 'LOCAL') {
+        if (globalState.host === 'LOCAL') {
+          try {
             await invoke('spawn_local_pty', { tabId: id });
-          } else {
-            await invoke('spawn_new_pty', { tabId: id });
+            setTimeout(() => invoke('write_pty', { tabId: id, data: "\n\r" }), 500);
+          } catch (e) {
+            storeActions.pushLog(`[ERROR] PTY Spawn fail for ${id}: ${e}`);
           }
-          setTimeout(() => invoke('write_pty', { tabId: id, data: "\n\r" }), 500);
-        } catch (e) { 
-          backendLogs.value.push(`[ERROR] PTY Spawn fail for ${id}: ${e}`); 
+        } else {
+          try {
+            await invoke('spawn_new_pty', { tabId: id, initialRows: 30, initialCols: 100 });
+            setTimeout(() => invoke('write_pty', { tabId: id, data: "\n\r" }), 500);
+          } catch (e) {
+            storeActions.pushLog(`[ERROR] PTY Spawn fail for ${id}: ${e}`);
+          }
         }
       }
     }
 
-    const exists = terminalTabs.value.find(t => t.id === id);
-    if (!exists) {
-      terminalTabs.value.push({ id, title, viewType, data, isBackground: false });
-    }
-    
+    terminalTabs.value.push({ id, title, viewType, data, isBackground: false });
+
     if (splitMode.value && activeTabId.value) {
       activeTabIdSecondary.value = id;
     } else {
@@ -214,6 +228,24 @@ export const storeActions = {
       terminalManager.remove(id);
       if (activeTabId.value === id) {
         activeTabId.value = terminalTabs.value.find(t => !t.isBackground)?.id || null;
+      }
+      if (activeTabIdSecondary.value === id) {
+        activeTabIdSecondary.value = terminalTabs.value.find(t => !t.isBackground && t.id !== activeTabId.value)?.id || null;
+      }
+    }
+  },
+
+  // Bug 6 Fix: Rename tab and sync tmux session name
+  async renameTab(id: string, newName: string) {
+    const tab = terminalTabs.value.find(t => t.id === id);
+    if (tab) {
+      tab.title = newName;
+      // Send tmux rename-session command
+      if (globalState.isConnected && globalState.host !== 'LOCAL' && tab.viewType === 'terminal') {
+        try {
+          // Ctrl-B + $ calls tmux rename-session interactively; use direct command instead
+          await invoke('write_pty', { tabId: id, data: `tmux rename-session -t ${id} "${newName.replace(/"/g, '_')}"\r` });
+        } catch (e) { /* non-critical */ }
       }
     }
   }

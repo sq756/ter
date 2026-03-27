@@ -56,8 +56,9 @@ const {
 } = useCyber(activeTabId, backendLogs, ownedInstanceId, updateWebviewUrl);
 
 // Sync local previewUrl with instance url when instance changes
+// Bug 2 Fix: Only sync when user is NOT actively typing in the address bar
 watch(() => currentInstance.value?.url, (newUrl) => {
-  if (newUrl && newUrl !== previewUrl.value) {
+  if (newUrl && newUrl !== previewUrl.value && !isUserTypingUrl.value) {
     console.log(`[CyberHUD:${props.zoneId}] Syncing previewUrl to:`, newUrl);
     previewUrl.value = newUrl;
   }
@@ -80,6 +81,17 @@ onMounted(() => {
 const showLogs = ref(true);
 const showGridMenu = ref(false);
 const gridMenuPos = ref({ x: 0, y: 0 });
+
+// Bug 2 Fix: Track whether user is actively typing in the address bar
+const isUserTypingUrl = ref(false);
+
+// Bug 3 Fix: Add new webview instance
+const addWebviewInstance = () => {
+  const id = `web-${Math.random().toString(36).substr(2, 9)}`;
+  webviewInstances.value.push({ id, title: 'New Page', url: 'https://google.com', isActive: true });
+  activeWebviewId.value = id;
+  previewUrl.value = 'https://google.com';
+};
 
 const toggleWebEngine = () => {
   storeActions.setNativeWebview(!globalState.useNativeWebview);
@@ -148,6 +160,7 @@ const getSlotStyle = (idx: number) => {
         <div class="kernel-diagnostic-light" 
              style="cursor: pointer;"
              @click="handleReconnect"
+             :class="{ 'is-direct': globalState.connectionMetrics.isDirect }"
              :title="`PROTOCOL: ${globalState.connectionMetrics.protocol}\nLATENCY: ${globalState.connectionMetrics.latency}ms\nRELAY: ${globalState.connectionMetrics.relay || 'NONE'}\n\nClick to Reconnect`">
           <div class="status-dot" :class="{ 
             'direct': globalState.connectionMetrics.isDirect,
@@ -155,6 +168,8 @@ const getSlotStyle = (idx: number) => {
             'ssh': globalState.connectionMetrics.protocol === 'SSH/TCP'
           }"></div>
           <span class="metrics-label">
+            <span v-if="globalState.connectionMetrics.isDirect" class="direct-tag">● DIRECT</span>
+            <span v-else-if="globalState.connectionMetrics.relay" class="relay-tag">▲ RELAY</span>
             {{ globalState.connectionMetrics.protocol }} 
             <span class="latency" v-if="globalState.connectionMetrics.latency > 0">
               {{ globalState.connectionMetrics.latency }}ms
@@ -162,8 +177,13 @@ const getSlotStyle = (idx: number) => {
           </span>
         </div>
 
-        <input v-model="previewUrl" @keyup.enter="refreshWebview(previewUrl)" class="address-bar-input" />
+        <input v-model="previewUrl" 
+               @focus="isUserTypingUrl = true"
+               @blur="isUserTypingUrl = false"
+               @keyup.enter="isUserTypingUrl = false; refreshWebview(previewUrl)" 
+               class="address-bar-input" />
         <button @click="refreshWebview(previewUrl)" class="refresh-btn">⚡</button>
+        <button @click="addWebviewInstance" class="refresh-btn" title="Add New Web Page (+)">＋</button>
         <button @click="handleScrapeData()" class="refresh-btn" title="Scrape Page Content (h3)">📊</button>
         <button v-if="!showLogs" @click="showLogs = true" class="refresh-btn" title="Show Logs">📖</button>
         <button @click="globalState.gridMode = !globalState.gridMode" 
@@ -356,6 +376,24 @@ const getSlotStyle = (idx: number) => {
 .kernel-diagnostic-light:hover {
   border-color: #3b82f6;
   background: #18181b;
+}
+
+.kernel-diagnostic-light.is-direct {
+  border-color: rgba(34, 197, 94, 0.5);
+  background: rgba(34, 197, 94, 0.05);
+}
+
+.direct-tag {
+  color: #22c55e;
+  font-weight: bold;
+  margin-right: 6px;
+  text-shadow: 0 0 5px rgba(34, 197, 94, 0.4);
+}
+
+.relay-tag {
+  color: #eab308;
+  font-weight: bold;
+  margin-right: 6px;
 }
 
 .status-dot {

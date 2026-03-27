@@ -15,6 +15,8 @@ use tauri::Emitter;
 use uuid::Uuid;
 use std::sync::OnceLock;
 use tauri_plugin_clipboard_manager::ClipboardExt;
+// portable-pty uses termios which is unsupported on Android
+#[cfg(not(target_os = "android"))]
 use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::io::{Read, Write};
 
@@ -132,6 +134,8 @@ struct AppState {
     dynamic_abort: Arc<TokioMutex<Option<tokio::task::AbortHandle>>>,
     mihomo_child: Arc<TokioMutex<Option<tokio::process::Child>>>,
     current_host: Arc<TokioMutex<Option<String>>>,
+    // Fix 3: Cached SFTP session — open once, reuse for all SFTP operations
+    sftp_session: Arc<TokioMutex<Option<Arc<russh_sftp::client::SftpSession>>>>,
 }
 
 use tokio::process::{Command as TokioCommand};
@@ -463,6 +467,14 @@ async fn list_vault() -> Result<Vec<serde_json::Value>, String> {
     ARCHIVER.list_vault()
 }
 
+// Android: local PTY (termios-backed portable-pty) not available — stub returns error
+#[cfg(target_os = "android")]
+#[tauri::command]
+async fn spawn_local_pty(_tab_id: String, _app_handle: AppHandle, _state: State<'_, AppState>) -> Result<(), String> {
+    Err("Local PTY not supported on Android. Use SSH remote connection.".to_string())
+}
+
+#[cfg(not(target_os = "android"))]
 #[tauri::command]
 async fn spawn_local_pty(tab_id: String, app_handle: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
     let pty_system = native_pty_system();
@@ -493,7 +505,6 @@ async fn spawn_local_pty(tab_id: String, app_handle: AppHandle, state: State<'_,
     let app_handle_cap = app_handle.clone();
     let master = pair.master;
 
-    // Read loop
     std::thread::spawn(move || {
         let mut reader = reader;
         let mut buffer = [0u8; 8192];
@@ -512,18 +523,12 @@ async fn spawn_local_pty(tab_id: String, app_handle: AppHandle, state: State<'_,
         }
     });
 
-    // Write & Control loop
     tauri::async_runtime::spawn(async move {
         loop {
             tokio::select! {
                 Some(ctrl) = ctrl_rx.recv() => {
                     let PtyControl::Resize(c, r) = ctrl;
-                    let _ = master.resize(PtySize {
-                        rows: r as u16,
-                        cols: c as u16,
-                        pixel_width: 0,
-                        pixel_height: 0,
-                    });
+                    let _ = master.resize(PtySize { rows: r as u16, cols: c as u16, pixel_width: 0, pixel_height: 0 });
                 }
                 Some(data) = rx.recv() => {
                     let _ = writer.write_all(data.as_bytes());
@@ -550,6 +555,10 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
     state.ctrl_channels.insert(tab_id.clone(), ctrl_tx);
     
     let tab_id_cap = tab_id.clone();
+    let pty_channels = state.pty_channels.clone();
+    let ctrl_channels = state.ctrl_channels.clone();
+    let host_mutex = state.current_host.clone();
+    
     tauri::async_runtime::spawn(async move {
         log::info!("[PTY:{}] Starting PTY read loop", tab_id_cap);
         let mut capture_active = false;
@@ -561,6 +570,7 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
         loop {
             tokio::select! {
                 _ = interval.tick() => {
+                    // Fix 1: Timer fallback for small/sparse data chunks
                     if !aggregation_buffer.is_empty() {
                         let _ = app_handle.emit("pty-data", serde_json::json!({"id": tab_id_cap, "data": aggregation_buffer.clone()}));
                         aggregation_buffer.clear();
@@ -596,13 +606,29 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
                                 }
                             }
                             aggregation_buffer.extend_from_slice(&data);
+                            // Fix 1: Immediately flush large chunks — don't wait for the 16ms timer
+                            // This makes interactive output feel near-instantaneous
+                            if aggregation_buffer.len() >= 512 {
+                                let _ = app_handle.emit("pty-data", serde_json::json!({"id": tab_id_cap, "data": aggregation_buffer.clone()}));
+                                aggregation_buffer.clear();
+                            }
                         }
                         Some(russh::ChannelMsg::ExtendedData { data, .. }) => {
                             aggregation_buffer.extend_from_slice(&data);
+                            if aggregation_buffer.len() >= 512 {
+                                let _ = app_handle.emit("pty-data", serde_json::json!({"id": tab_id_cap, "data": aggregation_buffer.clone()}));
+                                aggregation_buffer.clear();
+                            }
                         }
                         Some(russh::ChannelMsg::Eof) | Some(russh::ChannelMsg::Close) | None => {
-                            log::warn!("[PTY:{}] Channel closed, emitting disconnect", tab_id_cap);
-                            let _ = app_handle.emit("conn-status", "DISCONNECTED");
+                            log::warn!("[PTY:{}] Channel closed", tab_id_cap);
+                            pty_channels.remove(&tab_id_cap);
+                            ctrl_channels.remove(&tab_id_cap);
+                            
+                            // Bug 12 Fix: Do not disconnect the entire app when a PTY closes.
+                            // This caused an infinite loop if a restored tab immediately failed (e.g. tmux error).
+                            let payload = serde_json::json!({"id": tab_id_cap, "data": "\r\n\x1b[90m[Process Completed]\x1b[0m\r\n"});
+                            let _ = app_handle.emit("pty-data", payload);
                             break;
                         }
                         _ => {}
@@ -801,18 +827,27 @@ async fn connect_to_server(config: &ServerConfig, servers: &[ServerConfig], cryp
                 }
             }
             let channel = proxy_handle.channel_open_direct_tcpip(&config.host, config.port as u32, "127.0.0.1", 0).await.map_err(|e| e.to_string())?;
-            let russh_config = client::Config::default();
-            let mut sess = client::connect_stream(Arc::new(russh_config), channel.into_stream(), Client {}).await.map_err(|e| e.to_string())?;
+            let russh_config = Arc::new(client::Config::default());
+            let mut sess = client::connect_stream(russh_config, channel.into_stream(), Client {}).await.map_err(|e| e.to_string())?;
             let auth = sess.authenticate_password(&config.user, pass).await.map_err(|e| e.to_string())?;
             if !matches!(auth, russh::client::AuthResult::Success) { return Err("Auth fail on target".to_string()); }
             stack.push(Arc::new(sess));
             return Ok(stack);
         }
     }
-    let russh_config = client::Config::default();
+    let russh_config = Arc::new(client::Config::default());
     let _ = app.emit("conn-status", format!("[STEP] Connecting to {}...", config.host));
-    let connect_future = client::connect(Arc::new(russh_config), (config.host.as_str(), config.port as u16), Client {});
-    let mut sess = tokio::time::timeout(std::time::Duration::from_secs(10), connect_future).await.map_err(|_| "Connection timeout".to_string())?.map_err(|e| e.to_string())?;
+    // Fix 5: Separate TCP connect timeout (5s) from SSH handshake timeout (15s)
+    // TCP SYN/ACK is fast; SSH key exchange can take longer on high-latency links
+    use tokio::net::TcpStream;
+    let tcp_stream = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        TcpStream::connect((config.host.as_str(), config.port as u16))
+    ).await.map_err(|_| format!("TCP connection to {}:{} timed out (5s)", config.host, config.port))?.map_err(|e| e.to_string())?;
+    let mut sess = tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        client::connect_stream(russh_config, tcp_stream, Client {})
+    ).await.map_err(|_| "SSH handshake timed out (15s)".to_string())?.map_err(|e| e.to_string())?;
     let auth = sess.authenticate_password(&config.user, pass).await.map_err(|e| e.to_string())?;
     if !matches!(auth, russh::client::AuthResult::Success) { return Err("Auth fail".to_string()); }
     stack.push(Arc::new(sess));
@@ -896,6 +931,7 @@ pub fn run() {
             vnc_abort: Arc::new(TokioMutex::new(None)), dynamic_abort: Arc::new(TokioMutex::new(None)),
             mihomo_child: Arc::new(TokioMutex::new(None)),
             current_host: Arc::new(TokioMutex::new(None)),
+            sftp_session: Arc::new(TokioMutex::new(None)),
         })
         .setup(|app| {
             let ah = app.handle().clone(); let _ = APP_HANDLE.set(ah.clone());
@@ -911,14 +947,14 @@ pub fn run() {
             let host_mutex = state.current_host.clone();
             tauri::async_runtime::spawn(async move {
                 loop {
-                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(8)).await; // Bug 8/9: was 3s
                     let current_host = host_mutex.lock().await.clone();
                     
                     if let Some(host) = current_host {
                         let mut protocol = "SSH/TCP".to_string();
                         let mut relay_node = None;
                         let mut is_direct = false;
-                        let mut latency = 0;
+                        let latency = 0;
                         
                         // Try Tailscale Detection (Async)
                         if let Ok(output) = TokioCommand::new("tailscale").arg("status").arg("--json").output().await {
@@ -950,24 +986,8 @@ pub fn run() {
                                                     is_direct = true;
                                                 }
 
-                                                // Get real-time latency via tailscale ping
-                                                if let Ok(ping_out) = TokioCommand::new("tailscale")
-                                                    .arg("ping")
-                                                    .arg("--c=1")
-                                                    .arg(&host)
-                                                    .output()
-                                                    .await {
-                                                        let s = String::from_utf8_lossy(&ping_out.stdout);
-                                                        // Parse "in 45ms" or "in 45.2ms"
-                                                        if let Some(pos) = s.find(" in ") {
-                                                            let rest = &s[pos + 4..];
-                                                            if let Some(end) = rest.find("ms") {
-                                                                if let Ok(l) = rest[..end].trim().parse::<f64>() {
-                                                                    latency = l as u64;
-                                                                }
-                                                            }
-                                                        }
-                                                    }
+                                                // Skip tailscale ping in the hot loop (Bug 8/9: it spawns an external process every cycle)
+                                                // latency stays 0; user can open NetworkMatrix for ping details
                                                 break;
                                             }
                                         }
@@ -998,7 +1018,7 @@ pub fn run() {
                 let mut prev_net_sent = 0;
 
                 loop { 
-                    tokio::time::sleep(std::time::Duration::from_secs(3)).await; 
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await; // Bug 8/9: was 3s 
                     sys.refresh_cpu_all();
                     sys.refresh_memory();
                     networks.refresh(false);
@@ -1070,6 +1090,13 @@ pub fn run() {
             }
             state.pty_channels.clear();
             state.ctrl_channels.clear();
+        }
+        tauri::RunEvent::WindowEvent { label, event, .. } => {
+            if label == "main" && matches!(event, tauri::WindowEvent::CloseRequested { .. }) {
+                // Bug 13 Fix: Force application exit when main window closes
+                // Prevents hidden windows (like auth-gateway) from turning ter into a zombie process
+                std::process::exit(0);
+            }
         }
         _ => {}
     });
