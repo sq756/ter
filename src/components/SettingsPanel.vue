@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
-import { globalState } from '../store';
+import { globalState, storeActions } from '../store';
 
 const matrixConfig = computed(() => globalState.workspaceMatrix);
 const saveMatrix = () => {

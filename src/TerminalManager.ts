@@ -19,7 +19,7 @@ export interface TerminalInstance {
 class TerminalManager {
   public instances: Map<string, TerminalInstance> = new Map();
   private callbacks: Map<string, (id: string, data: string) => void> = new Map();
-  
+
   // v2.17.0: Global Data Hook for RPC/Interceptors
   private dataHook: ((id: string, text: string, bytes: Uint8Array) => boolean) | null = null;
   private static instance: TerminalManager;
@@ -27,7 +27,7 @@ class TerminalManager {
   constructor() {
     if (TerminalManager.instance) return TerminalManager.instance;
     TerminalManager.instance = this;
-    
+
     // Global for debugging
     if (typeof window !== 'undefined') {
       (window as any).terminalManager = this;
@@ -57,7 +57,7 @@ class TerminalManager {
       fontFamily: "'JetBrains Mono', 'Ubuntu Mono', 'Fira Code', monospace",
       theme: { background: '#000000', foreground: '#d4d4d8' },
       allowTransparency: false,
-      scrollback: 2000, 
+      scrollback: 800, // Bug 8/9: reduced from 2000 to lower memory footprint
       wheelScrollSensitivity: 1,
       // v2.17.0: FIXED DA Leak (^[[?1;2c)
       // Disabling device attributes response prevents the terminal from 
@@ -73,7 +73,7 @@ class TerminalManager {
 
     // v2.15.40: Re-enabling Canvas for standard rendering
     // WebGL remains disabled for multi-pane stability
-    
+
     // Atomic data binding
     term.onData((data) => {
       const cb = this.callbacks.get(id);
@@ -95,12 +95,12 @@ class TerminalManager {
     this.isGlobalListenerActive = true;
     console.log("[TerminalManager] Activating Global PTY Dispatcher");
     const decoder = new TextDecoder('utf-8');
-    
+
     await listen('pty-data', (event: any) => {
       const payload = event.payload as any;
       const id = payload.id;
       const rawData = payload.data;
-      
+
       const bytes = Array.isArray(rawData) ? new Uint8Array(rawData) : rawData;
       const text = typeof bytes === 'string' ? bytes : decoder.decode(bytes);
 
@@ -155,7 +155,7 @@ class TerminalManager {
         // First time initialization
         term.open(element);
       }
-      
+
       if (term.element) {
         term.element.onmousedown = () => {
           window.dispatchEvent(new CustomEvent('close-all-menus'));

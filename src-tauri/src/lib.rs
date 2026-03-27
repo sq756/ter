@@ -922,14 +922,14 @@ pub fn run() {
             let host_mutex = state.current_host.clone();
             tauri::async_runtime::spawn(async move {
                 loop {
-                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(8)).await; // Bug 8/9: was 3s
                     let current_host = host_mutex.lock().await.clone();
                     
                     if let Some(host) = current_host {
                         let mut protocol = "SSH/TCP".to_string();
                         let mut relay_node = None;
                         let mut is_direct = false;
-                        let mut latency = 0;
+                        let latency = 0;
                         
                         // Try Tailscale Detection (Async)
                         if let Ok(output) = TokioCommand::new("tailscale").arg("status").arg("--json").output().await {
@@ -961,24 +961,8 @@ pub fn run() {
                                                     is_direct = true;
                                                 }
 
-                                                // Get real-time latency via tailscale ping
-                                                if let Ok(ping_out) = TokioCommand::new("tailscale")
-                                                    .arg("ping")
-                                                    .arg("--c=1")
-                                                    .arg(&host)
-                                                    .output()
-                                                    .await {
-                                                        let s = String::from_utf8_lossy(&ping_out.stdout);
-                                                        // Parse "in 45ms" or "in 45.2ms"
-                                                        if let Some(pos) = s.find(" in ") {
-                                                            let rest = &s[pos + 4..];
-                                                            if let Some(end) = rest.find("ms") {
-                                                                if let Ok(l) = rest[..end].trim().parse::<f64>() {
-                                                                    latency = l as u64;
-                                                                }
-                                                            }
-                                                        }
-                                                    }
+                                                // Skip tailscale ping in the hot loop (Bug 8/9: it spawns an external process every cycle)
+                                                // latency stays 0; user can open NetworkMatrix for ping details
                                                 break;
                                             }
                                         }
@@ -1009,7 +993,7 @@ pub fn run() {
                 let mut prev_net_sent = 0;
 
                 loop { 
-                    tokio::time::sleep(std::time::Duration::from_secs(3)).await; 
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await; // Bug 8/9: was 3s 
                     sys.refresh_cpu_all();
                     sys.refresh_memory();
                     networks.refresh(false);
