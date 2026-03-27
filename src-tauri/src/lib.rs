@@ -625,11 +625,10 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
                             pty_channels.remove(&tab_id_cap);
                             ctrl_channels.remove(&tab_id_cap);
                             
-                            if pty_channels.is_empty() {
-                                log::warn!("[PTY] All channels closed, emitting disconnect");
-                                *host_mutex.lock().await = None;
-                                let _ = app_handle.emit("conn-status", "DISCONNECTED");
-                            }
+                            // Bug 12 Fix: Do not disconnect the entire app when a PTY closes.
+                            // This caused an infinite loop if a restored tab immediately failed (e.g. tmux error).
+                            let payload = serde_json::json!({"id": tab_id_cap, "data": "\r\n\x1b[90m[Process Completed]\x1b[0m\r\n"});
+                            let _ = app_handle.emit("pty-data", payload);
                             break;
                         }
                         _ => {}
