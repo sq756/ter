@@ -32,7 +32,7 @@ export function usePtyListener(
         try {
           const rpc = JSON.parse(match[1]);
           consumed = true;
-          
+
           if (rpc.action === 'screenshot') {
             captureAndUpload(true);
           } else if (rpc.action === 'navigate' && rpc.url) {
@@ -46,33 +46,35 @@ export function usePtyListener(
           }
         } catch (e) { console.warn("RPC Parse Error:", e); }
       }
-      
-      // If the data was ONLY an RPC, consume it to prevent showing empty lines/noise in terminal
-      if (consumed && text.replace(rpcRegex, '').trim() === '') {
-        return true; 
+
+      // Fix 4: Use a FRESH regex instance for replace() — the exec() loop above
+      // has exhausted lastIndex, so reusing rpcRegex would match nothing and leak
+      // raw RPC text into the terminal output.
+      if (consumed && text.replace(/\[TER_RPC\]\s*({.*?})/g, '').trim() === '') {
+        return true;
       }
     }
 
     // Status busy/connected logic
-    if (globalState.connectionStatus === 'connected') { 
-      globalState.connectionStatus = 'busy'; 
-      setTimeout(() => { 
-        if (globalState.connectionStatus === 'busy') globalState.connectionStatus = 'connected'; 
-      }, 200); 
+    if (globalState.connectionStatus === 'connected') {
+      globalState.connectionStatus = 'busy';
+      setTimeout(() => {
+        if (globalState.connectionStatus === 'busy') globalState.connectionStatus = 'connected';
+      }, 200);
     }
-    
+
     // AutoPilot Logic
     if (isAutoPilot.value) {
       const pt = text.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, ''); // Strip ANSI
       const actionMatch = pt.match(/\[TER_ACTION:\s*(click|type)\((\d+)(?:,\s*"(.*?)")?\)\]/);
-      
+
       if (actionMatch) {
         const action = actionMatch[1], eid = actionMatch[2], txt = actionMatch[3] || "";
         const code = action === 'click' ? `window.TerAgent.click(${eid})` : `window.TerAgent.type(${eid}, ${JSON.stringify(txt)})`;
         if (activeTabId.value) invoke('eval_cyber_webview', { label: activeTabId.value, code });
         return true; // Consume action trigger
       } else if (!pt.includes('tab-') && (Date.now() - lastAutoPilotTime.value) > 500) {
-        const lm = pt.match(/http:\/\/localhost:(\d+)/); 
+        const lm = pt.match(/http:\/\/localhost:(\d+)/);
         if (lm && lm[1]) {
           const port = parseInt(lm[1]);
           if (globalState.currentAgentPort !== port) {
@@ -80,10 +82,10 @@ export function usePtyListener(
             refreshWebview(`http://localhost:${port}`);
           }
         }
-        
-        if (activeTriggers.value.some(t => pt.includes(t))) { 
-          lastAutoPilotTime.value = Date.now(); 
-          setTimeout(() => { invoke('write_pty', { tabId: id, data: "\r" }); }, 300); 
+
+        if (activeTriggers.value.some(t => pt.includes(t))) {
+          lastAutoPilotTime.value = Date.now();
+          setTimeout(() => { invoke('write_pty', { tabId: id, data: "\r" }); }, 300);
         }
       }
     }
@@ -101,5 +103,5 @@ export function usePtyListener(
     // but in current architecture, App.vue manages usePtyListener lifecycle.
   });
 
-  return { setupPtyListener: () => {} }; // Dummy for compatibility
+  return { setupPtyListener: () => { } }; // Dummy for compatibility
 }

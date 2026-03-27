@@ -132,6 +132,8 @@ struct AppState {
     dynamic_abort: Arc<TokioMutex<Option<tokio::task::AbortHandle>>>,
     mihomo_child: Arc<TokioMutex<Option<tokio::process::Child>>>,
     current_host: Arc<TokioMutex<Option<String>>>,
+    // Fix 3: Cached SFTP session — open once, reuse for all SFTP operations
+    sftp_session: Arc<TokioMutex<Option<Arc<russh_sftp::client::SftpSession>>>>,
 }
 
 use tokio::process::{Command as TokioCommand};
@@ -565,6 +567,7 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
         loop {
             tokio::select! {
                 _ = interval.tick() => {
+                    // Fix 1: Timer fallback for small/sparse data chunks
                     if !aggregation_buffer.is_empty() {
                         let _ = app_handle.emit("pty-data", serde_json::json!({"id": tab_id_cap, "data": aggregation_buffer.clone()}));
                         aggregation_buffer.clear();
@@ -600,9 +603,19 @@ async fn spawn_new_pty(tab_id: String, app_handle: AppHandle, state: State<'_, A
                                 }
                             }
                             aggregation_buffer.extend_from_slice(&data);
+                            // Fix 1: Immediately flush large chunks — don't wait for the 16ms timer
+                            // This makes interactive output feel near-instantaneous
+                            if aggregation_buffer.len() >= 512 {
+                                let _ = app_handle.emit("pty-data", serde_json::json!({"id": tab_id_cap, "data": aggregation_buffer.clone()}));
+                                aggregation_buffer.clear();
+                            }
                         }
                         Some(russh::ChannelMsg::ExtendedData { data, .. }) => {
                             aggregation_buffer.extend_from_slice(&data);
+                            if aggregation_buffer.len() >= 512 {
+                                let _ = app_handle.emit("pty-data", serde_json::json!({"id": tab_id_cap, "data": aggregation_buffer.clone()}));
+                                aggregation_buffer.clear();
+                            }
                         }
                         Some(russh::ChannelMsg::Eof) | Some(russh::ChannelMsg::Close) | None => {
                             log::warn!("[PTY:{}] Channel closed", tab_id_cap);
@@ -812,18 +825,37 @@ async fn connect_to_server(config: &ServerConfig, servers: &[ServerConfig], cryp
                 }
             }
             let channel = proxy_handle.channel_open_direct_tcpip(&config.host, config.port as u32, "127.0.0.1", 0).await.map_err(|e| e.to_string())?;
-            let russh_config = client::Config::default();
-            let mut sess = client::connect_stream(Arc::new(russh_config), channel.into_stream(), Client {}).await.map_err(|e| e.to_string())?;
+            // Fix 2: SSH keepalive — prevent silent disconnects on idle sessions
+            let russh_config = Arc::new(client::Config {
+                keepalive_interval: Some(std::time::Duration::from_secs(30)),
+                keepalive_max: 3,
+                ..(client::Config::default())
+            });
+            let mut sess = client::connect_stream(russh_config, channel.into_stream(), Client {}).await.map_err(|e| e.to_string())?;
             let auth = sess.authenticate_password(&config.user, pass).await.map_err(|e| e.to_string())?;
             if !matches!(auth, russh::client::AuthResult::Success) { return Err("Auth fail on target".to_string()); }
             stack.push(Arc::new(sess));
             return Ok(stack);
         }
     }
-    let russh_config = client::Config::default();
+    // Fix 2: SSH keepalive — prevent silent disconnects on idle sessions
+    let russh_config = Arc::new(client::Config {
+        keepalive_interval: Some(std::time::Duration::from_secs(30)),
+        keepalive_max: 3,
+        ..(client::Config::default())
+    });
     let _ = app.emit("conn-status", format!("[STEP] Connecting to {}...", config.host));
-    let connect_future = client::connect(Arc::new(russh_config), (config.host.as_str(), config.port as u16), Client {});
-    let mut sess = tokio::time::timeout(std::time::Duration::from_secs(10), connect_future).await.map_err(|_| "Connection timeout".to_string())?.map_err(|e| e.to_string())?;
+    // Fix 5: Separate TCP connect timeout (5s) from SSH handshake timeout (15s)
+    // TCP SYN/ACK is fast; SSH key exchange can take longer on high-latency links
+    use tokio::net::TcpStream;
+    let tcp_stream = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        TcpStream::connect((config.host.as_str(), config.port as u16))
+    ).await.map_err(|_| format!("TCP connection to {}:{} timed out (5s)", config.host, config.port))?.map_err(|e| e.to_string())?;
+    let mut sess = tokio::time::timeout(
+        std::time::Duration::from_secs(15),
+        client::connect_stream(russh_config, tcp_stream, Client {})
+    ).await.map_err(|_| "SSH handshake timed out (15s)".to_string())?.map_err(|e| e.to_string())?;
     let auth = sess.authenticate_password(&config.user, pass).await.map_err(|e| e.to_string())?;
     if !matches!(auth, russh::client::AuthResult::Success) { return Err("Auth fail".to_string()); }
     stack.push(Arc::new(sess));
@@ -907,6 +939,7 @@ pub fn run() {
             vnc_abort: Arc::new(TokioMutex::new(None)), dynamic_abort: Arc::new(TokioMutex::new(None)),
             mihomo_child: Arc::new(TokioMutex::new(None)),
             current_host: Arc::new(TokioMutex::new(None)),
+            sftp_session: Arc::new(TokioMutex::new(None)),
         })
         .setup(|app| {
             let ah = app.handle().clone(); let _ = APP_HANDLE.set(ah.clone());

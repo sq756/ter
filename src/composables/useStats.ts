@@ -8,26 +8,26 @@ export function useStats(currentAgentPort: Ref<number | null>, agentToken: Ref<s
   const cpuChartRef = ref<HTMLElement | null>(null);
   const memChartRef = ref<HTMLElement | null>(null);
   const netChartRef = ref<HTMLElement | null>(null);
-  
+
   let cpuChart: echarts.ECharts | null = null;
   let memChart: echarts.ECharts | null = null;
   let netChart: echarts.ECharts | null = null;
-  
+
   const cpuHistory = ref<number[]>([]);
   const memHistory = ref<number[]>([]);
   const netHistory = ref<number[]>([]);
-  
+
   const healthMode = ref<HealthMode>('resource');
   const lastNetStats = ref({ sent: 0, recv: 0, time: Date.now() });
   const currentNetSpeed = ref({ up: '0 B/s', down: '0 B/s' });
-  const extraStats = ref<any>({ 
-    gpu: 'N/A', 
-    uptime: '0s', 
+  const extraStats = ref<any>({
+    gpu: 'N/A',
+    uptime: '0s',
     ip: '127.0.0.1',
     disk: '0/0 GB'
   });
 
-  const currentCpuUsage = computed(() => 
+  const currentCpuUsage = computed(() =>
     cpuHistory.value.length > 0 ? cpuHistory.value[cpuHistory.value.length - 1] : 0
   );
 
@@ -37,25 +37,26 @@ export function useStats(currentAgentPort: Ref<number | null>, agentToken: Ref<s
     return `${(bytes / 1024 / 1024).toFixed(1)} MB/s`;
   };
 
-  const getChartOpt = (d: any[], c: string, max = 100) => ({ 
-    grid: { top: 5, bottom: 0, left: 0, right: 0 }, 
-    xAxis: { type: 'category', show: false }, 
-    yAxis: { type: 'value', min: 0, max, show: false }, 
-    series: [{ 
-      data: [...d], 
-      type: 'line', 
-      smooth: true, 
-      areaStyle: { color: c, opacity: 0.2 }, 
-      itemStyle: { color: c }, 
+  // getChartOpt is used by initCharts for initial render; incremental updates skip it (Fix 6)
+  const getChartOpt = (d: any[], c: string, max = 100) => ({
+    grid: { top: 5, bottom: 0, left: 0, right: 0 },
+    xAxis: { type: 'category', show: false },
+    yAxis: { type: 'value', min: 0, max, show: false },
+    series: [{
+      data: [...d],
+      type: 'line',
+      smooth: true,
+      areaStyle: { color: c, opacity: 0.2 },
+      itemStyle: { color: c },
       showSymbol: false,
       lineStyle: { width: 1.5 }
-    }], 
-    animation: false 
+    }],
+    animation: false
   });
 
-  const initCharts = () => { 
-    if (cpuChartRef.value) cpuChart = echarts.init(cpuChartRef.value); 
-    if (memChartRef.value) memChart = echarts.init(memChartRef.value); 
+  const initCharts = () => {
+    if (cpuChartRef.value) cpuChart = echarts.init(cpuChartRef.value);
+    if (memChartRef.value) memChart = echarts.init(memChartRef.value);
     if (netChartRef.value) netChart = echarts.init(netChartRef.value);
   };
 
@@ -67,9 +68,9 @@ export function useStats(currentAgentPort: Ref<number | null>, agentToken: Ref<s
 
   const updateTelemetry = (d: any) => {
     // Update Histories
-    cpuHistory.value.push(d.cpu_usage); 
+    cpuHistory.value.push(d.cpu_usage);
     memHistory.value.push((d.mem_used / d.mem_total) * 100);
-    
+
     // Calc Network Speed
     const now = Date.now();
     const dt = (now - lastNetStats.value.time) / 1000;
@@ -81,18 +82,20 @@ export function useStats(currentAgentPort: Ref<number | null>, agentToken: Ref<s
       lastNetStats.value = { sent: d.net_sent, recv: d.net_recv, time: now };
     }
 
-    if (cpuHistory.value.length > 30) { 
-      cpuHistory.value.shift(); 
-      memHistory.value.shift(); 
+    if (cpuHistory.value.length > 30) {
+      cpuHistory.value.shift();
+      memHistory.value.shift();
       netHistory.value.shift();
     }
-    
-    // Update Charts based on mode
+
+    // Fix 6: Incremental chart update — only push new data point instead of
+    // rebuilding the entire option object every cycle (much cheaper on CPU)
     if (healthMode.value === 'resource') {
-      cpuChart?.setOption(getChartOpt(cpuHistory.value, '#22c55e')); 
-      memChart?.setOption(getChartOpt(memHistory.value, '#3b82f6'));
+      cpuChart?.setOption({ series: [{ data: cpuHistory.value }] });
+      memChart?.setOption({ series: [{ data: memHistory.value }] });
     } else if (healthMode.value === 'network') {
-      netChart?.setOption(getChartOpt(netHistory.value, '#a855f7', Math.max(...netHistory.value, 1024)));
+      const maxNet = Math.max(...netHistory.value, 1024);
+      netChart?.setOption({ series: [{ data: netHistory.value }], yAxis: { max: maxNet } });
     }
 
     // Update Extra Info
@@ -107,8 +110,8 @@ export function useStats(currentAgentPort: Ref<number | null>, agentToken: Ref<s
   const fetchStats = async () => {
     if (!currentAgentPort.value) return;
     try {
-      const r = await fetch(`http://localhost:${currentAgentPort.value}/stats`, { 
-        headers: { 'X-Ter-Token': agentToken.value } 
+      const r = await fetch(`http://localhost:${currentAgentPort.value}/stats`, {
+        headers: { 'X-Ter-Token': agentToken.value }
       });
       if (!r.ok) return;
       const d = await r.json();
@@ -120,6 +123,9 @@ export function useStats(currentAgentPort: Ref<number | null>, agentToken: Ref<s
 
   let unlisten: any = null;
   onMounted(async () => {
+    // Fix 8: Listen exclusively to Tauri event channel for system stats.
+    // The HTTP fetchStats() path was a duplicate that caused every update to
+    // fire twice (via HTTP poll AND Tauri event), wasting CPU and bandwidth.
     unlisten = await listen('system-stats', (event: any) => {
       updateTelemetry(event.payload);
     });

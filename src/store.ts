@@ -1,4 +1,4 @@
-import { reactive, computed, shallowRef, ref, nextTick } from 'vue';
+import { reactive, computed, shallowRef, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { terminalManager } from './TerminalManager';
 import { webviewManager } from './WebviewManager';
