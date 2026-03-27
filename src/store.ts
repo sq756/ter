@@ -189,15 +189,20 @@ export const storeActions = {
       });
       await terminalManager.getOrCreate(id);
       if (!skipPty && globalState.isConnected) {
-        try {
-          if (globalState.host === 'LOCAL') {
+        if (globalState.host === 'LOCAL') {
+          try {
             await invoke('spawn_local_pty', { tabId: id });
-          } else {
-            await invoke('spawn_new_pty', { tabId: id });
+            setTimeout(() => invoke('write_pty', { tabId: id, data: "\n\r" }), 500);
+          } catch (e) {
+            storeActions.pushLog(`[ERROR] PTY Spawn fail for ${id}: ${e}`);
           }
-          setTimeout(() => invoke('write_pty', { tabId: id, data: "\n\r" }), 500);
-        } catch (e) {
-          backendLogs.value.push(`[ERROR] PTY Spawn fail for ${id}: ${e}`);
+        } else {
+          try {
+            await invoke('spawn_new_pty', { tabId: id, initialRows: 30, initialCols: 100 });
+            setTimeout(() => invoke('write_pty', { tabId: id, data: "\n\r" }), 500);
+          } catch (e) {
+            storeActions.pushLog(`[ERROR] PTY Spawn fail for ${id}: ${e}`);
+          }
         }
       }
     }

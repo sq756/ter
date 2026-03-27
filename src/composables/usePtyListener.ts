@@ -1,7 +1,7 @@
 import { onMounted, onUnmounted, type Ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { terminalManager } from '../TerminalManager';
-import { globalState, backendLogs, activeTabId } from '../store';
+import { globalState, backendLogs, activeTabId, storeActions } from '../store';
 
 /**
  * usePtyListener Composable
@@ -40,9 +40,9 @@ export function usePtyListener(
           } else if (rpc.action === 'extract_dom') {
             handleExtractDOM();
           } else if (rpc.action === 'notify') {
-            backendLogs.value.push(`[🔔 AI NOTIFY] ${rpc.msg || rpc.message}`);
+            storeActions.pushLog(`[🔔 AI NOTIFY] ${rpc.msg || rpc.message}`);
           } else if (rpc.action === 'chart') {
-            backendLogs.value.push(`[📊 AI CHART DATA] ${JSON.stringify(rpc.data)}`);
+            storeActions.pushLog(`[📊 AI CHART DATA] ${JSON.stringify(rpc.data)}`);
           }
         } catch (e) { console.warn("RPC Parse Error:", e); }
       }

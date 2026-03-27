@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { globalState } from '../store';
 import html2canvas from 'html2canvas';
 
-export function useCyber(activeTabId: any, backendLogs: any, activeWebviewId: any, updateWebviewUrl: any) {
+export function useCyber(activeTabId: any, backendLogs: any, activeWebviewId: any, updateWebviewUrl: any, storeActions: any) {
   const previewUrl = ref('http://localhost:5173');
   const isWebviewLoading = ref(false);
   const disableTunnel = ref(localStorage.getItem('ter_disable_tunnel') === 'true');
@@ -31,81 +31,81 @@ export function useCyber(activeTabId: any, backendLogs: any, activeWebviewId: an
     }
 
     const m = u.match(/(?:localhost|127\.0\.0\.1|[\w\.-]+):(\d+)/);
- 
+
     if (m && m[1] && !disableTunnel.value) {
       const port = parseInt(m[1]);
       if (port === 5173 || !activeTabId.value) {
-         return;
+        return;
       }
 
       // v2.12.3: Check if an auto-tunnel is already active
       try {
         const ports = await invoke<any>('get_active_ports');
         if (ports.dynamic) {
-          backendLogs.value.push(`[SYSTEM] Webview routing through active Dynamic Tunnel (Port ${ports.dynamic})`);
+          storeActions.pushLog(`[SYSTEM] Webview routing through active Dynamic Tunnel (Port ${ports.dynamic})`);
         }
-      } catch (e) {}
+      } catch (e) { }
 
-      isWebviewLoading.value = true; 
-      backendLogs.value.push(`[SYSTEM] Attempting SSH tunnel for port ${port}...`);
-      try { 
-        const p = await invoke<number>('open_dynamic_tunnel', { remotePort: port }); 
+      isWebviewLoading.value = true;
+      storeActions.pushLog(`[SYSTEM] Attempting SSH tunnel for port ${port}...`);
+      try {
+        const p = await invoke<number>('open_dynamic_tunnel', { remotePort: port });
         if (p > 0) {
-          previewUrl.value = `http://localhost:${p}`; 
-          backendLogs.value.push(`[SYSTEM] Tunnel active: localhost:${p} -> remote:${port}`);
+          previewUrl.value = `http://localhost:${p}`;
+          storeActions.pushLog(`[SYSTEM] Tunnel active: localhost:${p} -> remote:${port}`);
         } else {
-          backendLogs.value.push(`[ERROR] Tunnel returned invalid port 0`);
+          storeActions.pushLog(`[ERROR] Tunnel returned invalid port 0`);
         }
       } catch (e) {
-        backendLogs.value.push(`[ERROR] Tunnel failed: ${e}`);
-      } finally { 
-        isWebviewLoading.value = false; 
-      } 
+        storeActions.pushLog(`[ERROR] Tunnel failed: ${e}`);
+      } finally {
+        isWebviewLoading.value = false;
+      }
     }
   };
 
-  const handleExtractDOM = async () => { 
-    backendLogs.value.push(`[INFO] Extracting DOM...`); 
+  const handleExtractDOM = async () => {
+    storeActions.pushLog(`[INFO] Extracting DOM...`);
     try {
       if (activeWebviewId.value) {
-        await invoke('eval_cyber_webview', { 
-          label: activeWebviewId.value, 
-          code: `window.__TAURI__.emit('dom-extracted-${activeWebviewId.value}', window.TerAgent.extractDOM())` 
+        await invoke('eval_cyber_webview', {
+          label: activeWebviewId.value,
+          code: `window.__TAURI__.emit('dom-extracted-${activeWebviewId.value}', window.TerAgent.extractDOM())`
         });
       }
     } catch (e) {
-      backendLogs.value.push(`[ERROR] DOM Extract Fail: ${e}`);
+      storeActions.pushLog(`[ERROR] DOM Extract Fail: ${e}`);
     }
   };
 
   const handleScrapeData = async (selector = "h3") => {
-    backendLogs.value.push(`[INFO] Scraping content with selector: ${selector}...`);
+    storeActions.pushLog(`[INFO] Scraping content with selector: ${selector}...`);
     try {
       if (activeWebviewId.value) {
-        await invoke('eval_cyber_webview', { 
-          label: activeWebviewId.value, 
-          code: `window.__TAURI__.emit('dom-extracted-${activeWebviewId.value}', window.TerAgent.scrapeData("${selector}"))` 
+        await invoke('eval_cyber_webview', {
+          label: activeWebviewId.value,
+          code: `window.__TAURI__.emit('dom-extracted-${activeWebviewId.value}', window.TerAgent.scrapeData("${selector}"))`
         });
       }
     } catch (e) {
-      backendLogs.value.push(`[ERROR] Scrape Fail: ${e}`);
+      storeActions.pushLog(`[ERROR] Scrape Fail: ${e}`);
     }
   };
 
-  const onDomExtracted = async (md: string) => { 
-    if (activeTabId.value) { 
+  const onDomExtracted = async (md: string) => {
+    if (activeTabId.value) {
       try {
-        await invoke('write_pty', { tabId: activeTabId.value, data: `\x1b[200~${md}\x1b[201~\r` }); 
-        backendLogs.value.push(`[INFO] Data injected to terminal.`); 
+        await invoke('write_pty', { tabId: activeTabId.value, data: `\x1b[200~${md}\x1b[201~\r` });
+        storeActions.pushLog(`[INFO] Data injected to terminal.`);
       } catch (e) {
-        backendLogs.value.push(`[ERROR] Injection Fail: ${e}`);
+        storeActions.pushLog(`[ERROR] Injection Fail: ${e}`);
       }
-    } 
+    }
   };
 
   const captureAndUpload = async (auto = false) => {
-    if (!auto) backendLogs.value.push(`[SYSTEM] Initializing UI Audit Protocol...`);
-    
+    if (!auto) storeActions.pushLog(`[SYSTEM] Initializing UI Audit Protocol...`);
+
     try {
       const appElement = document.querySelector('.app-shell') as HTMLElement;
       if (!appElement) return;
@@ -118,19 +118,19 @@ export function useCyber(activeTabId: any, backendLogs: any, activeWebviewId: an
       });
 
       const timestamp = new Date().toLocaleTimeString();
-      backendLogs.value.push(`[AI_OBSERVATION] UI snapshot captured at ${timestamp}. Analyzing layout...`);
-      
+      storeActions.pushLog(`[AI_OBSERVATION] UI snapshot captured at ${timestamp}. Analyzing layout...`);
+
       setTimeout(() => {
-        backendLogs.value.push(`[AI_REASONING] Detected active terminal session and sidebar modules. Resource usage within safe bounds.`);
+        storeActions.pushLog(`[AI_REASONING] Detected active terminal session and sidebar modules. Resource usage within safe bounds.`);
       }, 1000);
 
       setTimeout(() => {
-        backendLogs.value.push(`[AI_SUGGESTION] Optimization: Consider collapsing sidebar to increase terminal workspace for complex tasks.`);
+        storeActions.pushLog(`[AI_SUGGESTION] Optimization: Consider collapsing sidebar to increase terminal workspace for complex tasks.`);
       }, 2500);
 
       console.log("[Audit] UI Snapshot successful");
     } catch (e) {
-      backendLogs.value.push(`[ERROR] Audit Fail: ${e}`);
+      storeActions.pushLog(`[ERROR] Audit Fail: ${e}`);
     }
   };
 

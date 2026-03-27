@@ -261,11 +261,11 @@ const copyLatestAI = async () => {
     storeActions.pushLog(`[CLIP] Captured data from ${mode.toUpperCase()}`);
   } catch (e) {
     console.error("CLIP failed:", e);
-    backendLogs.value.push(`[ERROR] CLIP failed: ${e}`);
+    storeActions.pushLog(`[ERROR] CLIP failed: ${e}`);
   }
 };
 const updateStatus = (msg: string) => {
-  backendLogs.value.push(`[STATUS] ${msg}`);
+  storeActions.pushLog(`[STATUS] ${msg}`);
 };
 
 const {
@@ -362,7 +362,7 @@ const handleQuickEdit = async () => {
       const content = await invoke<string>('read_remote_file', { remotePath: path });
       await createNewTab(selectedFile.value.name, 'editor', { path, content });
     } catch (e) {
-      backendLogs.value.push(`[ERROR] Failed to open editor: ${e}`);
+      storeActions.pushLog(`[ERROR] Failed to open editor: ${e}`);
     }
   }
   showExplorerMenu.value = false;
